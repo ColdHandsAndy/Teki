@@ -77,7 +77,7 @@ void DescriptorManager::createNewDescriptorBuffer()
 
     bufferCI.size = DESCRIPTOR_BUFFER_DEFAULT_SIZE;
 
-    m_descriptorBuffers.push_back(DescriptorBuffer{ VmaVirtualBlock{}, BufferMappable{ bufferCI, Buffer::NULL_FLAG, false, true} });
+    m_descriptorBuffers.push_back(DescriptorBuffer{ VmaVirtualBlock{}, BufferBaseHostAccessible{ m_device, bufferCI, BufferBase::NULL_FLAG, false, true} });
     DescriptorBuffer& newBuffer{ m_descriptorBuffers.back() };
     VkBufferDeviceAddressInfo addrInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = newBuffer.descriptorBuffer.getBufferHandle() };
     newBuffer.deviceAddress = vkGetBufferDeviceAddress(m_device, &addrInfo);

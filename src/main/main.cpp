@@ -60,7 +60,7 @@ int main()
 	std::shared_ptr<VulkanObjectHandler> vulkanObjectHandler{ std::make_shared<VulkanObjectHandler>(info) };
 
 	MemoryManager memManager{ *vulkanObjectHandler };
-	Buffer::assignGlobalMemoryManager(memManager);
+	BufferBaseHostInaccessible::assignGlobalMemoryManager(memManager);
 
 	FrameCommandPoolSet poolSet{ *vulkanObjectHandler };
 	FrameCommandBufferSet bufferSet{ poolSet };
@@ -88,7 +88,7 @@ int main()
 	uniformBufferCI.pQueueFamilyIndices = &gfIndex;
 	uniformBufferCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	uniformBufferCI.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-	BufferMappable uniformBuffer{ uniformBufferCI };
+	BufferBaseHostAccessible uniformBuffer{ device, uniformBufferCI };
 	glm::mat4* mvpMatrices{ reinterpret_cast<glm::mat4*>(uniformBuffer.getData()) };
 	mvpMatrices[0] = glm::mat4{1.0};
 	mvpMatrices[1] = glm::lookAt(glm::vec3{ -1.0, 3.0, -5.0 }, glm::vec3{ 0.0, 0.0, 0.0 }, glm::vec3{ 0.0, 1.0, 0.0 });
@@ -97,7 +97,7 @@ int main()
 	ResourceSetSharedData::initializeResourceManagement(*vulkanObjectHandler, descriptorManager);
 	VkDescriptorSetLayoutBinding binding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 
-	VkDescriptorAddressInfoEXT addressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = uniformBuffer.getBufferDeviceAddress(device), .range = uniformBuffer.getBufferByteSize() };
+	VkDescriptorAddressInfoEXT addressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = uniformBuffer.getBufferDeviceAddress(), .range = uniformBuffer.getBufferByteSize() };
 	VkDescriptorDataEXT descData[1]{ {.pUniformBuffer = &addressinfo} };
 	std::vector<VkDescriptorSetLayoutBinding> bindings{ binding };
 	ResourceSet resourceSet{ device, 0, VkDescriptorSetLayoutCreateFlags{}, bindings, 1 , std::span<VkDescriptorDataEXT>{descData} };
@@ -138,8 +138,8 @@ int main()
 	vbCI.queueFamilyIndexCount = 1;
 	vbCI.pQueueFamilyIndices = &graphicFamilyIndex;
 	vbCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	vbCI.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-	Buffer vertexData{ vbCI, Buffer::NULL_FLAG };
+	vbCI.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+	BufferBaseHostInaccessible vertexData{ device, vbCI, BufferBase::NULL_FLAG };
 
 	VkBufferCreateInfo stagingBufCI{};
 	stagingBufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -147,8 +147,8 @@ int main()
 	stagingBufCI.queueFamilyIndexCount = 1;
 	stagingBufCI.pQueueFamilyIndices = &graphicFamilyIndex;
 	stagingBufCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	stagingBufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-	BufferMappable stagingBuf{ stagingBufCI, Buffer::NULL_FLAG };
+	stagingBufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+	BufferBaseHostAccessible stagingBuf{ device, stagingBufCI, BufferBase::NULL_FLAG };
 	void* ptr{ stagingBuf.getData() };
 
 	std::memcpy(ptr, vertexPos, sizeof(vertexPos));
@@ -156,7 +156,7 @@ int main()
 
 	VkCommandBuffer CB{ bufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
 	VkBufferCopy region{ .srcOffset = 0, .dstOffset = 0, .size = stagingBufCI.size };
-	vertexData.cmdCopyFrom(CB, stagingBuf.getBufferHandle(), 1, &region);
+	BufferOperations::cmdBufferCopy(CB, stagingBuf.getBufferHandle(), vertexData.getBufferHandle(), 1, &region);
 	bufferSet.endRecording(CB);
 	VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB };
 	ASSERT_ALWAYS(vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");

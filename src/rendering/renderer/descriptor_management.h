@@ -26,7 +26,7 @@ private:
 	struct DescriptorBuffer
 	{
 		VmaVirtualBlock memoryProxy{};
-		BufferMappable descriptorBuffer;
+        BufferBaseHostAccessible descriptorBuffer;
 		VkDeviceAddress deviceAddress{};
 	};
 	std::vector<DescriptorBuffer> m_descriptorBuffers{};
@@ -76,7 +76,7 @@ protected:
     inline static DescriptorManager* m_assignedDescriptorManager{ nullptr };
     inline static const VkPhysicalDeviceDescriptorBufferPropertiesEXT* m_descriptorBufferProperties{ nullptr };
 
-    ResourceSetSharedData();
+    ResourceSetSharedData() = default;
 public:
     static void initializeResourceManagement(VulkanObjectHandler& vulkanObjectHandler, DescriptorManager& descriptorManager)
     {

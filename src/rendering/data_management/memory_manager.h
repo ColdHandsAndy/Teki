@@ -11,8 +11,8 @@
 
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 
-class Buffer;
-class BufferMappable;
+class BufferBaseHostInaccessible;
+class BufferBaseHostAccessible;
 
 class [[nodiscard]] MemoryManager
 {
@@ -35,8 +35,8 @@ public:
 	VmaAllocator getAllocator();
 	std::list<VmaAllocation>::iterator addAllocation();
 
-	friend class Buffer;
-	friend class BufferMappable;
+	friend class BufferBaseHostInaccessible;
+	friend class BufferBaseHostAccessible;
 };
 
 #endif
