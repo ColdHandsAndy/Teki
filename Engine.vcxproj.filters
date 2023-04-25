@@ -18,7 +18,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\rendering\data_management\image_manager.cpp">
+    <ClCompile Include="src\rendering\data_management\image_list.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\window\window.cpp">
@@ -65,7 +65,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\rendering\data_management\image_manager.h">
+    <ClInclude Include="src\rendering\data_management\image_list.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\world_state_class\world_state.h">

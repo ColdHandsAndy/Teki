@@ -25,7 +25,7 @@ protected:
 	VkDeviceSize m_bufferAlignment{};
 
 	std::list<VmaAllocation>::const_iterator m_bufferAllocIter{};
-	inline static MemoryManager* m_memoryManager;
+	inline static MemoryManager* m_memoryManager{ nullptr };
 
 	bool m_invalid{ false };
 

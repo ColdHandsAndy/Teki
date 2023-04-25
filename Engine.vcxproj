@@ -169,7 +169,7 @@
     <ClCompile Include="src\rendering\data_abstraction\mesh.cpp" />
     <ClCompile Include="src\camera\camera.cpp" />
     <ClCompile Include="src\rendering\data_management\buffer_class.cpp" />
-    <ClCompile Include="src\rendering\data_management\image_manager.cpp" />
+    <ClCompile Include="src\rendering\data_management\image_list.cpp" />
     <ClCompile Include="src\main\main.cpp" />
     <ClCompile Include="src\MDO_handling\MDO_format.cpp" />
     <ClCompile Include="src\rendering\data_management\memory_manager.cpp" />
@@ -187,7 +187,7 @@
     <ClInclude Include="src\camera\camera.h" />
     <ClInclude Include="src\rendering\data_abstraction\vertex_layouts.h" />
     <ClInclude Include="src\rendering\data_management\buffer_class.h" />
-    <ClInclude Include="src\rendering\data_management\image_manager.h" />
+    <ClInclude Include="src\rendering\data_management\image_list.h" />
     <ClInclude Include="src\MDO_handling\MDO_format.h" />
     <ClInclude Include="src\rendering\data_management\memory_manager.h" />
     <ClInclude Include="src\rendering\renderer\command_management.h" />

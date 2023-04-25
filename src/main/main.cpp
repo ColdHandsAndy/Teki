@@ -30,8 +30,10 @@
 
 #include "src/tools/asserter.h"
 
-#define WINDOW_HEIGHT_DEFAULT 720
 #define WINDOW_WIDTH_DEFAULT  1280
+#define WINDOW_HEIGHT_DEFAULT 720
+
+#define STAGING_BUFFER_DEFAULT_SIZE 8388608
 
 namespace fs = std::filesystem;
 
@@ -43,13 +45,6 @@ struct PipelineStuff
 };
 PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout);
 
-PFN_vkGetDescriptorSetLayoutSizeEXT lvkGetDescriptorSetLayoutSizeEXT;
-PFN_vkGetDescriptorSetLayoutBindingOffsetEXT lvkGetDescriptorSetLayoutBindingOffsetEXT;
-PFN_vkCmdBindDescriptorBuffersEXT lvkCmdBindDescriptorBuffersEXT;
-PFN_vkCmdSetDescriptorBufferOffsetsEXT lvkCmdSetDescriptorBufferOffsetsEXT;
-PFN_vkGetDescriptorEXT lvkGetDescriptorEXT;
-PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT lvkCmdBindDescriptorBufferEmbeddedSamplersEXT;
-
 int main()
 {
 	ASSERT_ALWAYS(glfwInit(), "GLFW", "GLFW was not initialized.")
@@ -60,7 +55,7 @@ int main()
 	std::shared_ptr<VulkanObjectHandler> vulkanObjectHandler{ std::make_shared<VulkanObjectHandler>(info) };
 
 	MemoryManager memManager{ *vulkanObjectHandler };
-	BufferBaseHostInaccessible::assignGlobalMemoryManager(memManager);
+	BufferBase::assignGlobalMemoryManager(memManager);
 
 	FrameCommandPoolSet poolSet{ *vulkanObjectHandler };
 	FrameCommandBufferSet bufferSet{ poolSet };
@@ -71,15 +66,6 @@ int main()
 	// START: Descriptor buffer test
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
-	lvkGetDescriptorSetLayoutSizeEXT = reinterpret_cast<PFN_vkGetDescriptorSetLayoutSizeEXT>(vkGetDeviceProcAddr(device, "vkGetDescriptorSetLayoutSizeEXT"));
-	lvkGetDescriptorSetLayoutBindingOffsetEXT = reinterpret_cast<PFN_vkGetDescriptorSetLayoutBindingOffsetEXT>(vkGetDeviceProcAddr(device, "vkGetDescriptorSetLayoutBindingOffsetEXT"));
-	lvkCmdBindDescriptorBuffersEXT = reinterpret_cast<PFN_vkCmdBindDescriptorBuffersEXT>(vkGetDeviceProcAddr(device, "vkCmdBindDescriptorBuffersEXT"));
-	lvkGetDescriptorEXT = reinterpret_cast<PFN_vkGetDescriptorEXT>(vkGetDeviceProcAddr(device, "vkGetDescriptorEXT"));
-	lvkCmdBindDescriptorBufferEmbeddedSamplersEXT = reinterpret_cast<PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT>(vkGetDeviceProcAddr(device, "vkCmdBindDescriptorBufferEmbeddedSamplersEXT"));
-	lvkCmdSetDescriptorBufferOffsetsEXT = reinterpret_cast<PFN_vkCmdSetDescriptorBufferOffsetsEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDescriptorBufferOffsetsEXT"));
-
-
-
 	uint32_t gfIndex{ vulkanObjectHandler->getGraphicsFamilyIndex() };
 	VkBufferCreateInfo uniformBufferCI{};
 	uniformBufferCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -89,6 +75,7 @@ int main()
 	uniformBufferCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	uniformBufferCI.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 	BufferBaseHostAccessible uniformBuffer{ device, uniformBufferCI };
+
 	glm::mat4* mvpMatrices{ reinterpret_cast<glm::mat4*>(uniformBuffer.getData()) };
 	mvpMatrices[0] = glm::mat4{1.0};
 	mvpMatrices[1] = glm::lookAt(glm::vec3{ -1.0, 3.0, -5.0 }, glm::vec3{ 0.0, 0.0, 0.0 }, glm::vec3{ 0.0, 1.0, 0.0 });
@@ -108,7 +95,6 @@ int main()
 
 	// START: Dummy rendering test
 
-	
 	float vertexPos[8 * 3] =
 	{
 		-1, -1, -1,
@@ -143,7 +129,7 @@ int main()
 
 	VkBufferCreateInfo stagingBufCI{};
 	stagingBufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	stagingBufCI.size = sizeof(vertexPos) + sizeof(indices);
+	stagingBufCI.size = STAGING_BUFFER_DEFAULT_SIZE;
 	stagingBufCI.queueFamilyIndexCount = 1;
 	stagingBufCI.pQueueFamilyIndices = &graphicFamilyIndex;
 	stagingBufCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -155,7 +141,7 @@ int main()
 	std::memcpy(reinterpret_cast<char*>(ptr) + sizeof(vertexPos), indices, sizeof(indices));
 
 	VkCommandBuffer CB{ bufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
-	VkBufferCopy region{ .srcOffset = 0, .dstOffset = 0, .size = stagingBufCI.size };
+	VkBufferCopy region{ .srcOffset = 0, .dstOffset = 0, .size = vbCI.size };
 	BufferOperations::cmdBufferCopy(CB, stagingBuf.getBufferHandle(), vertexData.getBufferHandle(), 1, &region);
 	bufferSet.endRecording(CB);
 	VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB };
@@ -221,13 +207,12 @@ int main()
 	{
 		vkWaitForFences(device, 1, &fence, true, UINT64_MAX);
 		WorldState::refreshFrameTime();
-		angle += glm::radians(180.0f) * WorldState::getDeltaTime();
+		angle += glm::radians(90.0f) * WorldState::getDeltaTime();
 
 		mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::mat4{1.0f};
 
 		vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
 		swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
-		attachmentInfo.imageView = std::get<1>(swapchainImageData);
 		attachmentInfo.imageView = std::get<1>(swapchainImageData);
 		image_memory_barrier1.image = std::get<0>(swapchainImageData);
 		image_memory_barrier.image = std::get<0>(swapchainImageData);

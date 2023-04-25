@@ -1,4 +1,5 @@
 #include "buffer_class.h"
+#include "src/tools/logging.h"
 #include "src/tools/asserter.h"
 
 namespace BufferOperations
@@ -82,7 +83,8 @@ BufferBase::~BufferBase()
 void BufferBase::allocateFromBuffer(VkDeviceSize allocSize, VmaVirtualAllocation& allocation, VkDeviceSize& inBufferOffset)
 {
 	VmaVirtualAllocationCreateInfo allocCI{ .size = allocSize, .alignment = m_bufferAlignment };
-	vmaVirtualAllocate(m_memoryProxy, &allocCI, &allocation, &inBufferOffset);
+	LOG_IF_WARNING(vmaVirtualAllocate(m_memoryProxy, &allocCI, &allocation, &inBufferOffset) != VK_ERROR_OUT_OF_DEVICE_MEMORY, "App", "Not enough buffer memory for suballocation. Need mechanism to handle the situation")
+	assert(false);
 }
 void BufferBase::freeBufferAllocation(VmaVirtualAllocation allocation)
 {

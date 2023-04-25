@@ -84,6 +84,8 @@ private:
 
 	void createLogicalDeviceAndQueues(const VulkanCreateInfo& vulkanCreateInfo);
 
+	void loadFunctions();
+
 	void createSwapchain(const VulkanCreateInfo& vulkanCreateInfo);
 
 	void retrieveSwapchainImagesAndViews();
@@ -167,5 +169,16 @@ private:
 #endif
 	}
 };
+
+//////////////FUNCTIONS TO LOAD/////////////////
+
+inline PFN_vkGetDescriptorSetLayoutSizeEXT lvkGetDescriptorSetLayoutSizeEXT;
+inline PFN_vkGetDescriptorSetLayoutBindingOffsetEXT lvkGetDescriptorSetLayoutBindingOffsetEXT;
+inline PFN_vkCmdBindDescriptorBuffersEXT lvkCmdBindDescriptorBuffersEXT;
+inline PFN_vkCmdSetDescriptorBufferOffsetsEXT lvkCmdSetDescriptorBufferOffsetsEXT;
+inline PFN_vkGetDescriptorEXT lvkGetDescriptorEXT;
+inline PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT lvkCmdBindDescriptorBufferEmbeddedSamplersEXT;
+
+///////////////////////////////////////////////
 
 #endif

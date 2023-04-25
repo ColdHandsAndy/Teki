@@ -45,6 +45,8 @@ VulkanObjectHandler::VulkanObjectHandler(VulkanCreateInfo vulkanCreateInfo)
 
 	createLogicalDeviceAndQueues(vulkanCreateInfo);
 
+	loadFunctions();
+
 	createSwapchain(vulkanCreateInfo);
 
 	retrieveSwapchainImagesAndViews();
@@ -143,7 +145,7 @@ void VulkanObjectHandler::createVulkanInstance(const VulkanCreateInfo& vulkanCre
 	debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 	debugCreateInfo.pfnUserCallback = debugCallback;
 
-	info.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
+	info.pNext = &debugCreateInfo;
 #endif
 
 	VkInstance instance{};
@@ -251,6 +253,16 @@ void VulkanObjectHandler::createLogicalDeviceAndQueues(const VulkanCreateInfo& v
 	vkGetDeviceQueue(m_logicalDevice, m_transferQueueFamilyIndex, 0, &m_transferQueue);
 }
 
+void VulkanObjectHandler::loadFunctions()
+{
+	lvkGetDescriptorSetLayoutSizeEXT = reinterpret_cast<PFN_vkGetDescriptorSetLayoutSizeEXT>(vkGetDeviceProcAddr(m_logicalDevice, "vkGetDescriptorSetLayoutSizeEXT"));
+	lvkGetDescriptorSetLayoutBindingOffsetEXT = reinterpret_cast<PFN_vkGetDescriptorSetLayoutBindingOffsetEXT>(vkGetDeviceProcAddr(m_logicalDevice, "vkGetDescriptorSetLayoutBindingOffsetEXT"));
+	lvkCmdBindDescriptorBuffersEXT = reinterpret_cast<PFN_vkCmdBindDescriptorBuffersEXT>(vkGetDeviceProcAddr(m_logicalDevice, "vkCmdBindDescriptorBuffersEXT"));
+	lvkGetDescriptorEXT = reinterpret_cast<PFN_vkGetDescriptorEXT>(vkGetDeviceProcAddr(m_logicalDevice, "vkGetDescriptorEXT"));
+	lvkCmdBindDescriptorBufferEmbeddedSamplersEXT = reinterpret_cast<PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT>(vkGetDeviceProcAddr(m_logicalDevice, "vkCmdBindDescriptorBufferEmbeddedSamplersEXT"));
+	lvkCmdSetDescriptorBufferOffsetsEXT = reinterpret_cast<PFN_vkCmdSetDescriptorBufferOffsetsEXT>(vkGetDeviceProcAddr(m_logicalDevice, "vkCmdSetDescriptorBufferOffsetsEXT"));
+}
+
 //Vulkan swapchain creation
 VkSurfaceFormatKHR getSurfaceFormat(VkPhysicalDevice device, VkSurfaceKHR surface, VkFormat preferredFormat, VkColorSpaceKHR preferredColorspace);
 VkPresentModeKHR getPresentMode(VkPhysicalDevice device, VkSurfaceKHR surface, VkPresentModeKHR preferredMode);
@@ -284,7 +296,7 @@ void VulkanObjectHandler::createSwapchain(const VulkanCreateInfo& vulkanCreateIn
 	createInfo.imageColorSpace = surfaceFormat.colorSpace;
 	createInfo.imageExtent = swapExtent;
 	createInfo.imageArrayLayers = 1;
-	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
 	//App does not allow separate graphics and present queue so we use exclusive queue mode
 	createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;

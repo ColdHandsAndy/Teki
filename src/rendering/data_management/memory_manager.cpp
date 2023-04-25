@@ -11,6 +11,10 @@ MemoryManager::MemoryManager(const VulkanObjectHandler& vulkanObjects)
 	createInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 
 	ASSERT_ALWAYS(vmaCreateAllocator(&createInfo, &m_allocator) == VK_SUCCESS, "VMA", "Allocator creation failed.")
+
+	m_graphicsQueueFamilyIndex = vulkanObjects.getGraphicsFamilyIndex();
+	m_computeQueueFamilyIndex = vulkanObjects.getComputeFamilyIndex();
+	m_transferQueueFamilyIndex = vulkanObjects.getTransferFamilyIndex();
 }
 
 MemoryManager::~MemoryManager()
@@ -31,6 +35,13 @@ std::list<VmaAllocation>::iterator MemoryManager::addAllocation()
 void MemoryManager::destroyBuffer(VkBuffer buffer, std::list<VmaAllocation>::const_iterator allocIter)
 {
 	vmaDestroyBuffer(m_allocator, buffer, *(allocIter));
+
+	m_allocations.erase(allocIter);
+}
+
+void MemoryManager::destroyImage(VkImage image, std::list<VmaAllocation>::const_iterator allocIter)
+{
+	vmaDestroyImage(m_allocator, image, *(allocIter));
 
 	m_allocations.erase(allocIter);
 }
