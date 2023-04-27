@@ -13,8 +13,8 @@
 #define VMA_IMPLEMENTATION
 #include "vma/vk_mem_alloc.h"
 
-#define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtx/transform.hpp>
@@ -24,15 +24,19 @@
 #include "src/rendering/renderer/descriptor_management.h"
 #include "src/rendering/data_management/memory_manager.h"
 #include "src/rendering/data_management/buffer_class.h"
+#include "src/rendering/data_management/image_list.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/window/window.h"
 #include "src/world_state_class/world_state.h"
 
 #include "src/tools/asserter.h"
 
+#include "obj loader/obj_loader.h"
+
 #define WINDOW_WIDTH_DEFAULT  1280
 #define WINDOW_HEIGHT_DEFAULT 720
 
+#define GENERAL_BUFFER_DEFAULT_SIZE 67108864
 #define STAGING_BUFFER_DEFAULT_SIZE 8388608
 
 namespace fs = std::filesystem;
@@ -44,6 +48,14 @@ struct PipelineStuff
 	VkDescriptorSetLayout layout;
 };
 PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout);
+struct DepthBufferImageStuff
+{
+	VkImage depthImage;
+	VkImageView depthImageView;
+	VkDeviceMemory depthbufferMemory;
+};
+DepthBufferImageStuff createDepthBuffer(VkPhysicalDevice physDevice, VkDevice device);
+void destroyDepthBuffer(VkDevice device, DepthBufferImageStuff depthBuffer);
 
 int main()
 {
@@ -56,95 +68,67 @@ int main()
 
 	MemoryManager memManager{ *vulkanObjectHandler };
 	BufferBase::assignGlobalMemoryManager(memManager);
+	ImageList::assignGlobalMemoryManager(memManager);
 
 	FrameCommandPoolSet poolSet{ *vulkanObjectHandler };
 	FrameCommandBufferSet bufferSet{ poolSet };
 
 	DescriptorManager descriptorManager{ *vulkanObjectHandler };
+	ResourceSetSharedData::initializeResourceManagement(*vulkanObjectHandler, descriptorManager);
 
 
-	// START: Descriptor buffer test
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
 	uint32_t gfIndex{ vulkanObjectHandler->getGraphicsFamilyIndex() };
-	VkBufferCreateInfo uniformBufferCI{};
-	uniformBufferCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	uniformBufferCI.size = sizeof(glm::mat4) * 3;
-	uniformBufferCI.queueFamilyIndexCount = 1;
-	uniformBufferCI.pQueueFamilyIndices = &gfIndex;
-	uniformBufferCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	uniformBufferCI.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-	BufferBaseHostAccessible uniformBuffer{ device, uniformBufferCI };
+	uint32_t cfIndex{ vulkanObjectHandler->getComputeFamilyIndex() };
+
+	BufferBaseHostInaccessible baseDeviceBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, {{gfIndex}} };
+	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, {{gfIndex}} };
+	BufferBaseHostAccessible stagingBaseBuffer{ device, STAGING_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, {{gfIndex, cfIndex}} };
+
+	BufferMapped uniformBuffer{ baseHostBuffer, sizeof(glm::mat4) * 3 };
 
 	glm::mat4* mvpMatrices{ reinterpret_cast<glm::mat4*>(uniformBuffer.getData()) };
-	mvpMatrices[0] = glm::mat4{1.0};
-	mvpMatrices[1] = glm::lookAt(glm::vec3{ -1.0, 3.0, -5.0 }, glm::vec3{ 0.0, 0.0, 0.0 }, glm::vec3{ 0.0, 1.0, 0.0 });
+	mvpMatrices[0] = glm::mat4{ 1.0 };
+	mvpMatrices[1] = glm::lookAt(glm::vec3{ -1.0, 2.0, -5.0 }, glm::vec3{ 0.0, 2.0, 0.0 }, glm::vec3{ 0.0, 1.0, 0.0 });
 	mvpMatrices[2] = glm::perspective(glm::radians(45.0), (double)window.getWidth() / window.getHeight(), 0.1, 100.0);
-
-	ResourceSetSharedData::initializeResourceManagement(*vulkanObjectHandler, descriptorManager);
-	VkDescriptorSetLayoutBinding binding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-
-	VkDescriptorAddressInfoEXT addressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = uniformBuffer.getBufferDeviceAddress(), .range = uniformBuffer.getBufferByteSize() };
-	VkDescriptorDataEXT descData[1]{ {.pUniformBuffer = &addressinfo} };
-	std::vector<VkDescriptorSetLayoutBinding> bindings{ binding };
-	ResourceSet resourceSet{ device, 0, VkDescriptorSetLayoutCreateFlags{}, bindings, 1 , std::span<VkDescriptorDataEXT>{descData} };
-
-	PipelineStuff dummyPipeline{ createDummyPipeline(vulkanObjectHandler->getLogicalDevice(), resourceSet.getSetLayout()) };
-
-	// END: Descriptor buffer test
 
 	// START: Dummy rendering test
 
-	float vertexPos[8 * 3] =
+	VkDescriptorSetLayoutBinding binding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT addressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = uniformBuffer.getDeviceAddress(), .range = uniformBuffer.getSize() };
+	ResourceSet resourceSet{ device, 0, VkDescriptorSetLayoutCreateFlags{}, {{binding}}, 1, {{{.pUniformBuffer = &addressinfo}}} };
+
+	PipelineStuff dummyPipeline{ createDummyPipeline(vulkanObjectHandler->getLogicalDevice(), resourceSet.getSetLayout()) };
+	
+	DepthBufferImageStuff depthBuffer{createDepthBuffer(vulkanObjectHandler->getPhysicalDevice(), vulkanObjectHandler->getLogicalDevice())};
+
+	objl::Loader objLoader{};
+	objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/bunny10k.obj");
+	//objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/greek_helmet.obj");
+	std::vector<PosTexVertex> vertices{};
+	for (auto& vert : objLoader.LoadedMeshes[0].Vertices)
 	{
-		-1, -1, -1,
-		1, -1, -1,
-		1, 1, -1,
-		-1, 1, -1,
-		-1, -1, 1,
-		1, -1, 1,
-		1, 1, 1,
-		-1, 1, 1
-	};
+		vertices.push_back({ {vert.Position.X, vert.Position.Y, vert.Position.Z}, {vert.TextureCoordinate.X, vert.TextureCoordinate.Y} });
+	}
+	vertices.shrink_to_fit();
+	std::vector<uint32_t> indices{ objLoader.LoadedMeshes[0].Indices };
 
-	int indices[6 * 6] =
-	{
-		0, 1, 3, 3, 1, 2,
-		1, 5, 2, 2, 5, 6,
-		5, 4, 6, 6, 4, 7,
-		4, 0, 7, 7, 0, 3,
-		3, 2, 7, 7, 2, 6,
-		4, 5, 0, 0, 5, 1
-	};
+	//ImageList listImage{device, 1024, 1024, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
+	Buffer vertexData{ baseDeviceBuffer, vertices.size() * sizeof(PosTexVertex) };
+	Buffer indexData{ baseDeviceBuffer, indices.size() * sizeof(uint32_t) };
 
-	uint32_t graphicFamilyIndex{ vulkanObjectHandler->getGraphicsFamilyIndex() };
-	VkBufferCreateInfo vbCI{};
-	vbCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	vbCI.size = sizeof(vertexPos) + sizeof(indices);
-	vbCI.queueFamilyIndexCount = 1;
-	vbCI.pQueueFamilyIndices = &graphicFamilyIndex;
-	vbCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	vbCI.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-	BufferBaseHostInaccessible vertexData{ device, vbCI, BufferBase::NULL_FLAG };
-
-	VkBufferCreateInfo stagingBufCI{};
-	stagingBufCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	stagingBufCI.size = STAGING_BUFFER_DEFAULT_SIZE;
-	stagingBufCI.queueFamilyIndexCount = 1;
-	stagingBufCI.pQueueFamilyIndices = &graphicFamilyIndex;
-	stagingBufCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	stagingBufCI.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-	BufferBaseHostAccessible stagingBuf{ device, stagingBufCI, BufferBase::NULL_FLAG };
-	void* ptr{ stagingBuf.getData() };
-
-	std::memcpy(ptr, vertexPos, sizeof(vertexPos));
-	std::memcpy(reinterpret_cast<char*>(ptr) + sizeof(vertexPos), indices, sizeof(indices));
+	void* ptr{ stagingBaseBuffer.getData() };
+	std::memcpy(ptr, vertices.data(), vertexData.getSize());
+	std::memcpy(reinterpret_cast<uint8_t*>(ptr) + vertexData.getSize(), indices.data(), indexData.getSize());
 
 	VkCommandBuffer CB{ bufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
-	VkBufferCopy region{ .srcOffset = 0, .dstOffset = 0, .size = vbCI.size };
-	BufferOperations::cmdBufferCopy(CB, stagingBuf.getBufferHandle(), vertexData.getBufferHandle(), 1, &region);
+	{
+		VkBufferCopy regions[2]{ {.srcOffset = 0, .dstOffset = vertexData.getOffset(), .size = vertexData.getSize()}, {.srcOffset = vertexData.getSize(), .dstOffset = indexData.getOffset(), .size = indexData.getSize()} };
+		BufferTools::cmdBufferCopy(CB, stagingBaseBuffer.getBufferHandle(), vertexData.getBufferHandle(), 2, regions);
+	}
 	bufferSet.endRecording(CB);
-	VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB };
+	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB };
 	ASSERT_ALWAYS(vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
 	ASSERT_ALWAYS(vkQueueWaitIdle(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
 
@@ -163,10 +147,19 @@ int main()
 	attachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	attachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	attachmentInfo.clearValue = VkClearValue{ .color{.float32{0.4f, 1.0f, 0.8f}} };
+
+	VkRenderingAttachmentInfo depthAttachmentInfo{};
+	depthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	depthAttachmentInfo.imageView = depthBuffer.depthImageView;
+	depthAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachmentInfo.clearValue = { .depthStencil = {.depth = 1.0f, .stencil = 0} };
+
 	VkBuffer bufferHandle{ vertexData.getBufferHandle() };
-	VkDeviceSize vertexOffset{ 0 };
-	VkDeviceSize indexOffset{ sizeof(vertexPos) };
-	
+	VkDeviceSize vertexOffset{ vertexData.getOffset() };
+	VkDeviceSize indexOffset{ indexData.getOffset() };
+
 	VkImageMemoryBarrier image_memory_barrier1
 	{
 	.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -196,6 +189,23 @@ int main()
 	}
 	};
 
+	VkImageMemoryBarrier depthBufferBarrier
+	{
+	.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+	.srcAccessMask = 0,
+	.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+	.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+	.image = depthBuffer.depthImage,
+	.subresourceRange = {
+	  .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+	  .baseMipLevel = 0,
+	  .levelCount = 1,
+	  .baseArrayLayer = 0,
+	  .layerCount = 1,
+	}
+	};
+
 	VkFence fence{};
 	VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT };
 	vkCreateFence(device, &fenceCI, nullptr, &fence);
@@ -209,7 +219,7 @@ int main()
 		WorldState::refreshFrameTime();
 		angle += glm::radians(90.0f) * WorldState::getDeltaTime();
 
-		mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::mat4{1.0f};
+		mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::scale(glm::vec3{19.0f});
 
 		vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
 		swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
@@ -225,6 +235,19 @@ int main()
 
 		vkCmdPipelineBarrier(
 			CBloop,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+			0,
+			0,
+			nullptr,
+			0,
+			nullptr,
+			1,
+			&depthBufferBarrier
+		);
+
+		vkCmdPipelineBarrier(
+			CBloop,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  // srcStageMask
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // dstStageMask
 			0,
@@ -236,6 +259,7 @@ int main()
 			&image_memory_barrier1 // pImageMemoryBarriers
 		);
 
+
 		vkCmdBindPipeline(CBloop, VK_PIPELINE_BIND_POINT_GRAPHICS, dummyPipeline.pipeline);
 		vkCmdBindVertexBuffers(CBloop, 0, 1, &bufferHandle, &vertexOffset);
 		vkCmdBindIndexBuffer(CBloop, bufferHandle, indexOffset, VK_INDEX_TYPE_UINT32);
@@ -243,11 +267,14 @@ int main()
 		renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 		renderInfo.renderArea = { .offset{0,0}, .extent{.width = WINDOW_WIDTH_DEFAULT, .height = WINDOW_HEIGHT_DEFAULT} };
 		renderInfo.layerCount = 1;
+		renderInfo.pDepthAttachment = &depthAttachmentInfo;
 		renderInfo.colorAttachmentCount = 1;
 		renderInfo.pColorAttachments = &attachmentInfo;
+		
 		vkCmdBeginRendering(CBloop, &renderInfo);
-		vkCmdDrawIndexed(CBloop, sizeof(indices) / sizeof(indices[0]), 1, 0, 0, 0);
+		vkCmdDrawIndexed(CBloop, indices.size(), 1, 0, 0, 0);
 		vkCmdEndRendering(CBloop);
+
 
 		vkCmdPipelineBarrier(
 			CBloop,
@@ -285,6 +312,7 @@ int main()
 	// END: Dummy rendering test
 
 
+	destroyDepthBuffer(device, depthBuffer);
 	vkDestroyFence(device, fence, nullptr);
 	vkDestroySemaphore(device, swapchainSemaphore, nullptr);
 	vkDestroyPipeline(device, dummyPipeline.pipeline, nullptr);
@@ -344,9 +372,8 @@ PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout)
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
-	//rasterizer.cullMode = VK_CULL_MODE_NONE_BIT;
+	rasterizer.cullMode = VK_CULL_MODE_NONE;
 	//rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-	rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
 	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -366,8 +393,8 @@ PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout)
 
 	VkPipelineDepthStencilStateCreateInfo depthStencil{};
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = VK_FALSE;
-	depthStencil.depthWriteEnable = VK_FALSE;
+	depthStencil.depthTestEnable = VK_TRUE;
+	depthStencil.depthWriteEnable = VK_TRUE;
 	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
 	depthStencil.depthBoundsTestEnable = VK_FALSE;
 	depthStencil.stencilTestEnable = VK_FALSE;
@@ -375,7 +402,7 @@ PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout)
 	VkPipelineViewportStateCreateInfo viewportState{};
 	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 	viewportState.viewportCount = 1;
-	VkViewport viewport{ .x = 0, .y = WINDOW_HEIGHT_DEFAULT, .width = WINDOW_WIDTH_DEFAULT, .height = -WINDOW_HEIGHT_DEFAULT };
+	VkViewport viewport{ .x = 0, .y = WINDOW_HEIGHT_DEFAULT, .width = WINDOW_WIDTH_DEFAULT, .height = -WINDOW_HEIGHT_DEFAULT, .minDepth = 0.0f, .maxDepth = 1.0f };
 	viewportState.pViewports = &viewport;
 	viewportState.scissorCount = 1;
 	VkRect2D rect{ .offset{0, 0}, .extent{.width = WINDOW_WIDTH_DEFAULT, .height = WINDOW_HEIGHT_DEFAULT} };
@@ -399,8 +426,8 @@ PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout)
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	auto bindingDescription = PosOnlyVertex::getBindingDescription();
-	auto attributeDescriptions = PosOnlyVertex::getAttributeDescriptions();
+	auto bindingDescription = PosTexVertex::getBindingDescription();
+	auto attributeDescriptions = PosTexVertex::getAttributeDescriptions();
 	vertexInputInfo.vertexBindingDescriptionCount = 1;
 	vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
 	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
@@ -421,6 +448,13 @@ PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout)
 	pipelineCI.pVertexInputState = &vertexInputInfo;
 	pipelineCI.flags = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 
+	VkPipelineRenderingCreateInfo attachmentsFormats{};
+	attachmentsFormats.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+	attachmentsFormats.colorAttachmentCount = 1;
+	VkFormat format{ VK_FORMAT_B8G8R8A8_SRGB };
+	attachmentsFormats.pColorAttachmentFormats = &format;
+	attachmentsFormats.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+	pipelineCI.pNext = &attachmentsFormats;
 
 	VkPipeline pipeline{};
 	ASSERT_ALWAYS(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline) == VK_SUCCESS, "Vulkan", "Pipeline creation failed.");
@@ -428,4 +462,71 @@ PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout)
 	vkDestroyShaderModule(device, vertModule, nullptr);
 	vkDestroyShaderModule(device, fragModule, nullptr);
 	return { pipeline, pipelineLayout, layout };
+}
+
+DepthBufferImageStuff createDepthBuffer(VkPhysicalDevice physDevice, VkDevice device)
+{
+	DepthBufferImageStuff dbStuff{};
+
+	VkImageCreateInfo imageInfo{};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.extent.width = WINDOW_WIDTH_DEFAULT;
+	imageInfo.extent.height = WINDOW_HEIGHT_DEFAULT;
+	imageInfo.extent.depth = 1;
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.format = VK_FORMAT_D32_SFLOAT;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	ASSERT_ALWAYS(vkCreateImage(device, &imageInfo, nullptr, &dbStuff.depthImage) == VK_SUCCESS, "Vulkan", "Image creation failed")
+
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(device, dbStuff.depthImage, &memRequirements);
+
+	VkMemoryAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memRequirements.size;
+
+	VkPhysicalDeviceMemoryProperties memProperties;
+	vkGetPhysicalDeviceMemoryProperties(physDevice, &memProperties);
+
+	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) 
+	{
+		if ((memRequirements.memoryTypeBits & (1 << i)) && memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) 
+		{
+			allocInfo.memoryTypeIndex = i;
+			break;
+		}
+	}
+
+	ASSERT_ALWAYS(vkAllocateMemory(device, &allocInfo, nullptr, &dbStuff.depthbufferMemory) == VK_SUCCESS, "Vulkan", "Memory allocation failed")
+
+	vkBindImageMemory(device, dbStuff.depthImage, dbStuff.depthbufferMemory, 0);
+
+
+	VkImageViewCreateInfo viewInfo{};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.image = dbStuff.depthImage;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = VK_FORMAT_D32_SFLOAT;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = 1;
+
+	ASSERT_ALWAYS(vkCreateImageView(device, &viewInfo, nullptr, &dbStuff.depthImageView) == VK_SUCCESS, "Vulkan", "Image view creation failed")
+
+	return dbStuff;
+}
+void destroyDepthBuffer(VkDevice device, DepthBufferImageStuff depthBuffer)
+{
+	vkDestroyImageView(device, depthBuffer.depthImageView, nullptr);
+	vkDestroyImage(device, depthBuffer.depthImage, nullptr);
+	vkFreeMemory(device, depthBuffer.depthbufferMemory, nullptr);
 }

@@ -128,7 +128,7 @@ void DescriptorManager::removeResourceSetFromBuffer(std::list<DescriptorAllocati
 
 
 
-ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, std::span<VkDescriptorSetLayoutBinding> bindings, uint32_t frameCopies, std::span<VkDescriptorDataEXT> descriptorData)
+ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, std::span<const VkDescriptorSetLayoutBinding> bindings, uint32_t frameCopies, std::span<const VkDescriptorDataEXT> descriptorData)
 {
     m_device = device;
     m_setIndex = setIndex;

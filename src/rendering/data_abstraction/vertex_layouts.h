@@ -104,18 +104,18 @@ struct PosOnlyVertex
     }
 };
 
-struct PosNormVertex
+struct PosTexVertex
 {
     glm::vec3 position{};
-    glm::vec3 normal{};
+    glm::vec2 texCord{};
 
-    PosNormVertex(const glm::vec3& pos, const glm::vec3& norm)
-        : position{ pos }, normal{ norm }
+    PosTexVertex(const glm::vec3& pos, const glm::vec2& texC)
+        : position{ pos }, texCord{ texC }
     {
     }
-    PosNormVertex(const float* pos, const float* norm)
+    PosTexVertex(const float* pos, const float* texC)
         : position{ glm::vec3{*pos, *(pos + 1), *(pos + 2)} },
-            normal{ glm::vec3{*norm, *(norm + 1), *(norm + 2)} }
+            texCord{ glm::vec2{*texC, *(texC + 1)} }
     {
     }
 
@@ -123,7 +123,7 @@ struct PosNormVertex
     {
         VkVertexInputBindingDescription bindingDescription{};
         bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(PosNormVertex);
+        bindingDescription.stride = sizeof(PosTexVertex);
         bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
         return bindingDescription;
@@ -136,12 +136,12 @@ struct PosNormVertex
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
         attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(PosNormVertex, position);
+        attributeDescriptions[0].offset = offsetof(PosTexVertex, position);
 
         attributeDescriptions[1].binding = 0;
         attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(PosNormVertex, normal);
+        attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(PosTexVertex, texCord);
 
         return attributeDescriptions;
     }

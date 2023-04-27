@@ -4,13 +4,14 @@
 #include <memory>
 #include <list>
 #include <cassert>
+#include <span>
 
 #include "vulkan/vulkan.h"
 #include "vma/vk_mem_alloc.h"
 
 #include "memory_manager.h"
 
-namespace BufferOperations
+namespace BufferTools
 {
 	void cmdBufferCopy(VkCommandBuffer cmdBuffer, VkBuffer srcBufferHandle, VkBuffer dstBufferHandle, uint32_t regionCount, const VkBufferCopy* regions);
 }
@@ -47,7 +48,7 @@ public:
 
 protected:
 	BufferBase() = default;
-	BufferBase(VkDevice device, const VkBufferCreateInfo& bufferCI, bool sharedMem, bool mappable, bool cached, int flags = NULL_FLAG);
+	BufferBase(VkDevice device, const VkBufferCreateInfo& bufferCI, bool sharedMem, bool mappable, bool cached, int allocFlags = NULL_FLAG);
 	BufferBase(BufferBase&& bufBase) noexcept;
 	~BufferBase();
 
@@ -63,7 +64,8 @@ protected:
 class BufferBaseHostInaccessible : public BufferBase
 {
 public:
-	BufferBaseHostInaccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int flags = NULL_FLAG);
+	BufferBaseHostInaccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags = NULL_FLAG);
+	BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags = NULL_FLAG);
 	BufferBaseHostInaccessible(BufferBaseHostInaccessible&& srcBuffer) = default;
 	~BufferBaseHostInaccessible();
 
@@ -87,8 +89,10 @@ public:
 	Buffer(BufferBaseHostInaccessible& motherBuffer, VkDeviceSize size);
 	~Buffer();
 
-	VkBuffer getBufferHandle();
-	VkDeviceAddress getDeviceAddress();
+	VkBuffer getBufferHandle() const;
+	VkDeviceSize getSize() const;
+	VkDeviceSize getOffset() const;
+	VkDeviceAddress getDeviceAddress() const;
 };
 
 
@@ -98,8 +102,9 @@ private:
 	void* m_mappedMemoryPointer{ nullptr };
 
 public:
-	BufferBaseHostAccessible(VkDevice device, VkBufferCreateInfo bufferCreateInfo, int flags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
-	BufferBaseHostAccessible(BufferBaseHostAccessible&& srcBuffer);
+	BufferBaseHostAccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
+	BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
+	BufferBaseHostAccessible(BufferBaseHostAccessible&& srcBuffer) noexcept;
 	~BufferBaseHostAccessible();
 
 	void mapMemory();
@@ -126,9 +131,11 @@ public:
 	BufferMapped(BufferBaseHostAccessible& motherBuffer, VkDeviceSize size);
 	~BufferMapped();
 
-	VkBuffer getBufferHandle();
-	void* getData();
-	VkDeviceAddress getDeviceAddress();
+	VkBuffer getBufferHandle() const;
+	VkDeviceSize getSize() const;
+	VkDeviceSize getOffset() const;
+	void* getData() const;
+	VkDeviceAddress getDeviceAddress() const;
 };
 
 #endif

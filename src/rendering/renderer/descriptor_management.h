@@ -124,7 +124,7 @@ private:
     uint32_t m_setIndex{};
 
 public:
-    ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, std::span<VkDescriptorSetLayoutBinding> bindings, uint32_t frameCopies, std::span<VkDescriptorDataEXT> descriptorData);
+    ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, std::span<const VkDescriptorSetLayoutBinding> bindings, uint32_t frameCopies, std::span<const VkDescriptorDataEXT> descriptorData);
     ~ResourceSet();
 
     uint32_t getFrameCount() const;

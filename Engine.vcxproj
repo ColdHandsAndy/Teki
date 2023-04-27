@@ -180,6 +180,7 @@
     <ClCompile Include="src\window\window.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="obj loader\obj_loader.h" />
     <ClInclude Include="src\input\input_interface.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
     <ClInclude Include="src\rendering\data_abstraction\material.h" />
