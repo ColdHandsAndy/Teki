@@ -41,6 +41,8 @@
 
 namespace fs = std::filesystem;
 
+std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
+
 struct PipelineStuff
 {
 	VkPipeline pipeline;
@@ -62,9 +64,7 @@ int main()
 	ASSERT_ALWAYS(glfwInit(), "GLFW", "GLFW was not initialized.")
 	Window window(WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Engine");
 
-	VulkanCreateInfo info{};
-	info.windowPtr = window;
-	std::shared_ptr<VulkanObjectHandler> vulkanObjectHandler{ std::make_shared<VulkanObjectHandler>(info) };
+	std::shared_ptr<VulkanObjectHandler> vulkanObjectHandler{ initializeVulkan(window) };
 
 	MemoryManager memManager{ *vulkanObjectHandler };
 	BufferBase::assignGlobalMemoryManager(memManager);
@@ -86,6 +86,9 @@ int main()
 	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, {{gfIndex}} };
 	BufferBaseHostAccessible stagingBaseBuffer{ device, STAGING_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, {{gfIndex, cfIndex}} };
 
+
+	// START: Dummy rendering test
+
 	BufferMapped uniformBuffer{ baseHostBuffer, sizeof(glm::mat4) * 3 };
 
 	glm::mat4* mvpMatrices{ reinterpret_cast<glm::mat4*>(uniformBuffer.getData()) };
@@ -93,19 +96,17 @@ int main()
 	mvpMatrices[1] = glm::lookAt(glm::vec3{ -1.0, 2.0, -5.0 }, glm::vec3{ 0.0, 2.0, 0.0 }, glm::vec3{ 0.0, 1.0, 0.0 });
 	mvpMatrices[2] = glm::perspective(glm::radians(45.0), (double)window.getWidth() / window.getHeight(), 0.1, 100.0);
 
-	// START: Dummy rendering test
-
 	VkDescriptorSetLayoutBinding binding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT addressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = uniformBuffer.getDeviceAddress(), .range = uniformBuffer.getSize() };
 	ResourceSet resourceSet{ device, 0, VkDescriptorSetLayoutCreateFlags{}, {{binding}}, 1, {{{.pUniformBuffer = &addressinfo}}} };
 
 	PipelineStuff dummyPipeline{ createDummyPipeline(vulkanObjectHandler->getLogicalDevice(), resourceSet.getSetLayout()) };
 	
-	DepthBufferImageStuff depthBuffer{createDepthBuffer(vulkanObjectHandler->getPhysicalDevice(), vulkanObjectHandler->getLogicalDevice())};
+	DepthBufferImageStuff depthBuffer{ createDepthBuffer(vulkanObjectHandler->getPhysicalDevice(), vulkanObjectHandler->getLogicalDevice()) };
 
 	objl::Loader objLoader{};
-	objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/bunny10k.obj");
-	//objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/greek_helmet.obj");
+	//objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/bunny10k.obj");
+	objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/greek_helmet.obj");
 	std::vector<PosTexVertex> vertices{};
 	for (auto& vert : objLoader.LoadedMeshes[0].Vertices)
 	{
@@ -114,9 +115,12 @@ int main()
 	vertices.shrink_to_fit();
 	std::vector<uint32_t> indices{ objLoader.LoadedMeshes[0].Indices };
 
-	//ImageList listImage{device, 1024, 1024, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT};
+	//ImageList listImage{ device, 1024, 1024, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT };
 	Buffer vertexData{ baseDeviceBuffer, vertices.size() * sizeof(PosTexVertex) };
 	Buffer indexData{ baseDeviceBuffer, indices.size() * sizeof(uint32_t) };
+	VkBuffer bufferHandle{ vertexData.getBufferHandle() };
+	VkDeviceSize vertexOffset{ vertexData.getOffset() };
+	VkDeviceSize indexOffset{ indexData.getOffset() };
 
 	void* ptr{ stagingBaseBuffer.getData() };
 	std::memcpy(ptr, vertices.data(), vertexData.getSize());
@@ -156,9 +160,6 @@ int main()
 	depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	depthAttachmentInfo.clearValue = { .depthStencil = {.depth = 1.0f, .stencil = 0} };
 
-	VkBuffer bufferHandle{ vertexData.getBufferHandle() };
-	VkDeviceSize vertexOffset{ vertexData.getOffset() };
-	VkDeviceSize indexOffset{ indexData.getOffset() };
 
 	VkImageMemoryBarrier image_memory_barrier1
 	{
@@ -219,7 +220,8 @@ int main()
 		WorldState::refreshFrameTime();
 		angle += glm::radians(90.0f) * WorldState::getDeltaTime();
 
-		mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::scale(glm::vec3{19.0f});
+		//mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::scale(glm::vec3{19.0f});
+		mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::scale(glm::vec3{ 0.5f }) * glm::translate(glm::vec3{ 0.0f, 5.0f, 0.0f });
 
 		vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
 		swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
@@ -321,6 +323,12 @@ int main()
 	return 0;
 }
 
+std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window)
+{
+	VulkanCreateInfo info{};
+	info.windowPtr = window;
+	return std::shared_ptr<VulkanObjectHandler>{ std::make_shared<VulkanObjectHandler>(info) };
+}
 
 std::vector<char> getShaderCode(fs::path filepath)
 {
@@ -372,8 +380,8 @@ PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout)
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = VK_CULL_MODE_NONE;
-	//rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	//rasterizer.cullMode = VK_CULL_MODE_NONE;
+	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -524,6 +532,7 @@ DepthBufferImageStuff createDepthBuffer(VkPhysicalDevice physDevice, VkDevice de
 
 	return dbStuff;
 }
+
 void destroyDepthBuffer(VkDevice device, DepthBufferImageStuff depthBuffer)
 {
 	vkDestroyImageView(device, depthBuffer.depthImageView, nullptr);

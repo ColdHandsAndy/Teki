@@ -45,7 +45,7 @@ private:
 
 public:
 	VulkanObjectHandler() = delete;
-	VulkanObjectHandler(VulkanCreateInfo vulkanCreateInfo);
+	VulkanObjectHandler(const VulkanCreateInfo& vulkanCreateInfo);
 
 	~VulkanObjectHandler();
 
@@ -111,6 +111,10 @@ public:
 	const included_excluded_flags_pair transferQueueRequirementsFlags{ { VK_QUEUE_TRANSFER_BIT }, { VK_QUEUE_GRAPHICS_BIT, VK_QUEUE_COMPUTE_BIT } };
 
 	VkPhysicalDeviceFeatures2 deviceFeaturesToEnable{};
+	VkPhysicalDeviceSynchronization2Features* syncFeatures{ new VkPhysicalDeviceSynchronization2Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES, .synchronization2 = true} };
+	VkPhysicalDeviceDynamicRenderingFeatures* drFeatures{ new VkPhysicalDeviceDynamicRenderingFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES, .dynamicRendering = true} };
+	VkPhysicalDeviceDescriptorBufferFeaturesEXT* dbFeatures{ new VkPhysicalDeviceDescriptorBufferFeaturesEXT{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT, .descriptorBuffer = true} };
+	VkPhysicalDeviceBufferDeviceAddressFeatures* feturesBufAddr{ new VkPhysicalDeviceBufferDeviceAddressFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES, .bufferDeviceAddress = true} };
 
 	VkFormat swapchainPreferredFormat{ VK_FORMAT_B8G8R8A8_SRGB };
 	VkColorSpaceKHR swapchainPreferredColorspace{ VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
@@ -123,16 +127,25 @@ public:
 		getRequiredInstanceExtensions(instanceExtensions);
 		getRequiredDeviceExtensions(deviceExtensions);
 
-		//deviceFeaturesToEnable.multiDrawIndirect = VK_TRUE;
-		//deviceFeaturesToEnable.drawIndirectFirstInstance = VK_TRUE;
-		//deviceFeaturesToEnable.geometryShader = VK_TRUE;
-		//deviceFeaturesToEnable.tessellationShader = VK_TRUE;
-		//deviceFeaturesToEnable.vertexPipelineStoresAndAtomics = VK_TRUE;
-		//deviceFeaturesToEnable.fragmentStoresAndAtomics = VK_TRUE;
-		//deviceFeaturesToEnable.sparseBinding = VK_TRUE;
-		//deviceFeaturesToEnable.sparseResidencyBuffer = VK_TRUE;
-		//deviceFeaturesToEnable.imageCubeArray = VK_TRUE;
-		//deviceFeaturesToEnable.samplerAnisotropy = VK_TRUE;
+		deviceFeaturesToEnable.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+		deviceFeaturesToEnable.features.multiDrawIndirect = VK_TRUE;
+		deviceFeaturesToEnable.features.drawIndirectFirstInstance = VK_TRUE;
+		deviceFeaturesToEnable.features.imageCubeArray = VK_TRUE;
+		deviceFeaturesToEnable.features.samplerAnisotropy = VK_TRUE;
+
+		deviceFeaturesToEnable.pNext = syncFeatures;
+		syncFeatures->pNext = drFeatures;
+		drFeatures->pNext = dbFeatures;
+		dbFeatures->pNext = feturesBufAddr;
+	}
+
+	~VulkanCreateInfo()
+	{
+		delete syncFeatures;
+		delete drFeatures;
+		delete dbFeatures;
+		delete feturesBufAddr;
+
 	}
 
 private:

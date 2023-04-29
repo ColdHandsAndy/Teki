@@ -8,6 +8,7 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageCI.imageType = VK_IMAGE_TYPE_2D;
 	imageCI.format = format;
+	m_format = format;
 	m_width = width;
 	m_height = height;
 	imageCI.extent = {.width = width, .height = height, .depth = 1};
@@ -93,9 +94,9 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 	{
 		for (uint32_t i{ 0 }; i < regionCount; ++i)
 		{
-			bufferImageCopies->bufferOffset = bufferOffset[i];
-			bufferImageCopies->imageOffset = { 0, 0, 0 };
-			bufferImageCopies->imageExtent = { width[i], height[i], 1 };
+			bufferImageCopies[i].bufferOffset = bufferOffset[i];
+			bufferImageCopies[i].imageOffset = { 0, 0, 0 };
+			bufferImageCopies[i].imageExtent = { width[i], height[i], 1 };
 
 			VkImageSubresourceLayers imageSubresource{};
 			imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -103,16 +104,16 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 			imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
 			imageSubresource.mipLevel = 0;
 
-			bufferImageCopies->imageSubresource = imageSubresource;
+			bufferImageCopies[i].imageSubresource = imageSubresource;
 		}
 	}
 	else
 	{
 		for (uint32_t i{ 0 }; i < regionCount; ++i)
 		{
-			bufferImageCopies->bufferOffset = bufferOffset[i];
-			bufferImageCopies->imageOffset = { 0, 0, 0 };
-			bufferImageCopies->imageExtent = { width[i], height[i], 1 };
+			bufferImageCopies[i].bufferOffset = bufferOffset[i];
+			bufferImageCopies[i].imageOffset = { 0, 0, 0 };
+			bufferImageCopies[i].imageExtent = { width[i], height[i], 1 };
 
 			VkImageSubresourceLayers imageSubresource{};
 			imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -120,7 +121,7 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 			imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
 			imageSubresource.mipLevel = mipLevel[i];
 
-			bufferImageCopies->imageSubresource = imageSubresource;
+			bufferImageCopies[i].imageSubresource = imageSubresource;
 		}
 	}
 

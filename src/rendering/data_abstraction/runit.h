@@ -8,8 +8,10 @@ class RUnit
 private:
 	uint32_t m_offsetVertex{};
 	uint32_t m_offsetIndex{};
-	uint32_t m_byteSizeVertex{};
-	uint32_t m_byteSizeIndex{};
+	uint32_t m_byteSizeVertices{};
+	uint32_t m_byteSizeIndices{};
+
+	uint32_t m_commandBufferOffset{};
 
 	uint16_t m_vertexSize{};
 
@@ -22,8 +24,9 @@ public:
 
 	uint32_t getOffsetVertex();
 	uint32_t getOffsetIndex();
-	uint32_t getByteSizeVertex();
-	uint32_t getByteSizeIndex();
+	uint32_t getByteSizeVertices();
+	uint32_t getByteSizeIndices();
+	uint32_t getCommandBufferOffset();
 	uint16_t getVertexSize();
 };
 

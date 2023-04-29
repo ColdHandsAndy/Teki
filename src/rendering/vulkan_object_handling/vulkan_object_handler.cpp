@@ -21,7 +21,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	void* pUserData);
 #endif
 
-VulkanObjectHandler::VulkanObjectHandler(VulkanCreateInfo vulkanCreateInfo)
+VulkanObjectHandler::VulkanObjectHandler(const VulkanCreateInfo& vulkanCreateInfo)
 {
 	createVulkanInstance(vulkanCreateInfo);
 
@@ -223,23 +223,8 @@ void VulkanObjectHandler::createLogicalDeviceAndQueues(const VulkanCreateInfo& v
 
 	deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
-
-	//TODO: Fix this shit
-	//
 	VkPhysicalDeviceFeatures2 deviceFeatures{ vulkanCreateInfo.deviceFeaturesToEnable };
-	deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	VkPhysicalDeviceSynchronization2Features syncFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES, .synchronization2 = true };
-	VkPhysicalDeviceDynamicRenderingFeatures drFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES, .dynamicRendering = true };
-	VkPhysicalDeviceDescriptorBufferFeaturesEXT dbFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT, .descriptorBuffer = true };
-	VkPhysicalDeviceBufferDeviceAddressFeatures feturesBufAddr{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES, .bufferDeviceAddress = true };
-	deviceCreateInfo.pNext = reinterpret_cast<void*>(&deviceFeatures);
-	deviceFeatures.pNext = &syncFeatures;
-	syncFeatures.pNext = &drFeatures;
-	drFeatures.pNext = &dbFeatures;
-	dbFeatures.pNext = &feturesBufAddr;
-	//
-
-
+	deviceCreateInfo.pNext = &deviceFeatures;
 	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(vulkanCreateInfo.deviceExtensions.size());
 	deviceCreateInfo.ppEnabledExtensionNames = vulkanCreateInfo.deviceExtensions.data();
 
@@ -460,26 +445,7 @@ bool VulkanObjectHandler::isDeviceSuitable(VkPhysicalDevice device, const Vulkan
 	VkPhysicalDeviceProperties2 deviceProperties{};
 	deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	vkGetPhysicalDeviceProperties2(device, &deviceProperties);
-
-	VkPhysicalDeviceFeatures2 deviceFeatures{};
-	deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	vkGetPhysicalDeviceFeatures2(device, &deviceFeatures);
-
 	bool propertyCompatible{ deviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU };
-
-	//TODO: Make independent to change by adding VkPhysicalDeviceFeatures to VulkanCreateInfo and iterate with offset
-	bool featureCompatible{ 
-		deviceFeatures.features.multiDrawIndirect &&
-		deviceFeatures.features.drawIndirectFirstInstance &&
-		deviceFeatures.features.geometryShader &&
-		deviceFeatures.features.tessellationShader &&
-		deviceFeatures.features.vertexPipelineStoresAndAtomics &&
-		deviceFeatures.features.fragmentStoresAndAtomics &&
-		deviceFeatures.features.sparseBinding &&
-		deviceFeatures.features.sparseResidencyBuffer &&
-		deviceFeatures.features.imageCubeArray &&
-		deviceFeatures.features.samplerAnisotropy
-	};
 
 	uint32_t extensionCount{};
 	vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
@@ -492,7 +458,7 @@ bool VulkanObjectHandler::isDeviceSuitable(VkPhysicalDevice device, const Vulkan
 	}
 	bool extensionsSupported{ requiredExtensions.empty() };
 
-	return propertyCompatible && featureCompatible && extensionsSupported;
+	return propertyCompatible && extensionsSupported;
 }
 
 bool VulkanObjectHandler::checkQueueFamilies(VkPhysicalDevice device, const VulkanCreateInfo& vulkanCreateInfo)

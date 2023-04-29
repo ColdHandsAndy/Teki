@@ -32,6 +32,12 @@ public:
 	ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usageFlags, bool allocateMips = false, uint32_t layercount = 0); //if layerCount is zero default layerCount is used
 	~ImageList();
 
+	VkImage getImageHandle();
+	VkImageView getImageView();
+	VkFormat getFormat();
+	uint32_t getWidth();
+	uint32_t geyHeight();
+	uint32_t getLayerCount();
 	VkImageSubresourceRange getSubresourceRange();
 
 	static void assignGlobalMemoryManager(MemoryManager& memManager);
