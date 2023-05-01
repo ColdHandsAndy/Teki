@@ -5,7 +5,7 @@
 #include <array>
 #include <span>
 
-#include <src/rendering/data_management/buffer_class.h>
+#include "src/rendering/data_management/buffer_class.h"
 
 extern PFN_vkGetDescriptorSetLayoutSizeEXT lvkGetDescriptorSetLayoutSizeEXT;
 extern PFN_vkGetDescriptorSetLayoutBindingOffsetEXT lvkGetDescriptorSetLayoutBindingOffsetEXT;
@@ -50,22 +50,19 @@ public:
 	~DescriptorManager();
 
 	void cmdSubmitResource(VkCommandBuffer cb, VkPipelineLayout layout, ResourceSet& resource);
-	//start descriptor submission
-	// submit descriptors(pipeline)
-	//end descriptor submission
+    void cmdSubmitPipelineResources(VkCommandBuffer cb, std::vector<ResourceSet>& resourceSets, VkPipelineLayout pipelineLayout, uint32_t frameIndex = 0u);
 private:
 	void createNewDescriptorBuffer();
-	//check previous offsets and buffers bound
-	friend class ResourceSet;
 
 	void insertResourceSetInBuffer(ResourceSet& resourceSet);
 	void removeResourceSetFromBuffer(std::list<DescriptorAllocation>::const_iterator allocationIter);
 
 
+	friend class ResourceSet;
 
 	DescriptorManager() = delete;
 	DescriptorManager(DescriptorManager&) = delete;
-	void operator=(DescriptorManager) = delete;
+	void operator=(DescriptorManager&) = delete;
 };
 
 
@@ -123,8 +120,11 @@ private:
     VkDevice m_device{};
     uint32_t m_setIndex{};
 
+    bool m_invalid{ false };
+
 public:
     ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, std::span<const VkDescriptorSetLayoutBinding> bindings, uint32_t frameCopies, std::span<const VkDescriptorDataEXT> descriptorData);
+    ResourceSet(ResourceSet&& srcResourceSet) noexcept;
     ~ResourceSet();
 
     uint32_t getFrameCount() const;
@@ -140,6 +140,10 @@ private:
     VkDeviceSize getDescriptorSetOffset(uint32_t frameInFlight)  const;
     const void* getResourcePayload() const;
     uint32_t getDescriptorTypeSize(VkDescriptorType type) const;
+
+    ResourceSet() = delete;
+    ResourceSet(ResourceSet&) = delete;
+    void operator=(ResourceSet&) = delete;
 
     friend class DescriptorManager;
 };

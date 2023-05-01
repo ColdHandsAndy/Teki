@@ -28,39 +28,51 @@ struct StaticVertex
 	{
 	}
 
-    static VkVertexInputBindingDescription getBindingDescription()
+    static const VkVertexInputBindingDescription& getBindingDescription()
     {
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(StaticVertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        static const VkVertexInputBindingDescription bindingDescription
+        {
+            .binding = 0,
+            .stride = sizeof(StaticVertex),
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+        };
 
         return bindingDescription;
     }
 
-    static std::array<VkVertexInputAttributeDescription, 4> getAttributeDescriptions()
+    static const std::array<VkVertexInputAttributeDescription, 4>& getAttributeDescriptions()
     {
-        std::array<VkVertexInputAttributeDescription, 4> attributeDescriptions{};
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(StaticVertex, position);
-
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32_UINT;
-        attributeDescriptions[1].offset = offsetof(StaticVertex, normal);
-
-        attributeDescriptions[2].binding = 0;
-        attributeDescriptions[2].location = 2;
-        attributeDescriptions[2].format = VK_FORMAT_R32_UINT;
-        attributeDescriptions[2].offset = offsetof(StaticVertex, tangent);
-
-        attributeDescriptions[3].binding = 0;
-        attributeDescriptions[3].location = 3;
-        attributeDescriptions[3].format = VK_FORMAT_R32_UINT;
-        attributeDescriptions[3].offset = offsetof(StaticVertex, texCoords);
+        static const std::array<VkVertexInputAttributeDescription, 4> attributeDescriptions
+        {
+        VkVertexInputAttributeDescription
+        {
+            .location = 0,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = offsetof(StaticVertex, position)
+        },
+        VkVertexInputAttributeDescription
+        {
+            .location = 1,
+            .binding = 0,
+            .format = VK_FORMAT_R32_UINT,
+            .offset = offsetof(StaticVertex, normal)
+        },
+        VkVertexInputAttributeDescription
+        {
+            .location = 2,
+            .binding = 0,
+            .format = VK_FORMAT_R32_UINT,
+            .offset = offsetof(StaticVertex, tangent)
+        },
+        VkVertexInputAttributeDescription
+        {
+            .location = 3,
+            .binding = 0,
+            .format = VK_FORMAT_R32_UINT,
+            .offset = offsetof(StaticVertex, texCoords)
+        }
+        };
 
         return attributeDescriptions;
     }
@@ -80,25 +92,29 @@ struct PosOnlyVertex
     {
     }
 
-    static VkVertexInputBindingDescription getBindingDescription()
+    static const VkVertexInputBindingDescription& getBindingDescription()
     {
-        VkVertexInputBindingDescription bindingDescription{};
-
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(PosOnlyVertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        static const VkVertexInputBindingDescription bindingDescription{
+            .binding = 0, 
+            .stride = sizeof(PosOnlyVertex), 
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX 
+        };
 
         return bindingDescription;
     }
 
-    static std::array<VkVertexInputAttributeDescription, 1> getAttributeDescriptions()
+    static const std::array<VkVertexInputAttributeDescription, 1>& getAttributeDescriptions()
     {
-        std::array<VkVertexInputAttributeDescription, 1> attributeDescriptions{};
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(PosOnlyVertex, position);
+        static const std::array<VkVertexInputAttributeDescription, 1> attributeDescriptions
+        {
+            VkVertexInputAttributeDescription
+            {
+                .location = 0,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = offsetof(PosOnlyVertex, position)
+            }
+        };
 
         return attributeDescriptions;
     }
@@ -119,29 +135,37 @@ struct PosTexVertex
     {
     }
 
-    static VkVertexInputBindingDescription getBindingDescription()
+    static const VkVertexInputBindingDescription& getBindingDescription()
     {
-        VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
-        bindingDescription.stride = sizeof(PosTexVertex);
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        static const VkVertexInputBindingDescription bindingDescription{
+            .binding = 0,
+            .stride = sizeof(PosTexVertex),
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+        };
 
         return bindingDescription;
     }
 
-    static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions()
+
+    static const std::array<VkVertexInputAttributeDescription, 2>& getAttributeDescriptions()
     {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
-
-        attributeDescriptions[0].binding = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset = offsetof(PosTexVertex, position);
-
-        attributeDescriptions[1].binding = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptions[1].offset = offsetof(PosTexVertex, texCord);
+        static const std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions
+        {
+            VkVertexInputAttributeDescription
+            {
+                .location = 0,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = offsetof(PosTexVertex, position)
+            },
+            VkVertexInputAttributeDescription
+            {
+                .location = 1,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32_SFLOAT,
+                .offset = offsetof(PosTexVertex, texCord)
+            },
+        };
 
         return attributeDescriptions;
     }
