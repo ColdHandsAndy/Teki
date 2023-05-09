@@ -6,6 +6,7 @@
 DescriptorManager::DescriptorManager(VulkanObjectHandler& vulkanObjectHandler)
 {
     m_descriptorBufferAlignment = vulkanObjectHandler.getPhysDevDescBufferProperties().descriptorBufferOffsetAlignment;
+    ASSERT_ALWAYS((m_descriptorBufferAlignment & (m_descriptorBufferAlignment - 1)) == 0, "App", "Non power of two alignment isn't supported.");
     m_queueFamilyIndices = { vulkanObjectHandler.getGraphicsFamilyIndex(), vulkanObjectHandler.getComputeFamilyIndex() };
 
     m_device = vulkanObjectHandler.getLogicalDevice();

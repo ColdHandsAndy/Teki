@@ -34,6 +34,7 @@ public:
 	VkBuffer getBufferHandle() const;
 	VkDeviceSize getBufferByteSize() const;
 	VkDeviceAddress getBufferDeviceAddress() const;
+	VkDeviceSize getBufferAlignment() const;
 
 	static void assignGlobalMemoryManager(MemoryManager& memManager);
 
@@ -65,6 +66,7 @@ class BufferBaseHostInaccessible : public BufferBase
 {
 public:
 	BufferBaseHostInaccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags = NULL_FLAG);
+	BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, int allocFlags = NULL_FLAG);
 	BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags = NULL_FLAG);
 	BufferBaseHostInaccessible(BufferBaseHostInaccessible&& srcBuffer) = default;
 	~BufferBaseHostInaccessible();
@@ -82,17 +84,27 @@ private:
 	VkDeviceSize m_bufferOffset{};
 	VkDeviceSize m_bufferSize{};
 
-	BufferBaseHostInaccessible& m_motherBuffer;
+	BufferBaseHostInaccessible* m_motherBuffer{ nullptr };
 	VmaVirtualAllocation m_allocation{};
 
+	bool m_invalid{ true };
+
 public:
+	Buffer(BufferBaseHostInaccessible& motherBuffer);
 	Buffer(BufferBaseHostInaccessible& motherBuffer, VkDeviceSize size);
+	Buffer(Buffer&& srcBuffer);
 	~Buffer();
 
 	VkBuffer getBufferHandle() const;
 	VkDeviceSize getSize() const;
 	VkDeviceSize getOffset() const;
 	VkDeviceAddress getDeviceAddress() const;
+	VkDeviceSize getAlignment() const;
+
+	void initialize(VkDeviceSize size);
+
+	Buffer() = delete;
+	void operator=(Buffer&) = delete;
 };
 
 
@@ -103,6 +115,7 @@ private:
 
 public:
 	BufferBaseHostAccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
+	BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
 	BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
 	BufferBaseHostAccessible(BufferBaseHostAccessible&& srcBuffer) noexcept;
 	~BufferBaseHostAccessible();
@@ -124,11 +137,15 @@ private:
 	VkDeviceSize m_bufferSize{};
 	void* m_dataPtr{ nullptr };
 
-	BufferBaseHostAccessible& m_motherBuffer;
+	BufferBaseHostAccessible* m_motherBuffer{ nullptr };
 	VmaVirtualAllocation m_allocation{};
 
+	bool m_invalid{ true };
+
 public:
+	BufferMapped(BufferBaseHostAccessible& motherBuffer);
 	BufferMapped(BufferBaseHostAccessible& motherBuffer, VkDeviceSize size);
+	BufferMapped(BufferMapped&& srcBuffer);
 	~BufferMapped();
 
 	VkBuffer getBufferHandle() const;
@@ -136,6 +153,12 @@ public:
 	VkDeviceSize getOffset() const;
 	void* getData() const;
 	VkDeviceAddress getDeviceAddress() const;
+	VkDeviceSize getAlignment() const;
+
+	void initialize(VkDeviceSize size);
+
+	BufferMapped() = delete;
+	void operator=(BufferMapped&) = delete;
 };
 
 #endif

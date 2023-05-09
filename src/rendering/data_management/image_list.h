@@ -12,8 +12,8 @@
 class ImageList
 {
 private:
-	VkImage m_vulkanImageHandle{};
-	VkImageView m_vulkanImageView{};
+	VkImage m_imageHandle{};
+	VkImageView m_imageViewHandle{};
 
 	VkFormat m_format{};
 	uint32_t m_width{};

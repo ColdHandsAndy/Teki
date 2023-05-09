@@ -22,8 +22,8 @@ struct StaticVertex
 	}
 	StaticVertex(const float* pos, const float* norm, const float* tang, const float* texC)
 		: position{ glm::vec3{*pos, *(pos + 1), *(pos + 2)} },
-			normal{ glm::packSnorm4x8(glm::vec4{*norm, *(norm + 1), *(norm + 2), *(norm + 3)}) },
-				tangent{ glm::packSnorm4x8(glm::vec4{*tang, *(tang + 1), *(tang + 2), *(tang + 3)}) },
+			normal{ glm::packSnorm4x8(glm::vec4{*norm, *(norm + 1), *(norm + 2), 0.0f}) },
+				tangent{ glm::packSnorm4x8(glm::vec4{*tang, *(tang + 1), *(tang + 2), 0.0f}) },
 					texCoords{ glm::packHalf2x16(glm::vec2{*texC, *(texC + 1)}) }
 	{
 	}

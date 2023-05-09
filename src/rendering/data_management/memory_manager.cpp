@@ -12,6 +12,8 @@ MemoryManager::MemoryManager(const VulkanObjectHandler& vulkanObjects)
 
 	ASSERT_ALWAYS(vmaCreateAllocator(&createInfo, &m_allocator) == VK_SUCCESS, "VMA", "Allocator creation failed.")
 
+	m_device = vulkanObjects.getLogicalDevice();
+
 	m_graphicsQueueFamilyIndex = vulkanObjects.getGraphicsFamilyIndex();
 	m_computeQueueFamilyIndex = vulkanObjects.getComputeFamilyIndex();
 	m_transferQueueFamilyIndex = vulkanObjects.getTransferFamilyIndex();

@@ -109,6 +109,10 @@ VkDeviceAddress BufferBase::getBufferDeviceAddress() const
 	LOG_IF_WARNING(m_bufferMemoryAddress == UINT64_MAX, "Buffer was not created with \"VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO\"")
 	return m_bufferMemoryAddress;
 }
+VkDeviceSize BufferBase::getBufferAlignment() const
+{
+	return m_bufferAlignment;
+}
 
 void BufferBase::assignGlobalMemoryManager(MemoryManager& memManager)
 {
@@ -118,6 +122,21 @@ void BufferBase::assignGlobalMemoryManager(MemoryManager& memManager)
 
 BufferBaseHostInaccessible::BufferBaseHostInaccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags)
 	: BufferBase(device, bufferCreateInfo, false, false, false, allocFlags)
+{
+}
+BufferBaseHostInaccessible::BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, int allocFlags)
+	: BufferBase(device,
+		VkBufferCreateInfo
+		{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = bufferSize,
+				.usage = usageFlags,
+					.sharingMode = VK_SHARING_MODE_EXCLUSIVE
+		},
+		false,
+		false,
+		false,
+		allocFlags)
 {
 }
 BufferBaseHostInaccessible::BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags)
@@ -136,22 +155,36 @@ BufferBaseHostInaccessible::BufferBaseHostInaccessible(VkDevice device, VkDevice
 		false, 
 		allocFlags)
 {
-
 }
 BufferBaseHostInaccessible::~BufferBaseHostInaccessible()
 {
 }
 
-Buffer::Buffer(BufferBaseHostInaccessible& motherBuffer, VkDeviceSize size) : m_motherBuffer{ motherBuffer }
+Buffer::Buffer(BufferBaseHostInaccessible& motherBuffer) : m_motherBuffer{ &motherBuffer }, m_invalid{ true }
 {
-	m_bufferHandle = motherBuffer.getBufferHandle();
-	m_bufferSize = size;
-	motherBuffer.allocateFromBuffer(size, m_allocation, m_bufferOffset);
-	m_deviceAddress = motherBuffer.getBufferDeviceAddress() + m_bufferOffset;
+
+}
+Buffer::Buffer(BufferBaseHostInaccessible& motherBuffer, VkDeviceSize size) : m_motherBuffer{ &motherBuffer }
+{
+	initialize(size);
+}
+Buffer::Buffer(Buffer&& srcBuffer)
+	: m_motherBuffer{ srcBuffer.m_motherBuffer },
+		m_bufferHandle{ srcBuffer.m_bufferHandle },
+			m_deviceAddress{ srcBuffer.m_deviceAddress },
+				m_bufferOffset{ srcBuffer.m_bufferOffset }, 
+					m_bufferSize{ srcBuffer.m_bufferSize },
+						m_allocation{ srcBuffer.m_allocation },
+							m_invalid{ false }
+{
+	srcBuffer.m_invalid = true;
 }
 Buffer::~Buffer()
 {
-	m_motherBuffer.freeBufferAllocation(m_allocation);
+	if (!m_invalid)
+	{
+		m_motherBuffer->freeBufferAllocation(m_allocation);
+	}
 }
 VkBuffer Buffer::getBufferHandle() const
 {
@@ -169,12 +202,41 @@ VkDeviceAddress Buffer::getDeviceAddress() const
 {
 	return m_deviceAddress;
 }
+VkDeviceSize Buffer::getAlignment() const
+{
+	return m_motherBuffer->getBufferAlignment();
+}
+void Buffer::initialize(VkDeviceSize size)
+{
+	LOG_IF_INFO(!m_invalid, "{}", "Buffer is already initialized");
 
+	if (m_invalid)
+	{
+		m_bufferHandle = m_motherBuffer->getBufferHandle();
+		m_bufferSize = size;
+		m_motherBuffer->allocateFromBuffer(size, m_allocation, m_bufferOffset);
+		m_deviceAddress = m_motherBuffer->getBufferDeviceAddress() + m_bufferOffset;
+	}
+}
 
 BufferBaseHostAccessible::BufferBaseHostAccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags, bool useSharedMemory, bool memoryIsCached)
 	: BufferBase(device, bufferCreateInfo, useSharedMemory, true, memoryIsCached, allocFlags)
 {
-
+}
+BufferBaseHostAccessible::BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, int allocFlags, bool useSharedMemory, bool memoryIsCached)
+	: BufferBase(device,
+		VkBufferCreateInfo
+		{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = bufferSize,
+				.usage = usageFlags,
+					.sharingMode = VK_SHARING_MODE_EXCLUSIVE
+		},
+		useSharedMemory,
+		true,
+		memoryIsCached,
+		allocFlags)
+{
 }
 BufferBaseHostAccessible::BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags, bool useSharedMemory, bool memoryIsCached)
 	: BufferBase(device,
@@ -192,7 +254,6 @@ BufferBaseHostAccessible::BufferBaseHostAccessible(VkDevice device, VkDeviceSize
 		memoryIsCached,
 		allocFlags)
 {
-
 }
 BufferBaseHostAccessible::BufferBaseHostAccessible(BufferBaseHostAccessible&& srcBuffer) noexcept
 {
@@ -242,18 +303,29 @@ void* BufferBaseHostAccessible::getData()
 	return m_mappedMemoryPointer;
 }
 
-BufferMapped::BufferMapped(BufferBaseHostAccessible& motherBuffer, VkDeviceSize size) : m_motherBuffer{motherBuffer}
+BufferMapped::BufferMapped(BufferBaseHostAccessible& motherBuffer) : m_motherBuffer{ &motherBuffer }, m_invalid{ true }
 {
-	m_bufferHandle = motherBuffer.getBufferHandle();
-	m_bufferSize = size;
-	motherBuffer.allocateFromBuffer(size, m_allocation, m_bufferOffset);
-	m_deviceAddress = motherBuffer.getBufferDeviceAddress() + m_bufferOffset;
-
-	m_dataPtr = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(motherBuffer.getData()) + m_bufferOffset);
+}
+BufferMapped::BufferMapped(BufferBaseHostAccessible& motherBuffer, VkDeviceSize size) : m_motherBuffer{ &motherBuffer }
+{
+	initialize(size);
+}
+BufferMapped::BufferMapped(BufferMapped&& srcBuffer)
+	: m_motherBuffer{ srcBuffer.m_motherBuffer },
+		m_bufferHandle{ srcBuffer.m_bufferHandle },
+			m_deviceAddress{ srcBuffer.m_deviceAddress },
+				m_bufferOffset{ srcBuffer.m_bufferOffset },
+					m_bufferSize{ srcBuffer.m_bufferSize },
+						m_allocation{ srcBuffer.m_allocation }
+{
+	srcBuffer.m_invalid = true;
 }
 BufferMapped::~BufferMapped()
 {
-	m_motherBuffer.freeBufferAllocation(m_allocation);
+	if (!m_invalid)
+	{
+		m_motherBuffer->freeBufferAllocation(m_allocation);
+	}
 }
 VkBuffer BufferMapped::getBufferHandle() const
 {
@@ -274,4 +346,22 @@ void* BufferMapped::getData() const
 VkDeviceAddress BufferMapped::getDeviceAddress() const
 {
 	return m_deviceAddress;
+}
+VkDeviceSize BufferMapped::getAlignment() const
+{
+	return m_motherBuffer->getBufferAlignment();
+}
+void BufferMapped::initialize(VkDeviceSize size)
+{
+	LOG_IF_INFO(!m_invalid, "{}", "Buffer is already initialized");
+
+	if (m_invalid)
+	{
+		m_bufferHandle = m_motherBuffer->getBufferHandle();
+		m_bufferSize = size;
+		m_motherBuffer->allocateFromBuffer(size, m_allocation, m_bufferOffset);
+		m_deviceAddress = m_motherBuffer->getBufferDeviceAddress() + m_bufferOffset;
+
+		m_dataPtr = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(m_motherBuffer->getData()) + m_bufferOffset);
+	}
 }

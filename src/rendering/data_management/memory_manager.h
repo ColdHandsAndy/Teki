@@ -17,6 +17,8 @@ private:
 	VmaAllocator m_allocator{};
 	std::list<VmaAllocation> m_allocations{};
 
+	VkDevice m_device{};
+
 	uint32_t m_graphicsQueueFamilyIndex{};
 	uint32_t m_computeQueueFamilyIndex{};
 	uint32_t m_transferQueueFamilyIndex{};

@@ -44,17 +44,17 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	auto allocationIter{ m_memoryManager->addAllocation() };
-	ASSERT_DEBUG(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_vulkanImageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
+	ASSERT_DEBUG(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
 	m_imageAllocIter = allocationIter;
 
 	VkImageViewCreateInfo imageViewCI{};
 	imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	imageViewCI.image = m_vulkanImageHandle;
+	imageViewCI.image = m_imageHandle;
 	imageViewCI.format = m_format;
 	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 	imageViewCI.components = {.r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A};
 	imageViewCI.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
-	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_vulkanImageView) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
 
 	for (int i{ static_cast<int>(m_arrayLayerCount - 1) }; i >= 0; --i)
 	{
@@ -63,7 +63,8 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 }
 ImageList::~ImageList()
 {
-	m_memoryManager->destroyImage(m_vulkanImageHandle, m_imageAllocIter);
+	vkDestroyImageView(m_memoryManager->m_device, m_imageViewHandle, nullptr);
+	m_memoryManager->destroyImage(m_imageHandle, m_imageAllocIter);
 }
 
 
@@ -125,7 +126,7 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 		}
 	}
 
-	vkCmdCopyBufferToImage(cb, srcBuffer, m_vulkanImageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
+	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
 	delete[] bufferImageCopies;
 }
 

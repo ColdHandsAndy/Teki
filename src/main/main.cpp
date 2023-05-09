@@ -8,16 +8,28 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include "vulkan/vulkan.h"
+#include <vulkan/vulkan.h>
 
 #define VMA_IMPLEMENTATION
-#include "vma/vk_mem_alloc.h"
+#include <vma/vk_mem_alloc.h>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+#define TINYGLTF_IMPLEMENTATION
+#define TINYGLTF_USE_CPP14
+#define TINYGLTF_NO_EXTERNAL_IMAGE
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#pragma warning(suppress : 4996)
+#include "tiny_gltf.h"
+#undef TINYGLTF_IMPLEMENTATION
+#undef STB_IMAGE_IMPLEMENTATION
+#undef STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/rendering/renderer/pipeline_management.h"
@@ -27,12 +39,16 @@
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_list.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
+#include "src/rendering/data_abstraction/mesh.h"
+#include "src/rendering/data_abstraction/runit.h"
+
 #include "src/window/window.h"
 #include "src/world_state_class/world_state.h"
 
+#include "src/tools/alignment.h"
+#include "src/tools/model_loader.h"
 #include "src/tools/asserter.h"
 
-#include "obj loader/obj_loader.h"
 
 #define WINDOW_WIDTH_DEFAULT  1280
 #define WINDOW_HEIGHT_DEFAULT 720
@@ -44,13 +60,6 @@ namespace fs = std::filesystem;
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
 
-struct PipelineStuff
-{
-	VkPipeline pipeline;
-	VkPipelineLayout pipelineLayout;
-	VkDescriptorSetLayout layout;
-};
-PipelineStuff createDummyPipeline(VkDevice device, VkDescriptorSetLayout layout);
 struct DepthBufferImageStuff
 {
 	VkImage depthImage;
@@ -59,7 +68,7 @@ struct DepthBufferImageStuff
 };
 DepthBufferImageStuff createDepthBuffer(VkPhysicalDevice physDevice, VkDevice device);
 void destroyDepthBuffer(VkDevice device, DepthBufferImageStuff depthBuffer);
-std::vector<char> getShaderCode(fs::path filepath);
+std::vector<char> getShaderCode(const fs::path& filepath);
 VkShaderModule createModule(VkDevice device, std::vector<char>& code);
 
 int main()
@@ -84,11 +93,11 @@ int main()
 
 	uint32_t gfIndex{ vulkanObjectHandler->getGraphicsFamilyIndex() };
 	uint32_t cfIndex{ vulkanObjectHandler->getComputeFamilyIndex() };
+	uint32_t tfIndex{ vulkanObjectHandler->getTransferFamilyIndex() };
 
-	BufferBaseHostInaccessible baseDeviceBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, {{gfIndex}} };
-	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, {{gfIndex}} };
-	BufferBaseHostAccessible stagingBaseBuffer{ device, STAGING_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, {{gfIndex, cfIndex}} };
-
+	BufferBaseHostInaccessible baseDeviceBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+	BufferBaseHostAccessible baseHostCachedBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
 
 	// START: Dummy rendering test
 
@@ -96,7 +105,7 @@ int main()
 
 	glm::mat4* mvpMatrices{ reinterpret_cast<glm::mat4*>(uniformBuffer.getData()) };
 	mvpMatrices[0] = glm::mat4{ 1.0 };
-	mvpMatrices[1] = glm::lookAt(glm::vec3{ -1.0, 2.0, -5.0 }, glm::vec3{ 0.0, 2.0, 0.0 }, glm::vec3{ 0.0, 1.0, 0.0 });
+	mvpMatrices[1] = glm::lookAt(glm::vec3{ 0.0f, 5.0f, -9.0f }, glm::vec3{ 0.0f, 2.0f, 0.0f }, glm::vec3{ 0.0f, 1.0f, 0.0f });
 	mvpMatrices[2] = glm::perspective(glm::radians(45.0), (double)window.getWidth() / window.getHeight(), 0.1, 100.0);
 
 	VkDescriptorSetLayoutBinding binding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
@@ -105,53 +114,28 @@ int main()
 	std::vector<char> vertCode{ getShaderCode("shaders/cmpld/shader_vert.spv") };
 	std::vector<char> fragCode{ getShaderCode("shaders/cmpld/shader_frag.spv") };
 	std::vector<ShaderStage> shaderStages{ ShaderStage{createModule(device, vertCode), VK_SHADER_STAGE_VERTEX_BIT, "main"}, ShaderStage{createModule(device, fragCode), VK_SHADER_STAGE_FRAGMENT_BIT, "main"}};
-	std::vector<ResourceSet> resourceSets{ /*ResourceSet{device, 0, VkDescriptorSetLayoutCreateFlags{}, {{binding}}, 1, {{{.pUniformBuffer = &addressinfo}}}}*/ };
+	std::vector<ResourceSet> resourceSets{};
 	resourceSets.emplace_back( device, 0, VkDescriptorSetLayoutCreateFlags{}, std::span<const VkDescriptorSetLayoutBinding>{{binding}}, 1, std::span<const VkDescriptorDataEXT>{{{.pUniformBuffer = &addressinfo}}} );
-	Pipeline pipeline{ device, shaderStages, resourceSets, {{PosTexVertex::getBindingDescription()}}, {PosTexVertex::getAttributeDescriptions()} };
+	Pipeline pipeline{ device, shaderStages, resourceSets, {{StaticVertex::getBindingDescription()}}, {StaticVertex::getAttributeDescriptions()} };
 	vertCode.clear();
 	fragCode.clear();
 	
 	DepthBufferImageStuff depthBuffer{ createDepthBuffer(vulkanObjectHandler->getPhysicalDevice(), vulkanObjectHandler->getLogicalDevice()) };
 
-	objl::Loader objLoader{};
-	//objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/bunny10k.obj");
-	objLoader.LoadFile("D:/Projects/Engine/obj loader/meshes/greek_helmet.obj");
-	std::vector<PosTexVertex> vertices{};
-	for (auto& vert : objLoader.LoadedMeshes[0].Vertices)
-	{
-		vertices.push_back({ {vert.Position.X, vert.Position.Y, vert.Position.Z}, {vert.TextureCoordinate.X, vert.TextureCoordinate.Y} });
-	}
-	vertices.shrink_to_fit();
-	std::vector<uint32_t> indices{ objLoader.LoadedMeshes[0].Indices };
+	Buffer vertexData{ baseDeviceBuffer };
+	Buffer indexData{ baseDeviceBuffer };
+	BufferMapped indirectCmdBuffer{ baseHostCachedBuffer };
+	std::vector<StaticMesh> staticMeshes(loadStaticMeshes(vulkanObjectHandler, bufferSet, vertexData, indexData, indirectCmdBuffer,
+		{
+			"D:/Games/Models/gltf/sci-fi_personal_space_pod_shipweekly_challenge/scene.gltf",
+			"D:/Games/Models/gltf/racing_bolid/scene.gltf"
+		}));
 
 	//ImageList listImage{ device, 1024, 1024, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT };
-	Buffer vertexData{ baseDeviceBuffer, vertices.size() * sizeof(PosTexVertex) };
-	Buffer indexData{ baseDeviceBuffer, indices.size() * sizeof(uint32_t) };
-	VkBuffer bufferHandle{ vertexData.getBufferHandle() };
-	VkDeviceSize vertexOffset{ vertexData.getOffset() };
-	VkDeviceSize indexOffset{ indexData.getOffset() };
-
-	void* ptr{ stagingBaseBuffer.getData() };
-	std::memcpy(ptr, vertices.data(), vertexData.getSize());
-	std::memcpy(reinterpret_cast<uint8_t*>(ptr) + vertexData.getSize(), indices.data(), indexData.getSize());
-
-	VkCommandBuffer CB{ bufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
-	{
-		VkBufferCopy regions[2]{ {.srcOffset = 0, .dstOffset = vertexData.getOffset(), .size = vertexData.getSize()}, {.srcOffset = vertexData.getSize(), .dstOffset = indexData.getOffset(), .size = indexData.getSize()} };
-		BufferTools::cmdBufferCopy(CB, stagingBaseBuffer.getBufferHandle(), vertexData.getBufferHandle(), 2, regions);
-	}
-	bufferSet.endRecording(CB);
-	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB };
-	ASSERT_ALWAYS(vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
-	ASSERT_ALWAYS(vkQueueWaitIdle(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
-
-
-
+	
 	VkSemaphore swapchainSemaphore{};
 	VkSemaphoreCreateInfo semCI1{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	vkCreateSemaphore(device, &semCI1, nullptr, &swapchainSemaphore);
-
-	VkSubmitInfo submitInfoRender{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .waitSemaphoreCount = 1, .pWaitSemaphores = &swapchainSemaphore, .commandBufferCount = 1, .pCommandBuffers = &CB };
 
 	uint32_t swapchainIndex{};
 	VkRenderingAttachmentInfo attachmentInfo{};
@@ -229,8 +213,7 @@ int main()
 		WorldState::refreshFrameTime();
 		angle += glm::radians(90.0f) * WorldState::getDeltaTime();
 
-		//mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::scale(glm::vec3{19.0f});
-		mvpMatrices[0] = glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0, 1.0, 0.0 }) * glm::scale(glm::vec3{ 0.5f }) * glm::translate(glm::vec3{ 0.0f, 5.0f, 0.0f });
+		mvpMatrices[0] = glm::translate(glm::vec3{0.0f}) * glm::rotate(static_cast<float>(angle), glm::vec3{ 0.0f, 1.0f, 0.0f }) * glm::scale(glm::vec3{ 3.0f, 3.0f, 3.0f });
 
 		vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
 		swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
@@ -272,8 +255,10 @@ int main()
 
 
 		pipeline.cmdBind(CBloop);
-		vkCmdBindVertexBuffers(CBloop, 0, 1, &bufferHandle, &vertexOffset);
-		vkCmdBindIndexBuffer(CBloop, bufferHandle, indexOffset, VK_INDEX_TYPE_UINT32);
+		VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
+		VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset()};
+		vkCmdBindVertexBuffers(CBloop, 0, 1, vertexBindings, vertexBindingOffsets);
+		vkCmdBindIndexBuffer(CBloop, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 		VkRenderingInfo renderInfo{};
 		renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 		renderInfo.renderArea = { .offset{0,0}, .extent{.width = WINDOW_WIDTH_DEFAULT, .height = WINDOW_HEIGHT_DEFAULT} };
@@ -283,7 +268,7 @@ int main()
 		renderInfo.pColorAttachments = &attachmentInfo;
 		
 		vkCmdBeginRendering(CBloop, &renderInfo);
-		vkCmdDrawIndexed(CBloop, indices.size(), 1, 0, 0, 0);
+		vkCmdDrawIndexedIndirect(CBloop, indirectCmdBuffer.getBufferHandle(), indirectCmdBuffer.getOffset(), indirectCmdBuffer.getSize() / sizeof(VkDrawIndexedIndirectCommand), sizeof(VkDrawIndexedIndirectCommand));
 		vkCmdEndRendering(CBloop);
 
 
@@ -302,6 +287,7 @@ int main()
 
 		bufferSet.endRecording(CBloop);
 		vkResetFences(device, 1, &fence);
+		VkSubmitInfo submitInfoRender{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .waitSemaphoreCount = 1, .pWaitSemaphores = &swapchainSemaphore, .commandBufferCount = 1, .pCommandBuffers = &CBloop };
 		vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfoRender, fence);
 		vkQueueWaitIdle(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 
@@ -319,7 +305,6 @@ int main()
 
 		glfwPollEvents();
 	}
-
 	// END: Dummy rendering test
 
 
@@ -337,7 +322,7 @@ std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window)
 	return std::shared_ptr<VulkanObjectHandler>{ std::make_shared<VulkanObjectHandler>(info) };
 }
 
-std::vector<char> getShaderCode(fs::path filepath)
+std::vector<char> getShaderCode(const fs::path& filepath)
 {
 	std::ifstream stream{ filepath, std::ios::ate | std::ios::binary };
 	ASSERT_ALWAYS(stream.is_open(), "App", "Could not open shader file");
