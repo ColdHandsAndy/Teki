@@ -21,7 +21,7 @@ private:
 	uint32_t m_mipLevelCount{};
 	uint32_t m_arrayLayerCount{};
 
-	std::stack<uint32_t> m_freeLayers{};
+	std::stack<uint16_t> m_freeLayers{};
 
 	std::list<VmaAllocation>::const_iterator m_imageAllocIter{};
 
@@ -36,7 +36,7 @@ public:
 	VkImageView getImageView();
 	VkFormat getFormat();
 	uint32_t getWidth();
-	uint32_t geyHeight();
+	uint32_t getHeight();
 	uint32_t getLayerCount();
 	VkImageSubresourceRange getSubresourceRange();
 
@@ -44,10 +44,9 @@ public:
 
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 
-private:
-	
-	bool getLayer(uint32_t& layerIndex);
-	void freeLayer(uint32_t freedLayerIndex);
+	bool getLayer(uint16_t& layerIndex);
+	void freeLayer(uint16_t freedLayerIndex);
+
 };
 
 #endif

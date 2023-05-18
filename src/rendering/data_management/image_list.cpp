@@ -23,7 +23,7 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 	imageCI.mipLevels = m_mipLevelCount;
 	if (layercount == 0)
 	{
-		m_arrayLayerCount = 3; /*calculate array layers function*/
+		m_arrayLayerCount = 16; /*calculate array layers function*/
 	}
 	else
 	{
@@ -67,13 +67,43 @@ ImageList::~ImageList()
 	m_memoryManager->destroyImage(m_imageHandle, m_imageAllocIter);
 }
 
+VkImage ImageList::getImageHandle()
+{
+	return m_imageHandle;
+}
+
+VkImageView ImageList::getImageView()
+{
+	return m_imageViewHandle;
+}
+
+VkFormat ImageList::getFormat()
+{
+	return m_format;
+}
+
+uint32_t ImageList::getWidth()
+{
+	return m_width;
+}
+
+uint32_t ImageList::getHeight()
+{
+	return m_height;
+}
+
+uint32_t ImageList::getLayerCount()
+{
+	return m_arrayLayerCount;
+}
+
 
 VkImageSubresourceRange ImageList::getSubresourceRange()
 {
 	return VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
 }
 
-bool ImageList::getLayer(uint32_t& slotIndex)
+bool ImageList::getLayer(uint16_t& slotIndex)
 {
 	if (m_freeLayers.empty())
 		return false;
@@ -82,7 +112,7 @@ bool ImageList::getLayer(uint32_t& slotIndex)
 	return true;
 }
 
-void ImageList::freeLayer(uint32_t freedSlotIndex)
+void ImageList::freeLayer(uint16_t freedSlotIndex)
 {
 	m_freeLayers.push(freedSlotIndex);
 }
@@ -95,17 +125,18 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 	{
 		for (uint32_t i{ 0 }; i < regionCount; ++i)
 		{
-			bufferImageCopies[i].bufferOffset = bufferOffset[i];
-			bufferImageCopies[i].imageOffset = { 0, 0, 0 };
-			bufferImageCopies[i].imageExtent = { width[i], height[i], 1 };
-
 			VkImageSubresourceLayers imageSubresource{};
 			imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			imageSubresource.layerCount = 1;
 			imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
 			imageSubresource.mipLevel = 0;
 
-			bufferImageCopies[i].imageSubresource = imageSubresource;
+			bufferImageCopies[i] = VkBufferImageCopy{
+				.bufferOffset = bufferOffset[i],
+				.imageSubresource = imageSubresource,
+				.imageOffset = { 0, 0, 0 },
+				.imageExtent = { width[i], height[i], 1 }
+			};
 		}
 	}
 	else

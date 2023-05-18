@@ -238,6 +238,17 @@
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\shader_comp.comp">
+      <FileType>Document</FileType>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compiling compute shader</Message>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compiling compute shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename).comp"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename).comp"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_OUTPUT_DIR)\%(Filename).spv</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_OUTPUT_DIR)\%(Filename).spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
     <None Include="shaders\vert_shader.vs" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

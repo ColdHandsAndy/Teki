@@ -14,7 +14,7 @@ extern PFN_vkCmdSetDescriptorBufferOffsetsEXT lvkCmdSetDescriptorBufferOffsetsEX
 extern PFN_vkGetDescriptorEXT lvkGetDescriptorEXT;
 extern PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT lvkCmdBindDescriptorBufferEmbeddedSamplersEXT;
 
-#define DESCRIPTOR_BUFFER_DEFAULT_SIZE 1024 //51200
+#define DESCRIPTOR_BUFFER_DEFAULT_SIZE 51200 //1024
 
 class ResourceSet;
 
@@ -50,8 +50,15 @@ public:
 	~DescriptorManager();
 
 	void cmdSubmitResource(VkCommandBuffer cb, VkPipelineLayout layout, ResourceSet& resource);
-    void cmdSubmitPipelineResources(VkCommandBuffer cb, std::vector<ResourceSet>& resourceSets, VkPipelineLayout pipelineLayout, uint32_t frameIndex = 0u);
+    void cmdSubmitPipelineResources(VkCommandBuffer cb, VkPipelineBindPoint bindPoint, std::vector<ResourceSet>& resourceSets, const std::vector<uint32_t>& resourceIndices, VkPipelineLayout pipelineLayout);
+
 private:
+    enum DescriptorBufferType
+    {
+        RESOURCE_TYPE,
+        SAMPLER_TYPE,
+        TYPES_MAX_NUM
+    };
 	void createNewDescriptorBuffer();
 
 	void insertResourceSetInBuffer(ResourceSet& resourceSet);
@@ -91,14 +98,6 @@ private:
     struct DescriptorBuffer;
     std::list<DescriptorManager::DescriptorAllocation>::const_iterator m_allocationIter{};
 
-    //descriptor data stored as a vector where data for each binding has "frameCopies" of VkDescriptorDataEXT structs
-    struct DescriptorData
-    {
-        uint32_t frameCopies{};
-        std::vector<VkDescriptorDataEXT> descriptorSetDataPerFrame{};
-    };
-    DescriptorData m_descriptorData;
-
     struct BindingData
     {
         uint32_t binding{};
@@ -109,11 +108,11 @@ private:
     };
     std::vector<BindingData> m_resources{};
 
+    uint32_t m_resCopies{};
 
     VkDeviceSize m_descSetByteSize{};
     VkDeviceSize m_descSetAlignedByteSize{};
 
-    bool m_initializationState{ false };
     VkDeviceSize m_descBufferOffset{};
     uint8_t* m_resourcePayload{ nullptr };
 
@@ -123,17 +122,16 @@ private:
     bool m_invalid{ false };
 
 public:
-    ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, std::span<const VkDescriptorSetLayoutBinding> bindings, uint32_t frameCopies, std::span<const VkDescriptorDataEXT> descriptorData);
+    ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, uint32_t resCopies, const std::vector<VkDescriptorSetLayoutBinding>& bindings, const std::vector<VkDescriptorBindingFlags>& bindingFlags, const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData);
     ResourceSet(ResourceSet&& srcResourceSet) noexcept;
     ~ResourceSet();
 
-    uint32_t getFrameCount() const;
+    uint32_t getCopiesCount() const;
     uint32_t getSetIndex() const;
     const VkDescriptorSetLayout& getSetLayout() const;
 
 private:
-    bool isInitialized() const;
-    void initializeSet(uint32_t descriptorBufferOffsetAlignment);
+    void initializeSet(const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData);
     uint32_t getDescBufferIndex() const;
     VkDeviceSize getDescriptorSetAlignedSize();
     void setDescBufferOffset(VkDeviceSize offset);

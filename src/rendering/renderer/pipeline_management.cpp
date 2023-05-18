@@ -17,6 +17,7 @@ Pipeline::Pipeline(VkDevice device, std::vector<ShaderStage>& shaders, std::vect
 	pipelineLayoutCI.pSetLayouts = setLayouts.data();
 	ASSERT_ALWAYS(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
 	m_resourceSets = std::move(resourceSets);
+	m_resourceSetsLayout = std::vector<uint32_t>(m_resourceSets.size(), 0u);
 
 	VkPipelineDynamicStateCreateInfo			 dynamicState{};
 	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
@@ -137,6 +138,7 @@ Pipeline::Pipeline(Pipeline&& srcPipeline) noexcept
 	m_pipelineLayoutHandle = srcPipeline.m_pipelineLayoutHandle;
 
 	m_resourceSets = std::move(srcPipeline.m_resourceSets);
+	m_resourceSetsLayout = std::move(srcPipeline.m_resourceSetsLayout);
 
 	srcPipeline.m_invalid = true;
 }
@@ -165,7 +167,102 @@ std::vector<ResourceSet>& Pipeline::getResourceSets()
 	return m_resourceSets;
 }
 
+const std::vector<uint32_t>& Pipeline::getCurrentResourceLayout()
+{
+	return m_resourceSetsLayout;
+}
+
+void Pipeline::setResourceIndex(uint32_t resSetIndex, uint32_t value)
+{
+	m_resourceSetsLayout[resSetIndex] = value;
+}
+
 void Pipeline::cmdBind(VkCommandBuffer cb)
 {
 	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineHandle);
+}
+
+
+
+PipelineCompute::PipelineCompute(VkDevice device, const VkShaderModule sModule, std::vector<ResourceSet>& resourceSets)
+{
+	m_device = device;
+
+	VkPipelineLayoutCreateInfo					 pipelineLayoutCI{};
+	pipelineLayoutCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	std::vector<VkDescriptorSetLayout> setLayouts(resourceSets.size());
+	for (uint32_t i{ 0 }; i < resourceSets.size(); ++i)
+	{
+		setLayouts[i] = resourceSets[i].getSetLayout();
+	}
+	pipelineLayoutCI.setLayoutCount = setLayouts.size();
+	pipelineLayoutCI.pSetLayouts = setLayouts.data();
+	ASSERT_ALWAYS(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
+	m_resourceSets = std::move(resourceSets);
+	m_resourceSetsLayout = std::vector<uint32_t>(m_resourceSets.size(), 0u);
+	
+	VkPipelineShaderStageCreateInfo shaderStage{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+	shaderStage.module = sModule;
+	shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	shaderStage.pName = "main";
+
+	VkComputePipelineCreateInfo compPipelineCI{ .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+	compPipelineCI.layout = m_pipelineLayoutHandle;
+	compPipelineCI.stage = shaderStage;
+	compPipelineCI.flags = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+	ASSERT_ALWAYS(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compPipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Compute pipeline creation failed.");
+
+	vkDestroyShaderModule(device, sModule, nullptr);
+}
+
+PipelineCompute::PipelineCompute(PipelineCompute&& srcPipeline) noexcept
+{
+	if (this == &srcPipeline)
+		return;
+
+	m_device = srcPipeline.m_device;
+
+	m_pipelineHandle = srcPipeline.m_pipelineHandle;
+	m_pipelineLayoutHandle = srcPipeline.m_pipelineLayoutHandle;
+
+	m_resourceSets = std::move(srcPipeline.m_resourceSets);
+	m_resourceSetsLayout = std::move(srcPipeline.m_resourceSetsLayout);
+
+	srcPipeline.m_invalid = true;
+}
+PipelineCompute::~PipelineCompute()
+{
+	if (!m_invalid)
+	{
+		vkDestroyPipeline(m_device, m_pipelineHandle, nullptr);
+		vkDestroyPipelineLayout(m_device, m_pipelineLayoutHandle, nullptr);
+	}
+}
+
+VkPipeline PipelineCompute::getPipelineHandle() const
+{
+	return m_pipelineHandle;
+}
+VkPipelineLayout PipelineCompute::getPipelineLayoutHandle() const
+{
+	return m_pipelineLayoutHandle;
+}
+std::vector<ResourceSet>& PipelineCompute::getResourceSets()
+{
+	return m_resourceSets;
+}
+const std::vector<uint32_t>& PipelineCompute::getCurrentResourceLayout()
+{
+	return m_resourceSetsLayout;
+}
+void PipelineCompute::setResourceIndex(uint32_t resSetIndex, uint32_t value)
+{
+	m_resourceSetsLayout[resSetIndex] = value;
+}
+
+
+void PipelineCompute::cmdBind(VkCommandBuffer cb)
+{
+	vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineHandle);
 }

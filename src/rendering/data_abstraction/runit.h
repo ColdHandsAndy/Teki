@@ -2,6 +2,7 @@
 #define RUNIT_CLASS_HEADER
 
 #include <cstdint>
+#include <array>
 
 class RUnit
 {
@@ -11,16 +12,16 @@ private:
 	uint64_t m_byteSizeVertices{};
 	uint64_t m_byteSizeIndices{};
 
-	uint64_t m_commandBufferOffset{};
-
 	uint16_t m_vertexSize{};
 	uint16_t m_indexSize{};
-	//Material ref
+
+	uint64_t m_commandBufferOffset{};
+
+	std::array<std::pair<uint16_t, uint16_t>, 4> m_materialIndices{};
 
 public:
 	RUnit() = default;
-	//RUnit(uint64_t vertOff, uint64_t indOff, uint64_t vertexNum, uint64_t indexNum, uint16_t vertexSize, uint16_t indexSize = sizeof(uint32_t));
-	RUnit(uint64_t vertOff, uint64_t indOff, uint16_t vertexSize, uint16_t indexSize, uint64_t vertBufSize, uint64_t indexBufSize);
+	RUnit(uint64_t vertOff, uint64_t indOff, uint16_t vertexSize, uint16_t indexSize, uint64_t vertBufSize, uint64_t indexBufSize, uint16_t imageListIndex, uint16_t imageListLayerIndex);
 	~RUnit() = default;
 
 	uint64_t getOffsetVertex() const;
@@ -30,6 +31,8 @@ public:
 	uint16_t getVertexSize() const;
 	uint16_t getIndexSize() const;
 	uint64_t getDrawCmdBufferOffset() const;
+
+	std::array<std::pair<uint16_t, uint16_t>, 4>& getMaterialIndices();
 
 	void setVertBufOffset(uint64_t offset);
 	void setIndexBufOffset(uint64_t offset);

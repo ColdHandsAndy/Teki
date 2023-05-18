@@ -22,60 +22,59 @@ DescriptorManager::~DescriptorManager()
 }
 
 
-void DescriptorManager::cmdSubmitResource(VkCommandBuffer cb, VkPipelineLayout layout, ResourceSet& resource)
+//void DescriptorManager::cmdSubmitResource(VkCommandBuffer cb, VkPipelineLayout layout, ResourceSet& resource)
+//{
+//    if (!resource.isInitialized())
+//    {
+//        insertResourceSetInBuffer(resource);
+//    }
+//    uint32_t resourceDescBufferIndex{ resource.getDescBufferIndex() };
+//    std::vector<uint32_t>::iterator beginIter{ m_descBuffersBindings.begin() };
+//    std::vector<uint32_t>::iterator indexIter{ std::find(beginIter, m_descBuffersBindings.end(), resourceDescBufferIndex) };
+//    if (indexIter == m_descBuffersBindings.end())
+//    {
+//        m_descBuffersBindings.push_back(resourceDescBufferIndex);
+//        beginIter = m_descBuffersBindings.begin();
+//        indexIter = m_descBuffersBindings.end() - 1;
+//
+//        m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
+//        m_offsetsToSet.push_back(resource.getDescriptorSetOffset(0));
+//    }
+//    else
+//    {
+//        m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
+//        m_offsetsToSet.push_back(resource.getDescriptorSetOffset(0));
+//    }
+//
+//    uint32_t bufferCount{ static_cast<uint32_t>(m_descBuffersBindings.size()) };
+//
+//    VkDescriptorBufferBindingInfoEXT* bindingInfos{ new VkDescriptorBufferBindingInfoEXT[bufferCount] };
+//    for (int i{0}; i < bufferCount; ++i)
+//    {
+//        bindingInfos->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
+//        bindingInfos->pNext = nullptr;
+//        bindingInfos->address = m_descriptorBuffers[m_descBuffersBindings[i]].deviceAddress;
+//        bindingInfos->usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+//    }
+//
+//    lvkCmdBindDescriptorBuffersEXT(cb, bufferCount, bindingInfos);
+//    lvkCmdSetDescriptorBufferOffsetsEXT(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, m_offsetsToSet.size(), m_bufferIndicesToBind.data(), m_offsetsToSet.data());
+//
+//    m_descBuffersBindings.clear();
+//    m_bufferIndicesToBind.clear();
+//    m_offsetsToSet.clear();
+//    delete[] bindingInfos;
+//}
+
+void DescriptorManager::cmdSubmitPipelineResources(VkCommandBuffer cb, VkPipelineBindPoint bindPoint, std::vector<ResourceSet>& resourceSets, const std::vector<uint32_t>& resourceIndices, VkPipelineLayout pipelineLayout)
 {
-    if (!resource.isInitialized())
+    for (uint32_t i{ 0 }; i < resourceSets.size(); ++i)
     {
-        insertResourceSetInBuffer(resource);
-    }
-    uint32_t resourceDescBufferIndex{ resource.getDescBufferIndex() };
-    std::vector<uint32_t>::iterator beginIter{ m_descBuffersBindings.begin() };
-    std::vector<uint32_t>::iterator indexIter{ std::find(beginIter, m_descBuffersBindings.end(), resourceDescBufferIndex) };
-    if (indexIter == m_descBuffersBindings.end())
-    {
-        m_descBuffersBindings.push_back(resourceDescBufferIndex);
-        beginIter = m_descBuffersBindings.begin();
-        indexIter = m_descBuffersBindings.end() - 1;
+        ResourceSet& currentSet{ resourceSets[i] };
+        uint32_t currentResIndex{ resourceIndices[i] };
+        ASSERT_ALWAYS(currentSet.getCopiesCount() > 1 ? (currentResIndex < currentSet.getCopiesCount()) : true, "App", "Resource index is bigger than number of resources in a resource set")
 
-        m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
-        m_offsetsToSet.push_back(resource.getDescriptorSetOffset(0));
-    }
-    else
-    {
-        m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
-        m_offsetsToSet.push_back(resource.getDescriptorSetOffset(0));
-    }
-
-    uint32_t bufferCount{ static_cast<uint32_t>(m_descBuffersBindings.size()) };
-
-    VkDescriptorBufferBindingInfoEXT* bindingInfos{ new VkDescriptorBufferBindingInfoEXT[bufferCount] };
-    for (int i{0}; i < bufferCount; ++i)
-    {
-        bindingInfos->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
-        bindingInfos->pNext = nullptr;
-        bindingInfos->address = m_descriptorBuffers[m_descBuffersBindings[i]].deviceAddress;
-        bindingInfos->usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
-    }
-
-    lvkCmdBindDescriptorBuffersEXT(cb, bufferCount, bindingInfos);
-    lvkCmdSetDescriptorBufferOffsetsEXT(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, m_offsetsToSet.size(), m_bufferIndicesToBind.data(), m_offsetsToSet.data());
-
-    m_descBuffersBindings.clear();
-    m_bufferIndicesToBind.clear();
-    m_offsetsToSet.clear();
-    delete[] bindingInfos;
-}
-
-void DescriptorManager::cmdSubmitPipelineResources(VkCommandBuffer cb, std::vector<ResourceSet>& resourceSets, VkPipelineLayout pipelineLayout, uint32_t frameIndex)
-{
-    for (auto& resourceSet : resourceSets)
-    {
-        ASSERT_ALWAYS(frameIndex < resourceSet.getFrameCount(), "App", "Frame index is bigger than number of frame sets in a resource set")
-        if (!resourceSet.isInitialized())
-        {
-            insertResourceSetInBuffer(resourceSet);
-        }
-        uint32_t resourceDescBufferIndex{ resourceSet.getDescBufferIndex() };
+        uint32_t resourceDescBufferIndex{ currentSet.getDescBufferIndex() };
         std::vector<uint32_t>::iterator beginIter{ m_descBuffersBindings.begin() };
         std::vector<uint32_t>::iterator indexIter{ std::find(beginIter, m_descBuffersBindings.end(), resourceDescBufferIndex) };
         if (indexIter == m_descBuffersBindings.end())
@@ -85,27 +84,27 @@ void DescriptorManager::cmdSubmitPipelineResources(VkCommandBuffer cb, std::vect
             indexIter = m_descBuffersBindings.end() - 1;
 
             m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
-            m_offsetsToSet.push_back(resourceSet.getDescriptorSetOffset(frameIndex));
+            m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
         }
         else
         {
             m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
-            m_offsetsToSet.push_back(resourceSet.getDescriptorSetOffset(frameIndex));
+            m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
         }
     }
     uint32_t bufferCount{ static_cast<uint32_t>(m_descBuffersBindings.size()) };
 
     VkDescriptorBufferBindingInfoEXT* bindingInfos{ new VkDescriptorBufferBindingInfoEXT[bufferCount] };
-    for (int i{ 0 }; i < bufferCount; ++i)
+    for (uint32_t i{ 0 }; i < bufferCount; ++i)
     {
-        bindingInfos->sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
-        bindingInfos->pNext = nullptr;
-        bindingInfos->address = m_descriptorBuffers[m_descBuffersBindings[i]].deviceAddress;
-        bindingInfos->usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+        bindingInfos[i].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
+        bindingInfos[i].pNext = nullptr;
+        bindingInfos[i].address = m_descriptorBuffers[m_descBuffersBindings[i]].deviceAddress;
+        bindingInfos[i].usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
     }
 
     lvkCmdBindDescriptorBuffersEXT(cb, bufferCount, bindingInfos);
-    lvkCmdSetDescriptorBufferOffsetsEXT(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, m_offsetsToSet.size(), m_bufferIndicesToBind.data(), m_offsetsToSet.data());
+    lvkCmdSetDescriptorBufferOffsetsEXT(cb, bindPoint, pipelineLayout, 0, m_offsetsToSet.size(), m_bufferIndicesToBind.data(), m_offsetsToSet.data());
 
     m_descBuffersBindings.clear();
     m_bufferIndicesToBind.clear();
@@ -117,7 +116,7 @@ void DescriptorManager::createNewDescriptorBuffer()
 {
     VkBufferCreateInfo bufferCI{};
     bufferCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferCI.usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    bufferCI.usage |= VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     bufferCI.sharingMode = VK_SHARING_MODE_CONCURRENT;
     bufferCI.queueFamilyIndexCount = m_queueFamilyIndices.size();
@@ -137,10 +136,8 @@ void DescriptorManager::createNewDescriptorBuffer()
 
 void DescriptorManager::insertResourceSetInBuffer(ResourceSet& resourceSet)
 {
-    resourceSet.initializeSet(m_descriptorBufferAlignment);
-
     VmaVirtualAllocationCreateInfo allocationCI{};
-    allocationCI.size = resourceSet.getDescriptorSetAlignedSize() * resourceSet.getFrameCount();
+    allocationCI.size = resourceSet.getDescriptorSetAlignedSize() * resourceSet.getCopiesCount();
     allocationCI.alignment = m_descriptorBufferAlignment;
     allocationCI.flags = VMA_VIRTUAL_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT;
 
@@ -166,7 +163,7 @@ void DescriptorManager::insertResourceSetInBuffer(ResourceSet& resourceSet)
     m_descriptorSetAllocations.push_back({ allocation, bufferIndex });
     resourceSet.m_allocationIter = --m_descriptorSetAllocations.end();
 
-    std::memcpy(bufferIter->descriptorBuffer.getData(), resourceSet.getResourcePayload(), allocationCI.size);
+    std::memcpy(reinterpret_cast<uint8_t*>(bufferIter->descriptorBuffer.getData()) + offset, resourceSet.getResourcePayload(), allocationCI.size);
 }
 
 void DescriptorManager::removeResourceSetFromBuffer(std::list<DescriptorAllocation>::const_iterator allocationIter)
@@ -176,22 +173,13 @@ void DescriptorManager::removeResourceSetFromBuffer(std::list<DescriptorAllocati
 }
 
 
-
-ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, std::span<const VkDescriptorSetLayoutBinding> bindings, uint32_t frameCopies, std::span<const VkDescriptorDataEXT> descriptorData)
+ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, uint32_t resCopies, const std::vector<VkDescriptorSetLayoutBinding>& bindings, const std::vector<VkDescriptorBindingFlags>& bindingFlags, const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData)
 {
     m_device = device;
     m_setIndex = setIndex;
-    // insert bindings and descriptor data per frame compatibility check
-    m_descriptorData.frameCopies = frameCopies;
+    m_resCopies = resCopies;
 
-    uint32_t descriptorsInSetNumber{0};
-    for (auto& binding : bindings)
-    {
-        descriptorsInSetNumber += binding.descriptorCount * frameCopies;
-    }
-    ASSERT_ALWAYS(descriptorsInSetNumber == descriptorData.size(), "App", "Descriptor data is not compatible with set layout bindings.");
-
-    m_descriptorData.descriptorSetDataPerFrame = { descriptorData.begin(), descriptorData.end() };
+    ASSERT_ALWAYS(bindings.size() == bindingsDescriptorData.size(), "App", "Descriptors are not provided for every binding");
 
     VkDescriptorSetLayoutCreateInfo layoutCI{};
     layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -207,13 +195,27 @@ ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayo
     layoutCI.bindingCount = bindings.size();
     layoutCI.pBindings = bindings.data();
 
-    ASSERT_DEBUG(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
+    if (bindingFlags.empty())
+    {
+        ASSERT_ALWAYS(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
+    }
+    else
+    {
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        bindingFlagsCI.bindingCount = bindingFlags.size();
+        bindingFlagsCI.pBindingFlags = bindingFlags.data();
+        layoutCI.pNext = &bindingFlagsCI;
+        ASSERT_ALWAYS(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
+    }
+
 
     for (uint32_t i{ 0 }; i < bindings.size(); ++i)
     {
         lvkGetDescriptorSetLayoutBindingOffsetEXT(device, m_layout, m_resources[i].binding, &m_resources[i].inSetOffset);
     }
     lvkGetDescriptorSetLayoutSizeEXT(device, m_layout, &m_descSetByteSize);
+    
+    initializeSet(bindingsDescriptorData);
 }
 
 ResourceSet::ResourceSet(ResourceSet&& srcResourceSet) noexcept
@@ -222,8 +224,7 @@ ResourceSet::ResourceSet(ResourceSet&& srcResourceSet) noexcept
 
     m_allocationIter = srcResourceSet.m_allocationIter;
 
-    m_descriptorData.frameCopies = srcResourceSet.m_descriptorData.frameCopies;
-    m_descriptorData.descriptorSetDataPerFrame = srcResourceSet.m_descriptorData.descriptorSetDataPerFrame;
+    m_resCopies = srcResourceSet.m_resCopies;
     
     m_resources = srcResourceSet.m_resources;
 
@@ -231,7 +232,6 @@ ResourceSet::ResourceSet(ResourceSet&& srcResourceSet) noexcept
     m_descSetByteSize = srcResourceSet.m_descSetByteSize;
     m_descSetAlignedByteSize = srcResourceSet.m_descSetAlignedByteSize;
 
-    m_initializationState = srcResourceSet.m_initializationState;
     m_descBufferOffset = srcResourceSet.m_descBufferOffset;
     m_resourcePayload = srcResourceSet.m_resourcePayload;
 
@@ -245,18 +245,15 @@ ResourceSet::~ResourceSet()
 {
     if (!m_invalid)
     {
-        if (m_initializationState == true)
-        {
-            delete[] m_resourcePayload;
-            m_assignedDescriptorManager->removeResourceSetFromBuffer(m_allocationIter);
-        }
+        delete[] m_resourcePayload;
+        m_assignedDescriptorManager->removeResourceSetFromBuffer(m_allocationIter);
         vkDestroyDescriptorSetLayout(m_device, m_layout, nullptr);
     }
 }
 
-uint32_t ResourceSet::getFrameCount() const
+uint32_t ResourceSet::getCopiesCount() const
 {
-    return m_descriptorData.frameCopies;
+    return m_resCopies;
 }
 
 uint32_t ResourceSet::getSetIndex() const
@@ -269,34 +266,57 @@ const VkDescriptorSetLayout& ResourceSet::getSetLayout() const
     return m_layout;
 }
 
-bool ResourceSet::isInitialized() const
+void ResourceSet::initializeSet(const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData)
 {
-    return m_initializationState;
-}
+    m_descSetAlignedByteSize = (m_descSetByteSize + (m_assignedDescriptorManager->m_descriptorBufferAlignment - 1)) & ~(m_assignedDescriptorManager->m_descriptorBufferAlignment - 1);
+    m_resourcePayload = { new uint8_t[m_descSetAlignedByteSize * m_resCopies] };
+    
+    //for (uint32_t copyIndex{ 0 }; copyIndex < m_resCopies; ++copyIndex)
+    //{
+    //    uint32_t dataIndex{ copyIndex };
+    //    for (uint32_t resourceIndx{ 0 }; resourceIndx < m_resources.size(); ++resourceIndx)
+    //    {
+    //        VkDescriptorGetInfoEXT descGetInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT };
+    //        descGetInfo.type = m_resources[resourceIndx].type;
+    //        uint32_t descriptorTypeSize{ getDescriptorTypeSize(m_resources[resourceIndx].type)};
+    //        //descriptor info is stored as a payload with "resCopies" of copies stored in a row(aligned)
+    //        
+    //        //Checked solution
+    //        /*for (VkDeviceSize descriptorArrayNumber{0}; descriptorArrayNumber < m_resources[resourceIndx].count; ++descriptorArrayNumber)
+    //        {
+    //            descGetInfo.data = m_descriptorData.descriptorSetDataPerFrame[dataIndex];
+    //            lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + copyIndex * m_descSetAlignedByteSize + m_resources[resourceIndx].inSetOffset + descriptorArrayNumber * descriptorTypeSize);
+    //            dataIndex += m_descriptorData.resCopies + copyIndex;
+    //        }*/
 
-void ResourceSet::initializeSet(uint32_t descriptorBufferOffsetAlignment)
-{
-    m_descSetAlignedByteSize = (m_descSetByteSize + (descriptorBufferOffsetAlignment - 1)) & ~(descriptorBufferOffsetAlignment - 1);
-    m_resourcePayload = { new uint8_t[m_descSetAlignedByteSize * m_descriptorData.frameCopies] };
+    //        //Temp solution need to check how it works with multiple resCopies
+    //        for (VkDeviceSize descriptorArrayNumber{ 0 }; descriptorArrayNumber < m_resources[resourceIndx].count; ++descriptorArrayNumber)
+    //        {
+    //            descGetInfo.data = m_descriptorData.descriptorSetDataPerFrame[dataIndex];
+    //            lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + copyIndex * m_descSetAlignedByteSize + m_resources[resourceIndx].inSetOffset + descriptorArrayNumber * descriptorTypeSize);
+    //            dataIndex += m_descriptorData.resCopies + copyIndex;
+    //        }
+    //    }
+    //}
 
-    for (uint32_t frameIndx{ 0 }; frameIndx < m_descriptorData.frameCopies; ++frameIndx)
+    for (uint32_t copyIndex{ 0 }; copyIndex < m_resCopies; ++copyIndex)
     {
-        uint32_t dataIndex{ frameIndx };
         for (uint32_t resourceIndx{ 0 }; resourceIndx < m_resources.size(); ++resourceIndx)
         {
-            VkDescriptorGetInfoEXT descGetInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT };
-            descGetInfo.type = m_resources[resourceIndx].type;
-            uint32_t descriptorTypeSize{ getDescriptorTypeSize(m_resources[resourceIndx].type)};
-            //descriptor info is stored as a payload with "frameCopies" of copies stored in a row(aligned)
-            for (VkDeviceSize descriptorArrayNumber{0}; descriptorArrayNumber < m_resources[resourceIndx].count; ++descriptorArrayNumber)
+            uint32_t resourceNumToGet{ static_cast<uint32_t>(bindingsDescriptorData[resourceIndx].size() / m_resCopies) };
+            
+            VkDescriptorGetInfoEXT descGetInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT, .type = m_resources[resourceIndx].type };
+            uint32_t descriptorTypeSize{ getDescriptorTypeSize(descGetInfo.type) };
+
+            for (VkDeviceSize descriptorArrayNumber{ 0 }; descriptorArrayNumber < resourceNumToGet; ++descriptorArrayNumber)
             {
-                descGetInfo.data = m_descriptorData.descriptorSetDataPerFrame[dataIndex];
-                lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + frameIndx * m_descSetAlignedByteSize + m_resources[resourceIndx].inSetOffset + descriptorArrayNumber * descriptorTypeSize);
-                dataIndex += m_descriptorData.frameCopies + frameIndx;
+                descGetInfo.data = bindingsDescriptorData[resourceIndx][descriptorArrayNumber + resourceNumToGet * copyIndex];
+                lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + copyIndex * m_descSetAlignedByteSize + m_resources[resourceIndx].inSetOffset + descriptorArrayNumber * descriptorTypeSize);
             }
         }
     }
-    m_initializationState = true;
+
+    m_assignedDescriptorManager->insertResourceSetInBuffer(*this);
 }
 
 uint32_t ResourceSet::getDescBufferIndex() const
@@ -314,16 +334,14 @@ void ResourceSet::setDescBufferOffset(VkDeviceSize offset)
     m_descBufferOffset = offset;
 }
 
-VkDeviceSize ResourceSet::getDescriptorSetOffset(uint32_t frameInFlight)  const
+VkDeviceSize ResourceSet::getDescriptorSetOffset(uint32_t resIndex)  const
 {
-    ASSERT_ALWAYS(m_initializationState, "App", "Resource set is not initialized")
-    return m_descBufferOffset + (frameInFlight * m_descSetAlignedByteSize);
+    return m_descBufferOffset + (resIndex * m_descSetAlignedByteSize);
 }
 
 const void* ResourceSet::getResourcePayload() const
 {
-    ASSERT_ALWAYS(m_initializationState, "App", "Resource set is not initialized")
-        return m_resourcePayload;
+    return m_resourcePayload;
 }
 
 uint32_t ResourceSet::getDescriptorTypeSize(VkDescriptorType type) const

@@ -110,12 +110,31 @@ public:
 	const included_excluded_flags_pair computeQueueRequirementsFlags{ { VK_QUEUE_COMPUTE_BIT }, { VK_QUEUE_GRAPHICS_BIT } };
 	const included_excluded_flags_pair transferQueueRequirementsFlags{ { VK_QUEUE_TRANSFER_BIT }, { VK_QUEUE_GRAPHICS_BIT, VK_QUEUE_COMPUTE_BIT } };
 
-	VkPhysicalDeviceFeatures2 deviceFeaturesToEnable{};
-	VkPhysicalDeviceSynchronization2Features* syncFeatures{ new VkPhysicalDeviceSynchronization2Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES, .synchronization2 = true} };
-	VkPhysicalDeviceDynamicRenderingFeatures* drFeatures{ new VkPhysicalDeviceDynamicRenderingFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES, .dynamicRendering = true} };
-	VkPhysicalDeviceDescriptorBufferFeaturesEXT* dbFeatures{ new VkPhysicalDeviceDescriptorBufferFeaturesEXT{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT, .descriptorBuffer = true} };
-	VkPhysicalDeviceBufferDeviceAddressFeatures* feturesBufAddr{ new VkPhysicalDeviceBufferDeviceAddressFeatures{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES, .bufferDeviceAddress = true} };
-
+	VkPhysicalDeviceFeatures2 deviceFeaturesToEnable{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.features{
+			.imageCubeArray = VK_TRUE,
+			.multiDrawIndirect = VK_TRUE,
+			.drawIndirectFirstInstance = VK_TRUE,
+			.samplerAnisotropy = VK_TRUE,
+			.shaderInt64 = VK_TRUE,
+			.shaderInt16 = VK_TRUE
+		}
+	};
+	VkPhysicalDeviceVulkan11Features* vulkan11Features{ new VkPhysicalDeviceVulkan11Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, 
+		.uniformAndStorageBuffer16BitAccess = VK_TRUE,
+		.shaderDrawParameters = VK_TRUE} };
+	VkPhysicalDeviceVulkan12Features* vulkan12Features{ new VkPhysicalDeviceVulkan12Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, 
+		.storageBuffer8BitAccess = VK_TRUE,
+		.uniformAndStorageBuffer8BitAccess = VK_TRUE,
+		.shaderInt8 = VK_TRUE,
+		.descriptorBindingPartiallyBound = VK_TRUE, 
+		.runtimeDescriptorArray = VK_TRUE,
+		.bufferDeviceAddress = VK_TRUE} };
+	VkPhysicalDeviceVulkan13Features* vulkan13Features{ new VkPhysicalDeviceVulkan13Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, 
+		.synchronization2 = VK_TRUE, 
+		.dynamicRendering = VK_TRUE} };
+	VkPhysicalDeviceDescriptorBufferFeaturesEXT* dbFeatures{ new VkPhysicalDeviceDescriptorBufferFeaturesEXT{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT, .descriptorBuffer = VK_TRUE} };
+	
 	VkFormat swapchainPreferredFormat{ VK_FORMAT_B8G8R8A8_SRGB };
 	VkColorSpaceKHR swapchainPreferredColorspace{ VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
 	VkPresentModeKHR swapchainPreferredPresentMode{ VK_PRESENT_MODE_MAILBOX_KHR };
@@ -127,25 +146,18 @@ public:
 		getRequiredInstanceExtensions(instanceExtensions);
 		getRequiredDeviceExtensions(deviceExtensions);
 
-		deviceFeaturesToEnable.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-		deviceFeaturesToEnable.features.multiDrawIndirect = VK_TRUE;
-		deviceFeaturesToEnable.features.drawIndirectFirstInstance = VK_TRUE;
-		deviceFeaturesToEnable.features.imageCubeArray = VK_TRUE;
-		deviceFeaturesToEnable.features.samplerAnisotropy = VK_TRUE;
-
-		deviceFeaturesToEnable.pNext = syncFeatures;
-		syncFeatures->pNext = drFeatures;
-		drFeatures->pNext = dbFeatures;
-		dbFeatures->pNext = feturesBufAddr;
+		deviceFeaturesToEnable.pNext = vulkan11Features;
+		vulkan11Features->pNext = vulkan12Features;
+		vulkan12Features->pNext = vulkan13Features;
+		vulkan13Features->pNext = dbFeatures;
 	}
 
 	~VulkanCreateInfo()
 	{
-		delete syncFeatures;
-		delete drFeatures;
+		delete vulkan11Features;
+		delete vulkan12Features;
+		delete vulkan13Features;
 		delete dbFeatures;
-		delete feturesBufAddr;
-
 	}
 
 private:

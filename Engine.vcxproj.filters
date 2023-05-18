@@ -154,5 +154,6 @@
     <CustomBuild Include="shaders\shader_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\shader_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\shader_comp.comp" />
   </ItemGroup>
 </Project>
