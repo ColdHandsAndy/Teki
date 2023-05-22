@@ -25,11 +25,16 @@ private:
 
 	std::list<VmaAllocation>::const_iterator m_imageAllocIter{};
 
+	bool m_invalid{ false };
+
 	inline static MemoryManager* m_memoryManager{ nullptr };
+
+	void cmdCreateMipmaps(VkCommandBuffer cb);
 
 public:
 	ImageList() = delete;
 	ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usageFlags, bool allocateMips = false, uint32_t layercount = 0); //if layerCount is zero default layerCount is used
+	ImageList(ImageList&& src) noexcept;
 	~ImageList();
 
 	VkImage getImageHandle();

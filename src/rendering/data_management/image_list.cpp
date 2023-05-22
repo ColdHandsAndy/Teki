@@ -23,7 +23,7 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 	imageCI.mipLevels = m_mipLevelCount;
 	if (layercount == 0)
 	{
-		m_arrayLayerCount = 16; /*calculate array layers function*/
+		m_arrayLayerCount = 4; /*calculate array layers function*/
 	}
 	else
 	{
@@ -61,10 +61,30 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 		m_freeLayers.push(static_cast<uint32_t>(i));
 	}
 }
+ImageList::ImageList(ImageList&& src) noexcept
+{
+	m_imageHandle = src.m_imageHandle;
+	m_imageViewHandle = src.m_imageViewHandle;
+
+	m_format = src.m_format;
+	m_width = src.m_width;
+	m_height = src.m_height;
+	m_mipLevelCount = src.m_mipLevelCount;
+	m_arrayLayerCount = src.m_arrayLayerCount;
+
+	m_freeLayers = std::move(src.m_freeLayers);
+
+	m_imageAllocIter = src.m_imageAllocIter;
+	
+	src.m_invalid = true;
+}
 ImageList::~ImageList()
 {
-	vkDestroyImageView(m_memoryManager->m_device, m_imageViewHandle, nullptr);
-	m_memoryManager->destroyImage(m_imageHandle, m_imageAllocIter);
+	if (!m_invalid)
+	{
+		vkDestroyImageView(m_memoryManager->m_device, m_imageViewHandle, nullptr);
+		m_memoryManager->destroyImage(m_imageHandle, m_imageAllocIter);
+	}
 }
 
 VkImage ImageList::getImageHandle()
@@ -159,6 +179,11 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 
 	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
 	delete[] bufferImageCopies;
+}
+
+void ImageList::cmdCreateMipmaps(VkCommandBuffer cb)
+{
+
 }
 
 void ImageList::assignGlobalMemoryManager(MemoryManager& memManager)

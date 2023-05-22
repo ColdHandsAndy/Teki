@@ -66,6 +66,9 @@
     <ClCompile Include="src\rendering\renderer\pipeline_management.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\rendering\renderer\barrier_operations.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\rendering\data_management\image_list.h">
@@ -140,6 +143,12 @@
     <ClInclude Include="src\tools\alignment.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\renderer\barrier_operations.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\rendering\shader_management\shader_operations.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -153,6 +162,8 @@
     <CustomBuild Include="shaders\shader_vert.vert" />
     <CustomBuild Include="shaders\shader_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\shader_space_lines_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\shader_space_lines_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_comp.comp" />
   </ItemGroup>

@@ -13,6 +13,7 @@
 #include <tbb/parallel_for.h>
 #include <tbb/spin_mutex.h>
 
+#include "src/rendering/shader_management/shader_operations.h"
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/renderer/descriptor_management.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
@@ -149,15 +150,15 @@ inline void formVertexChunk<StaticVertex>(const std::map<std::string, int>& attr
 	for (uint64_t i{ 0 }; i < countPos; ++i)
 	{
 		const float* posDataTyped{ reinterpret_cast<const float*>(posData) }; //Only float is possible for pos attrib
-		vertexDataPtr->position = transformMatrix * glm::vec4{ *(posDataTyped + 0), *(posDataTyped + 1), *(posDataTyped + 2), 1.0f };
+		vertexDataPtr->position = transformMatrix * glm::vec4{ *(posDataTyped + 0), -*(posDataTyped + 1), *(posDataTyped + 2), 1.0f };
 		posData += stridePos;
 
 		const float* normDataTyped{ reinterpret_cast<const float*>(normData) }; //Only float is possible for norm attrib
-		vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{ *(normDataTyped + 0), *(normDataTyped + 1), *(normDataTyped + 2), 0.0f });
+		vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{ *(normDataTyped + 0), -*(normDataTyped + 1), *(normDataTyped + 2), 0.0f });
 		normData += strideNorm;
 
 		const float* tangDataTyped{ reinterpret_cast<const float*>(tangData) }; //Only float is possible for tang attrib
-		vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{ *(tangDataTyped + 0), *(tangDataTyped + 1), *(tangDataTyped + 2), 0.0f } *(-(*(tangDataTyped + 3))));
+		vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{ *(tangDataTyped + 0), -*(tangDataTyped + 1), *(tangDataTyped + 2), *(tangDataTyped + 3) });
 		tangData += strideTang;
 
 		const float* texCoordDataTyped{ reinterpret_cast<const float*>(texCoordData) };
@@ -260,13 +261,11 @@ inline void processNode(const std::vector<tinygltf::Node>& allNodes,
 		{
 			scale = glm::scale(glm::dvec3{ node.scale[0], node.scale[1], node.scale[2] });
 		}
-		localTransformMatrix = translate * rotate * scale * globalTransformMatrix;
-		//localTransformMatrix = globalTransformMatrix * translate * rotate * scale;
+		localTransformMatrix = globalTransformMatrix * translate * rotate * scale;
 	}
 	else
 	{
-		localTransformMatrix = glm::make_mat4x4(node.matrix.data()) * globalTransformMatrix;
-		//localTransformMatrix = globalTransformMatrix * glm::make_mat4x4(node.matrix.data());
+		localTransformMatrix = globalTransformMatrix * glm::make_mat4x4(node.matrix.data());
 	}
 
 	if (node.mesh > -1)
@@ -325,9 +324,6 @@ inline void processMeshData(const tinygltf::Model& model,
 }
 
 
-std::vector<char> getShaderCode(const fs::path& filepath);
-VkShaderModule createModule(VkDevice device, std::vector<char>& code);
-
 struct alignas(uint64_t) ImageComponentTransformData
 {
 	uint64_t dataAddress{};
@@ -355,7 +351,7 @@ inline void loadTexturesIntoStaging(VkDevice device,
 							 uint64_t stagingDeviceAddress,
 							 uint64_t& stagingCurrentSize);
 
-inline PipelineCompute buildComponentTransformComputePipeline(VkDevice device,
+inline Pipeline buildComponentTransformComputePipeline(VkDevice device,
 	std::vector<ImageList>& loadedTextures,
 	std::vector<ImageComponentTransformData>& componentTransformOperations,
 	uint8_t* const stagingDataPtr,
@@ -394,14 +390,14 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 	
 	stagingCurrentSize = ALIGNED_SIZE(stagingCurrentSize, resourceStaging.getBufferAlignment());
 	
-
+	
 	
 	std::vector<ImageTransferData> transferOperations{};
 	std::vector<ImageComponentTransformData> componentTransformOperations{};
 
 	loadTexturesIntoStaging(vulkanObjects->getLogicalDevice(), models, loadedMeshes, loadedTextures, transferOperations, componentTransformOperations, meshesMaterialIndices, stagingDataPtr, stagingDeviceAddress, stagingCurrentSize);
-
-	PipelineCompute compute{ buildComponentTransformComputePipeline(vulkanObjects->getLogicalDevice(), loadedTextures, componentTransformOperations, stagingDataPtr, stagingDeviceAddress, stagingCurrentSize, resourceStaging.getBufferAlignment()) };
+	
+	Pipeline compute{ buildComponentTransformComputePipeline(vulkanObjects->getLogicalDevice(), loadedTextures, componentTransformOperations, stagingDataPtr, stagingDeviceAddress, stagingCurrentSize, resourceStaging.getBufferAlignment()) };
 	
 
 	uint64_t verticesByteSize{ 0 };
@@ -486,8 +482,8 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 		compute.cmdBind(CB);
 		for (uint32_t i{ 0 }; i < componentTransformOperations.size(); ++i)
 		{
-			compute.setResourceIndex(1, i);
-			descriptorManager.cmdSubmitPipelineResources(CB, VK_PIPELINE_BIND_POINT_COMPUTE, compute.getResourceSets(), compute.getCurrentResourceLayout(), compute.getPipelineLayoutHandle());
+			compute.setResourceInUse(1, i);
+			descriptorManager.cmdSubmitPipelineResources(CB, VK_PIPELINE_BIND_POINT_COMPUTE, compute.getResourceSets(), compute.getResourceSetsInUse(), compute.getPipelineLayoutHandle());
 			vkCmdDispatch(CB, componentTransformOperations[i].srcImageWidth / 16, componentTransformOperations[i].srcImageHeight / 16, 1);
 		}
 		
@@ -508,7 +504,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 
 		for (auto& barrier : memBarriers)
 		{
-			barrier.srcAccessMask = 0;
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			barrier.dstAccessMask = 0;
 			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -547,16 +543,16 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 
 
 
-inline PipelineCompute buildComponentTransformComputePipeline(VkDevice device,
-															  std::vector<ImageList>& loadedTextures,
-															  std::vector<ImageComponentTransformData>& componentTransformOperations,
-															  uint8_t* const stagingDataPtr,
-															  uint64_t stagingDeviceAddress,
-															  uint64_t& stagingCurrentSize,
-															  uint32_t stagingAlignment)
+inline Pipeline buildComponentTransformComputePipeline(VkDevice device,
+													   std::vector<ImageList>& loadedTextures,
+													   std::vector<ImageComponentTransformData>& componentTransformOperations,
+													   uint8_t* const stagingDataPtr,
+													   uint64_t stagingDeviceAddress,
+													   uint64_t& stagingCurrentSize,
+													   uint32_t stagingAlignment)
 {
 	std::vector<ResourceSet> resourceSets{};
-
+	
 	VkDescriptorSetLayoutBinding imageListsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 	std::vector<VkDescriptorImageInfo> storageImageData(loadedTextures.size());
 	std::vector<VkDescriptorDataEXT> imageListsDescData(loadedTextures.size());
@@ -598,8 +594,7 @@ inline PipelineCompute buildComponentTransformComputePipeline(VkDevice device,
 		{},
 		{transCmdDescData} });
 
-	std::vector<char> compCode{ getShaderCode("shaders/cmpld/shader_comp.spv") };
-	return PipelineCompute{ device, createModule(device, compCode), resourceSets };
+	return Pipeline{ device, "D:/Projects/Engine/shaders/cmpld/shader_comp.spv", resourceSets };
 }
 
 inline void loadTexturesIntoStaging(VkDevice device,
@@ -679,7 +674,7 @@ inline void loadTexturesIntoStaging(VkDevice device,
 					const tinygltf::Image& baseColorTex{ images[bcIndex] };
 					ASSERT_ALWAYS(baseColorTex.pixel_type == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE, "App", "Unsupported component type");
 					std::memcpy(stagingDataPtr + stagingCurrentSize, baseColorTex.image.data(), baseColorTex.image.size());
-
+					
 					imageFindingFunc(baseColorTex, matIndices[0]);
 					imageListInfo.insert({ imgName, {matIndices[0].first, matIndices[0].second} });
 
