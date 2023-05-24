@@ -116,6 +116,7 @@ public:
 			.multiDrawIndirect = VK_TRUE,
 			.drawIndirectFirstInstance = VK_TRUE,
 			.fillModeNonSolid = VK_TRUE,
+			.wideLines = VK_TRUE,
 			.samplerAnisotropy = VK_TRUE,
 			.shaderInt64 = VK_TRUE,
 			.shaderInt16 = VK_TRUE

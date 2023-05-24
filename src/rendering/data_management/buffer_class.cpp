@@ -216,6 +216,8 @@ void Buffer::initialize(VkDeviceSize size)
 		m_bufferSize = size;
 		m_motherBuffer->allocateFromBuffer(size, m_allocation, m_bufferOffset);
 		m_deviceAddress = m_motherBuffer->getBufferDeviceAddress() + m_bufferOffset;
+
+		m_invalid = false;
 	}
 }
 
@@ -363,5 +365,7 @@ void BufferMapped::initialize(VkDeviceSize size)
 		m_deviceAddress = m_motherBuffer->getBufferDeviceAddress() + m_bufferOffset;
 
 		m_dataPtr = reinterpret_cast<void*>(reinterpret_cast<uint8_t*>(m_motherBuffer->getData()) + m_bufferOffset);
+
+		m_invalid = false;
 	}
 }

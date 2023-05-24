@@ -1,7 +1,7 @@
 #include "memory_manager.h"
 #include "src/tools/asserter.h"
 
-MemoryManager::MemoryManager(const VulkanObjectHandler& vulkanObjects)
+MemoryManager::MemoryManager(const VulkanObjectHandler& vulkanObjects) : m_physDevLimits{ vulkanObjects.getPhysDevLimits() }
 {
 	VmaAllocatorCreateInfo createInfo{};
 	createInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;

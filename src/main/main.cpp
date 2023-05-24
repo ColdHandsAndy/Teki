@@ -37,7 +37,7 @@
 #include "src/rendering/renderer/descriptor_management.h"
 #include "src/rendering/data_management/memory_manager.h"
 #include "src/rendering/data_management/buffer_class.h"
-#include "src/rendering/data_management/image_list.h"
+#include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/renderer/barrier_operations.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/data_abstraction/mesh.h"
@@ -48,6 +48,7 @@
 
 #include "src/tools/alignment.h"
 #include "src/tools/model_loader.h"
+#include "src/tools/cubemap_loader.h"
 #include "src/tools/asserter.h"
 
 
@@ -64,8 +65,11 @@ std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
 
 Pipeline createForwardSimplePipeline(PipelineAssembler& assembler, BufferMapped& spaceTransformDataUB, BufferMapped& transformDataUB, BufferMapped& perDrawDataIndicesUB, std::vector<ImageList>& imageLists, VkSampler sampler);
 Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, BufferMapped& spaceTransformDataUB);
+Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ImageCubeMap& cubemapImages, const BufferMapped& skyboxTransformUB);
 
 uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
+void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
+
 
 struct DepthBufferImageStuff
 {
@@ -75,7 +79,9 @@ struct DepthBufferImageStuff
 };
 DepthBufferImageStuff createDepthBuffer(VkPhysicalDevice physDevice, VkDevice device);
 void destroyDepthBuffer(VkDevice device, DepthBufferImageStuff depthBuffer);
-VkSampler createUniversalSampler(VkDevice device);
+VkSampler createUniversalSampler(VulkanObjectHandler& vulkanObjHandler);
+
+
 
 int main()
 {
@@ -115,14 +121,14 @@ int main()
 		{
 			//"A:/Models/gltf/sci-fi_personal_space_pod_shipweekly_challenge/scene.gltf",
 			//"A:/Models/gltf/sci-fi_personal_space_pod_shipweekly_challenge/scene.gltf",
-			//"A:/Models/gltf/skull_trophy/scene.gltf",
-			"A:/Models/gltf/hoverbike_on_service/scene.gltf",
-			"A:/Models/gltf/cube/Cube.gltf"
+			"A:/Models/gltf/skull_trophy/scene.gltf",
+			//"A:/Models/gltf/hoverbike_on_service/scene.gltf"
 		}));
 	uint32_t drawCount{ static_cast<uint32_t>(indirectCmdBuffer.getSize() / sizeof(VkDrawIndexedIndirectCommand)) };
 
 
 	PipelineAssembler assembler{ device };
+	
 	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
 	assembler.setViewportState(PipelineAssembler::VIEWPORT_STATE_DEFAULT, WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT);
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_DEFAULT);
@@ -131,20 +137,32 @@ int main()
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT);
 	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
-
-	VkSampler sampler{ createUniversalSampler(device) };
+	VkSampler sampler{ createUniversalSampler(*vulkanObjectHandler) };
 	BufferMapped spaceTransformDataUB{ baseHostBuffer, sizeof(glm::mat4) * 2 + sizeof(glm::vec4) * 2 };
 	BufferMapped transformDataUB{ baseHostBuffer, sizeof(glm::mat4) * 8 };
 	BufferMapped perDrawDataIndicesSSBO{ baseHostBuffer, sizeof(uint8_t) * 12 * drawCount };
 	Pipeline forwardSimplePipeline{ createForwardSimplePipeline(assembler, spaceTransformDataUB, transformDataUB, perDrawDataIndicesSSBO, imageLists, sampler) };
 
+	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
+	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_SKYBOX);
+	Buffer skyboxData{ baseDeviceBuffer };
+	uploadSkyboxVertexData(skyboxData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+	BufferMapped skyboxTransformUB{ baseHostBuffer, sizeof(glm::mat4) * 2 };
+	ImageCubeMap cubemapSkybox{ loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:\\cubemapsHDR\\green")};
+	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, cubemapSkybox, skyboxTransformUB) };
+	
+	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
+	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_LINE_DRAWING);
+	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 0.6f);
 	Buffer spaceLinesVertexData{ baseDeviceBuffer };
 	uint32_t lineVertNum{ uploadLineVertices("D:/Projects/Engine/bins/space_lines.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
 	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, spaceTransformDataUB) };
 
+
 	// START: Dummy rendering test
 	
-	glm::vec3 cameraPos{ glm::vec3{0.0, 2.0, -6.0} };
+	//Resource filling
+	glm::vec3 cameraPos{ glm::vec3{0.0, 3.0, -9.0} };
 	glm::vec3 viewDir{ glm::normalize(-cameraPos) };
 	glm::vec3 upVec{ glm::vec3{0.0, -1.0, 0.0} };
 	glm::vec3 lightPos{ glm::vec3{0.0, 1.0, 0.0} };
@@ -200,7 +218,13 @@ int main()
 			drawDataIndices += sizeof(uint8_t) * 12;
 		}
 	}
-	
+	//end
+	glm::mat4* skyboxTransform{ reinterpret_cast<glm::mat4*>(skyboxTransformUB.getData()) };
+	skyboxTransform[0] = vpMatrices[0];
+	skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
+	skyboxTransform[1] = vpMatrices[1];
+
+
 	DepthBufferImageStuff depthBuffer{ createDepthBuffer(vulkanObjectHandler->getPhysicalDevice(), vulkanObjectHandler->getLogicalDevice()) };
 	
 	VkSemaphore swapchainSemaphore{};
@@ -238,10 +262,12 @@ int main()
 		double mplier{ std::sin(glfwGetTime() * 0.5) * 0.5 + 0.5 };
 
 		vpMatrices[0] = glm::lookAt(glm::vec3(glm::rotate((float)angle * 0.3f, glm::vec3(0.0, 1.0, 0.0)) * glm::vec4(cameraPos, 1.0)), viewDir, upVec);
+		skyboxTransform[0] = vpMatrices[0];
+		skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
 
 		glm::dmat4 transMatr{ glm::rotate(angle, glm::dvec3(0.0, 1.0, 0.0)) };
-		glm::dvec4 lightPos{ 4.0, 0.0, 0.0, 0.0 };
-		transformMatrices[0] = glm::translate(glm::dvec3{ 0.0f, 0.0f, 0.0f } * mplier) * glm::scale(glm::dvec3{ 0.006 });
+		glm::dvec4 lightPos{ 4.0, 0.0, 0.0, 1.0 };
+		transformMatrices[0] = glm::translate(glm::dvec3{ 0.0f, 0.0f, 0.0f } * mplier) * glm::scale(glm::dvec3{ 0.002 });
 		//transformMatrices[0] = glm::translate(glm::dvec3{ 0.0f, 0.0f, 0.0f } * mplier)* glm::scale(glm::dvec3{ 1.5 });
 		transformMatrices[1] = glm::translate((glm::vec3)(transMatr * lightPos)) * glm::scale(glm::vec3{ 0.2 });
 		*lightPosData = glm::vec3(transMatr * lightPos);
@@ -257,7 +283,6 @@ int main()
 
 		VkCommandBuffer CBloop{ cmdBufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
 
-		descriptorManager.cmdSubmitPipelineResources(CBloop, VK_PIPELINE_BIND_POINT_GRAPHICS, forwardSimplePipeline.getResourceSets(), forwardSimplePipeline.getResourceSetsInUse(), forwardSimplePipeline.getPipelineLayoutHandle());
 
 		BarrierOperations::cmdExecuteBarrier(CBloop, std::span<const VkImageMemoryBarrier2>{
 			{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
@@ -296,19 +321,29 @@ int main()
 		
 
 		vkCmdBeginRendering(CBloop, &renderInfo);
+		descriptorManager.cmdSubmitPipelineResources(CBloop, VK_PIPELINE_BIND_POINT_GRAPHICS, forwardSimplePipeline.getResourceSets(), forwardSimplePipeline.getResourceSetsInUse(), forwardSimplePipeline.getPipelineLayoutHandle());
 		VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
 		VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset()};
 		vkCmdBindVertexBuffers(CBloop, 0, 1, vertexBindings, vertexBindingOffsets);
 		vkCmdBindIndexBuffer(CBloop, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 		forwardSimplePipeline.cmdBind(CBloop);
 		vkCmdDrawIndexedIndirect(CBloop, indirectCmdBuffer.getBufferHandle(), indirectCmdBuffer.getOffset(), drawCount, sizeof(VkDrawIndexedIndirectCommand));
-
+		
 		VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
 		VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
 		vkCmdBindVertexBuffers(CBloop, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
 		spaceLinesPipeline.cmdBind(CBloop);
 		vkCmdDraw(CBloop, lineVertNum, 1, 0, 0);
+
+		descriptorManager.cmdSubmitPipelineResources(CBloop, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline.getResourceSets(), skyboxPipeline.getResourceSetsInUse(), skyboxPipeline.getPipelineLayoutHandle());
+		VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
+		VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
+		vkCmdBindVertexBuffers(CBloop, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
+		skyboxPipeline.cmdBind(CBloop);
+		vkCmdDraw(CBloop, 36, 1, 0, 0);
+
 		vkCmdEndRendering(CBloop);
+
 
 
 		BarrierOperations::cmdExecuteBarrier(CBloop, std::span<const VkImageMemoryBarrier2>{
@@ -404,8 +439,6 @@ Pipeline createForwardSimplePipeline(PipelineAssembler& assembler, BufferMapped&
 
 Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, BufferMapped& spaceTransformDataUB)
 {
-	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_LINE_DRAWING);
-	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 0.75f);
 	std::vector<ResourceSet> resourceSets{};
 	VkDescriptorSetLayoutBinding uniformViewProjBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT uniformViewProjAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = spaceTransformDataUB.getDeviceAddress(), .range = sizeof(glm::mat4) * 2};
@@ -417,7 +450,7 @@ Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, BufferMapped& sp
 		{PosColorVertex::getAttributeDescriptions()} };
 }
 
-uint32_t  uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
 {
 	std::ifstream istream{ filepath, std::ios::binary };
 	istream.seekg(0, std::ios::beg);
@@ -445,6 +478,82 @@ uint32_t  uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBase
 	vkQueueWaitIdle(queue);
 	
 	return vertNum;
+}
+
+Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ImageCubeMap& cubemapImages, const BufferMapped& skyboxTransformUB)
+{
+	std::vector<ResourceSet> resourceSets{};
+	VkDescriptorSetLayoutBinding uniformViewTranslateBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT uniformViewTranslateAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = skyboxTransformUB.getDeviceAddress(), .range = sizeof(glm::mat4) * 2 };
+	VkDescriptorSetLayoutBinding cubeTextureBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorImageInfo cubeTextureAddressInfo{ .sampler = cubemapImages.getSampler(), .imageView = cubemapImages.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+
+	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1, {uniformViewTranslateBinding, cubeTextureBinding},  {}, {{{.pUniformBuffer = &uniformViewTranslateAddressinfo}}, {{.pCombinedImageSampler = &cubeTextureAddressInfo}}} });
+	return Pipeline{ assembler,
+		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "D:/Projects/Engine/shaders/cmpld/shader_skybox_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "D:/Projects/Engine/shaders/cmpld/shader_skybox_frag.spv"}}},
+		resourceSets,
+		{{PosOnlyVertex::getBindingDescription()}},
+		{PosOnlyVertex::getAttributeDescriptions()} };
+}
+
+void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+{
+	float vertices[] =
+	{
+		-1.0f,  1.0f, -1.0f,
+		-1.0f, -1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+		 1.0f,  1.0f, -1.0f,
+		-1.0f,  1.0f, -1.0f,
+
+		-1.0f, -1.0f,  1.0f,
+		-1.0f, -1.0f, -1.0f,
+		-1.0f,  1.0f, -1.0f,
+		-1.0f,  1.0f, -1.0f,
+		-1.0f,  1.0f,  1.0f,
+		-1.0f, -1.0f,  1.0f,
+
+		 1.0f, -1.0f, -1.0f,
+		 1.0f, -1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f,  1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+
+		-1.0f, -1.0f,  1.0f,
+		-1.0f,  1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f, -1.0f,  1.0f,
+		-1.0f, -1.0f,  1.0f,
+
+		-1.0f,  1.0f, -1.0f,
+		 1.0f,  1.0f, -1.0f,
+		 1.0f,  1.0f,  1.0f,
+		 1.0f,  1.0f,  1.0f,
+		-1.0f,  1.0f,  1.0f,
+		-1.0f,  1.0f, -1.0f,
+
+		-1.0f, -1.0f, -1.0f,
+		-1.0f, -1.0f,  1.0f,
+		 1.0f, -1.0f, -1.0f,
+		 1.0f, -1.0f, -1.0f,
+		-1.0f, -1.0f,  1.0f,
+		 1.0f, -1.0f,  1.0f
+	};
+	skyboxData.initialize(sizeof(vertices));
+	BufferMapped staging{stagingBase, skyboxData.getSize()};
+	std::memcpy(staging.getData(), vertices, skyboxData.getSize());
+	
+	VkCommandBuffer cb{ cmdBufferSet.beginTransientRecording() };
+	VkBufferCopy copy{ .srcOffset = staging.getOffset(), .dstOffset = skyboxData.getOffset(), .size = skyboxData.getSize() };
+	BufferTools::cmdBufferCopy(cb, staging.getBufferHandle(), skyboxData.getBufferHandle(), 1, &copy);
+	cmdBufferSet.endRecording(cb);
+
+	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
+	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(queue);
 }
 
 DepthBufferImageStuff createDepthBuffer(VkPhysicalDevice physDevice, VkDevice device)
@@ -515,7 +624,7 @@ void destroyDepthBuffer(VkDevice device, DepthBufferImageStuff depthBuffer)
 	vkFreeMemory(device, depthBuffer.depthbufferMemory, nullptr);
 }
 
-VkSampler createUniversalSampler(VkDevice device)
+VkSampler createUniversalSampler(VulkanObjectHandler& vulkanObjHandler)
 {
 	VkSampler sampler{};
 	VkSamplerCreateInfo samplerCI{};
@@ -525,15 +634,16 @@ VkSampler createUniversalSampler(VkDevice device)
 	samplerCI.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	samplerCI.anisotropyEnable = VK_FALSE;
+	samplerCI.anisotropyEnable = VK_TRUE;
+	samplerCI.maxAnisotropy = vulkanObjHandler.getPhysDevLimits().maxSamplerAnisotropy;
 	samplerCI.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 	samplerCI.unnormalizedCoordinates = VK_FALSE;
 	samplerCI.compareEnable = VK_FALSE;
 	samplerCI.compareOp = VK_COMPARE_OP_ALWAYS;
 	samplerCI.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	samplerCI.minLod = 0.0f;
-	samplerCI.maxLod = 1.0f;
+	samplerCI.maxLod = 11.0f;
 	samplerCI.mipLodBias = 0.0f;
-	vkCreateSampler(device, &samplerCI, nullptr, &sampler);
+	vkCreateSampler(vulkanObjHandler.getLogicalDevice(), &samplerCI, nullptr, &sampler);
 	return sampler;
 }

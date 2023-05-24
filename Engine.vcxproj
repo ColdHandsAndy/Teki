@@ -175,7 +175,7 @@
     <ClCompile Include="src\rendering\data_abstraction\mesh.cpp" />
     <ClCompile Include="src\camera\camera.cpp" />
     <ClCompile Include="src\rendering\data_management\buffer_class.cpp" />
-    <ClCompile Include="src\rendering\data_management\image_list.cpp" />
+    <ClCompile Include="src\rendering\data_management\image_classes.cpp" />
     <ClCompile Include="src\main\main.cpp" />
     <ClCompile Include="src\MDO_handling\MDO_format.cpp" />
     <ClCompile Include="src\rendering\data_management\memory_manager.cpp" />
@@ -196,7 +196,7 @@
     <ClInclude Include="src\camera\camera.h" />
     <ClInclude Include="src\rendering\data_abstraction\vertex_layouts.h" />
     <ClInclude Include="src\rendering\data_management\buffer_class.h" />
-    <ClInclude Include="src\rendering\data_management\image_list.h" />
+    <ClInclude Include="src\rendering\data_management\image_classes.h" />
     <ClInclude Include="src\MDO_handling\MDO_format.h" />
     <ClInclude Include="src\rendering\data_management\memory_manager.h" />
     <ClInclude Include="src\rendering\renderer\barrier_operations.h" />
@@ -208,6 +208,7 @@
     <ClInclude Include="src\rendering\shader_management\shader_operations.h" />
     <ClInclude Include="src\tools\alignment.h" />
     <ClInclude Include="src\tools\asserter.h" />
+    <ClInclude Include="src\tools\cubemap_loader.h" />
     <ClInclude Include="src\tools\logging.h" />
     <ClInclude Include="src\tools\model_loader.h" />
     <ClInclude Include="src\tools\thread_pool_wrap.h" />
@@ -225,18 +226,52 @@
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_comp.comp">
       <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_frag.frag">
       <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\shader_skybox_frag.frag">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\shader_skybox_vert.vert">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_space_lines_frag.frag">
       <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_space_lines_vert.vert">
       <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_vert.vert">
       <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />
   </ItemGroup>

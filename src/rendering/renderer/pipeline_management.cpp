@@ -150,6 +150,22 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;
+	case DEPTH_STENCIL_STATE_SKYBOX:
+		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		m_depthStencilState.depthTestEnable = VK_TRUE;
+		m_depthStencilState.depthWriteEnable = VK_FALSE;
+		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
+		m_depthStencilState.stencilTestEnable = VK_FALSE;
+		break;
+	case DEPTH_STENCIL_STATE_DISABLED:
+		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		m_depthStencilState.depthTestEnable = VK_FALSE;
+		m_depthStencilState.depthWriteEnable = VK_FALSE;
+		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
+		m_depthStencilState.stencilTestEnable = VK_FALSE;
+		break;
 	default:
 		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
 			break;

@@ -18,6 +18,7 @@ private:
 	std::list<VmaAllocation> m_allocations{};
 
 	VkDevice m_device{};
+	const VkPhysicalDeviceLimits& m_physDevLimits{};
 
 	uint32_t m_graphicsQueueFamilyIndex{};
 	uint32_t m_computeQueueFamilyIndex{};
@@ -42,6 +43,8 @@ private:
 	friend class BufferBaseHostInaccessible;
 	friend class BufferBaseHostAccessible;
 	friend class ImageList;
+	friend class ImageBase;
+	friend class ImageCubeMap;
 };
 
 #endif

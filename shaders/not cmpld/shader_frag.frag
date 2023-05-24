@@ -43,7 +43,7 @@ layout(location = 0) out vec4 outColor;
 vec3 computeBlinnPhong(vec3 camPos, vec3 particlePos, vec3 lightPos, vec3 normalVec)
 {
     vec3 baseColor = vec3(texture(imageListArray[drawDataIndices.drawData[drawID].bcIndexList], vec3(texCoords, float(drawDataIndices.drawData[drawID].bcIndexLayer) + 0.1)));
-    vec3 ambientColor = vec3(0.4, 1.0, 0.8) * 0.02 * baseColor;
+    vec3 ambientColor = vec3(0.2, 0.8, 0.0) * 0.02 * baseColor;
     vec3 diffuseColor = baseColor;
     vec3 specColor = vec3(1.0);
 

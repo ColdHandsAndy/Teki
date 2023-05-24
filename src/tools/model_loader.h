@@ -14,13 +14,17 @@
 #include <tbb/spin_mutex.h>
 
 #include "src/rendering/shader_management/shader_operations.h"
+#include "src/rendering/renderer/pipeline_management.h"
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/renderer/descriptor_management.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/data_management/buffer_class.h"
+#include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/data_abstraction/mesh.h"
 #include "src/rendering/data_abstraction/runit.h"
+
 #include "src/tools/logging.h"
+#include "src/tools/alignment.h"
 
 namespace fs = std::filesystem;
 
@@ -529,6 +533,10 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 		barrier.dstQueueFamilyIndex = vulkanObjects->getGraphicsFamilyIndex();
 	}
 	vkCmdPipelineBarrier(CB2, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, memBarriers.size(), memBarriers.data());
+	for (auto& imageList : loadedTextures)
+	{
+		imageList.cmdCreateMipmaps(CB2, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	}
 	commandBufferSet.endRecording(CB2);
 
 	VkSubmitInfo submitInfo2{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB2 };
@@ -629,7 +637,7 @@ inline void loadTexturesIntoStaging(VkDevice device,
 			if (!listFound)
 			{
 				listIndex = loadedTextures.size();
-				loadedTextures.emplace_back(device, texture.width, texture.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT)
+				loadedTextures.emplace_back(device, texture.width, texture.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true)
 					.getLayer(layerIndex);
 			}
 			matIndices.first = listIndex;
