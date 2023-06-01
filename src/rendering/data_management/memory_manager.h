@@ -42,8 +42,9 @@ private:
 	friend class BufferBase;
 	friend class BufferBaseHostInaccessible;
 	friend class BufferBaseHostAccessible;
-	friend class ImageList;
 	friend class ImageBase;
+	friend class Image;
+	friend class ImageList;
 	friend class ImageCubeMap;
 };
 

@@ -182,8 +182,8 @@ VkCommandBuffer FrameCommandBufferSet::beginTransientRecording()
 	}
 	else
 	{
-		m_buffersToResetIndices.push(m_transientFreeIndices.size());
-		index = m_transientFreeIndices.size();
+		m_buffersToResetIndices.push(m_transientCBs.size());
+		index = m_transientCBs.size();
 		VkCommandBuffer newCB{};
 		allocateBuffers(&newCB, m_associatedPoolSet->getTransientPool(), VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1);
 		m_transientCBs.push_back(newCB);

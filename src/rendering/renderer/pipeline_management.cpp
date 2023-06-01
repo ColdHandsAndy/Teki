@@ -53,9 +53,19 @@ void PipelineAssembler::setInputAssemblyState(StatePresets preset)
 		m_inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 		m_inputAssemblyState.primitiveRestartEnable = VK_FALSE;
 		break;
+	case INPUT_ASSEMBLY_STATE_TRIANGLE_FAN_DRAWING:
+		m_inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		m_inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+		m_inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+		break;
 	case INPUT_ASSEMBLY_STATE_LINE_DRAWING:
 		m_inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 		m_inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+		m_inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+		break;
+	case INPUT_ASSEMBLY_STATE_LINE_STRIP_DRAWING:
+		m_inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		m_inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
 		m_inputAssemblyState.primitiveRestartEnable = VK_FALSE;
 		break;
 	default:
@@ -150,6 +160,22 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;
+	case DEPTH_STENCIL_STATE_WRITE_ONLY:
+		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		m_depthStencilState.depthTestEnable = VK_FALSE;
+		m_depthStencilState.depthWriteEnable = VK_TRUE;
+		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
+		m_depthStencilState.stencilTestEnable = VK_FALSE;
+		break;
+	case DEPTH_STENCIL_STATE_TEST_ONLY:
+		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+		m_depthStencilState.depthTestEnable = VK_TRUE;
+		m_depthStencilState.depthWriteEnable = VK_FALSE;
+		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS;
+		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
+		m_depthStencilState.stencilTestEnable = VK_FALSE;
+		break;
 	case DEPTH_STENCIL_STATE_SKYBOX:
 		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 		m_depthStencilState.depthTestEnable = VK_TRUE;
@@ -175,7 +201,7 @@ void PipelineAssembler::setColorBlendState(StatePresets preset)
 {
 	switch (preset)
 	{
-	case COLOR_BLEND_STATE_DEFAULT:
+	case COLOR_BLEND_STATE_DISABLED:
 		m_colorBlendingState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 		m_colorBlendingState.logicOpEnable = VK_FALSE;
 		m_colorBlendingState.logicOp = VK_LOGIC_OP_COPY;
@@ -187,6 +213,25 @@ void PipelineAssembler::setColorBlendState(StatePresets preset)
 		m_colorBlendingState.blendConstants[1] = 0.0f;
 		m_colorBlendingState.blendConstants[2] = 0.0f;
 		m_colorBlendingState.blendConstants[3] = 0.0f;
+		break;
+	case COLOR_BLEND_STATE_DEFAULT:
+		m_colorBlendingState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		m_colorBlendingState.logicOpEnable = VK_FALSE;
+		m_colorBlendingState.logicOp = VK_LOGIC_OP_COPY;
+		m_colorBlendingState.attachmentCount = 1;
+		m_colorBlendAttachment.blendEnable = VK_TRUE;
+		m_colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		m_colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+		m_colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		m_colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+		m_colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		m_colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		m_colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		m_colorBlendingState.pAttachments = &m_colorBlendAttachment;
+		m_colorBlendingState.blendConstants[0] = 1.0f;
+		m_colorBlendingState.blendConstants[1] = 1.0f;
+		m_colorBlendingState.blendConstants[2] = 1.0f;
+		m_colorBlendingState.blendConstants[3] = 1.0f;
 		break;
 	default:
 		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
@@ -237,7 +282,7 @@ const VkPipelineColorBlendStateCreateInfo& PipelineAssembler::getColorBlendState
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-Pipeline::Pipeline(const PipelineAssembler& assembler, std::span<const ShaderStage> shaders, std::vector<ResourceSet>& resourceSets, std::span<const VkVertexInputBindingDescription> bindings, std::span<const VkVertexInputAttributeDescription> attributes)
+Pipeline::Pipeline(const PipelineAssembler& assembler, std::span<const ShaderStage> shaders, std::vector<ResourceSet>& resourceSets, std::span<const VkVertexInputBindingDescription> bindings, std::span<const VkVertexInputAttributeDescription> attributes, std::span<const VkPushConstantRange> pushConstantsRanges)
 {
 	m_device = assembler.getDevice();
 	m_bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -294,6 +339,11 @@ Pipeline::Pipeline(const PipelineAssembler& assembler, std::span<const ShaderSta
 	}
 	pipelineLayoutCI.setLayoutCount = setLayouts.size();
 	pipelineLayoutCI.pSetLayouts = setLayouts.data();
+	if (!pushConstantsRanges.empty())
+	{
+		pipelineLayoutCI.pushConstantRangeCount = pushConstantsRanges.size();
+		pipelineLayoutCI.pPushConstantRanges = pushConstantsRanges.data();
+	}
 	ASSERT_ALWAYS(vkCreatePipelineLayout(m_device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
 	pipelineCI.layout = m_pipelineLayoutHandle;
 	m_resourceSets = std::move(resourceSets);

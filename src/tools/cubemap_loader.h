@@ -82,7 +82,7 @@ inline ImageCubeMap loadCubemap(std::shared_ptr<VulkanObjectHandler> vulkanObjec
 													.baseArrayLayer = 0,
 													.layerCount = cubemapFaceCount }}}
 													});
-	cubemap.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), cubemapFaceCount, sideLength, stagingOffsets, cubemapLayers);
+	cubemap.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), sideLength, cubemapFaceCount, stagingOffsets, cubemapLayers);
 	BarrierOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
 												.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 												.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,

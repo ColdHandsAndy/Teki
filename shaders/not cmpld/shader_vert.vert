@@ -11,20 +11,20 @@ layout(location = 0) out flat uint drawID;
 layout(location = 1) out vec3 normal;
 layout(location = 2) out vec3 tangent;
 layout(location = 3) out vec2 texCoords;
-layout(location = 4) out vec3 vertPosition;
+layout(location = 4) out vec3 fragmentPos;
 
-layout(set = 0, binding = 0) uniform UBO1 
+
+
+layout(set = 0, binding = 0) uniform ViewProjMatrices
 {
     mat4 view;
     mat4 proj;
-    vec3 lightPos;
-    vec3 camPos;
 } viewproj;
 
-layout(set = 1, binding = 0) uniform UBO2 
+layout(set = 1, binding = 1) uniform ModelMatrices 
 {
-    mat4 transMatrices[8];
-} translations;
+    mat4 modelMatrices[8];
+} modelMatrices;
 
 struct DrawDataIndices
 {
@@ -41,7 +41,7 @@ struct DrawDataIndices
     uint8_t emIndexList;
     uint8_t emIndexLayer;
 };
-layout(set = 3, binding = 0) buffer SSBO1 
+layout(set = 2, binding = 0) buffer DrawDataIndicesBuffer 
 {
     DrawDataIndices drawData[];
 } drawDataIndices;
@@ -49,15 +49,17 @@ layout(set = 3, binding = 0) buffer SSBO1
 
 void main() 
 {
-    vec4 vertPos = viewproj.view * translations.transMatrices[drawDataIndices.drawData[gl_DrawID].modelIndex] * vec4(position, 1.0);
-    gl_Position = viewproj.proj * vertPos;
-    vertPosition = vec3(vertPos) / vertPos.w;
+    mat4 modelmat = modelMatrices.modelMatrices[drawDataIndices.drawData[gl_DrawID].modelIndex];
+    vec4 worldPos = modelmat * vec4(position, 1.0);
+    fragmentPos = vec3(worldPos);
+    vec4 viewPos = viewproj.view * worldPos;
+    gl_Position = viewproj.proj * viewPos;
 
     vec3 norm = vec3(unpackSnorm4x8(packedNormals4x8));
     vec3 tang = vec3(unpackSnorm4x8(packedTangents4x8));
 
     drawID = gl_DrawID;
-    normal = vec3(norm.r, norm.b, -norm.g);
+    normal = mat3(modelmat) * vec3(norm.r, norm.b, -norm.g);
     //tangent = vec3(tang.r, tang.b, -tang.g);
     tangent = tang;
     texCoords = unpackHalf2x16(packedTexCoords2x16);

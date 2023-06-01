@@ -32,7 +32,9 @@ public:
 		DYNAMIC_STATE_DEFAULT,
 		VIEWPORT_STATE_DEFAULT,
 		INPUT_ASSEMBLY_STATE_DEFAULT,
+		INPUT_ASSEMBLY_STATE_TRIANGLE_FAN_DRAWING,
 		INPUT_ASSEMBLY_STATE_LINE_DRAWING,
+		INPUT_ASSEMBLY_STATE_LINE_STRIP_DRAWING,
 		TESSELATION_STATE_DEFAULT,
 		MULTISAMPLING_STATE_DISABLED,
 		RASTERIZATION_STATE_DEFAULT,
@@ -40,8 +42,11 @@ public:
 		RASTERIZATION_STATE_POINT_VERTICES,
 		RASTERIZATION_STATE_DISABLED,
 		DEPTH_STENCIL_STATE_DEFAULT,
+		DEPTH_STENCIL_STATE_TEST_ONLY,
+		DEPTH_STENCIL_STATE_WRITE_ONLY,
 		DEPTH_STENCIL_STATE_SKYBOX,
 		DEPTH_STENCIL_STATE_DISABLED,
+		COLOR_BLEND_STATE_DISABLED,
 		COLOR_BLEND_STATE_DEFAULT,
 		MAX_STATE_PRESETS
 	};
@@ -100,7 +105,7 @@ private:
 
 public:
 	//Pipeline(VkDevice device, std::vector<ShaderStage>& shaders, std::vector<ResourceSet>& resourceSets, std::span<const VkVertexInputBindingDescription> bindings, std::span<const VkVertexInputAttributeDescription> attributes);
-	Pipeline(const PipelineAssembler& assembler, std::span<const ShaderStage> shaders, std::vector<ResourceSet>& resourceSets, std::span<const VkVertexInputBindingDescription> bindings = {}, std::span<const VkVertexInputAttributeDescription> attributes = {});
+	Pipeline(const PipelineAssembler& assembler, std::span<const ShaderStage> shaders, std::vector<ResourceSet>& resourceSets, std::span<const VkVertexInputBindingDescription> bindings = {}, std::span<const VkVertexInputAttributeDescription> attributes = {}, std::span<const VkPushConstantRange> pushConstantsRanges = {});
 	Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<ResourceSet>& resourceSets);
 	Pipeline(Pipeline&& srcPipeline) noexcept;
 	~Pipeline();

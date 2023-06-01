@@ -39,6 +39,10 @@ struct StaticVertex
 
         return bindingDescription;
     }
+    static constexpr int getBindingDescriptionCount()
+    {
+        return 1;
+    }
 
     static const std::array<VkVertexInputAttributeDescription, 4>& getAttributeDescriptions()
     {
@@ -76,6 +80,10 @@ struct StaticVertex
 
         return attributeDescriptions;
     }
+    static constexpr int getAttributeDescriptionCount()
+    {
+        return 4;
+    }
 };
 
 
@@ -102,6 +110,10 @@ struct PosOnlyVertex
 
         return bindingDescription;
     }
+    static constexpr int getBindingDescriptionCount()
+    {
+        return 1;
+    }
 
     static const std::array<VkVertexInputAttributeDescription, 1>& getAttributeDescriptions()
     {
@@ -117,6 +129,10 @@ struct PosOnlyVertex
         };
 
         return attributeDescriptions;
+    }
+    static constexpr int getAttributeDescriptionCount()
+    {
+        return 1;
     }
 };
 
@@ -145,7 +161,10 @@ struct PosTexVertex
 
         return bindingDescription;
     }
-
+    static constexpr int getBindingDescriptionCount()
+    {
+        return 1;
+    }
 
     static const std::array<VkVertexInputAttributeDescription, 2>& getAttributeDescriptions()
     {
@@ -168,6 +187,10 @@ struct PosTexVertex
         };
 
         return attributeDescriptions;
+    }
+    static constexpr int getAttributeDescriptionCount()
+    {
+        return 2;
     }
 };
 
@@ -196,7 +219,10 @@ struct PosColorVertex
 
         return bindingDescription;
     }
-
+    static constexpr int getBindingDescriptionCount()
+    {
+        return 1;
+    }
 
     static const std::array<VkVertexInputAttributeDescription, 2>& getAttributeDescriptions()
     {
@@ -209,7 +235,7 @@ struct PosColorVertex
                     .format = VK_FORMAT_R32G32B32_SFLOAT,
                     .offset = offsetof(PosColorVertex, position)
             },
-                VkVertexInputAttributeDescription
+            VkVertexInputAttributeDescription
             {
                 .location = 1,
                 .binding = 0,
@@ -219,6 +245,10 @@ struct PosColorVertex
         };
 
         return attributeDescriptions;
+    }
+    static constexpr int getAttributeDescriptionCount()
+    {
+        return 2;
     }
 };
 

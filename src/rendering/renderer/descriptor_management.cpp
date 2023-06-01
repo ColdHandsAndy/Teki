@@ -270,34 +270,6 @@ void ResourceSet::initializeSet(const std::vector<std::vector<VkDescriptorDataEX
 {
     m_descSetAlignedByteSize = (m_descSetByteSize + (m_assignedDescriptorManager->m_descriptorBufferAlignment - 1)) & ~(m_assignedDescriptorManager->m_descriptorBufferAlignment - 1);
     m_resourcePayload = { new uint8_t[m_descSetAlignedByteSize * m_resCopies] };
-    
-    //for (uint32_t copyIndex{ 0 }; copyIndex < m_resCopies; ++copyIndex)
-    //{
-    //    uint32_t dataIndex{ copyIndex };
-    //    for (uint32_t resourceIndx{ 0 }; resourceIndx < m_resources.size(); ++resourceIndx)
-    //    {
-    //        VkDescriptorGetInfoEXT descGetInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT };
-    //        descGetInfo.type = m_resources[resourceIndx].type;
-    //        uint32_t descriptorTypeSize{ getDescriptorTypeSize(m_resources[resourceIndx].type)};
-    //        //descriptor info is stored as a payload with "resCopies" of copies stored in a row(aligned)
-    //        
-    //        //Checked solution
-    //        /*for (VkDeviceSize descriptorArrayNumber{0}; descriptorArrayNumber < m_resources[resourceIndx].count; ++descriptorArrayNumber)
-    //        {
-    //            descGetInfo.data = m_descriptorData.descriptorSetDataPerFrame[dataIndex];
-    //            lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + copyIndex * m_descSetAlignedByteSize + m_resources[resourceIndx].inSetOffset + descriptorArrayNumber * descriptorTypeSize);
-    //            dataIndex += m_descriptorData.resCopies + copyIndex;
-    //        }*/
-
-    //        //Temp solution need to check how it works with multiple resCopies
-    //        for (VkDeviceSize descriptorArrayNumber{ 0 }; descriptorArrayNumber < m_resources[resourceIndx].count; ++descriptorArrayNumber)
-    //        {
-    //            descGetInfo.data = m_descriptorData.descriptorSetDataPerFrame[dataIndex];
-    //            lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + copyIndex * m_descSetAlignedByteSize + m_resources[resourceIndx].inSetOffset + descriptorArrayNumber * descriptorTypeSize);
-    //            dataIndex += m_descriptorData.resCopies + copyIndex;
-    //        }
-    //    }
-    //}
 
     for (uint32_t copyIndex{ 0 }; copyIndex < m_resCopies; ++copyIndex)
     {

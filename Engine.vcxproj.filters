@@ -33,9 +33,6 @@
     <ClCompile Include="src\main\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\MDO_handling\MDO_format.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\camera\camera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -43,9 +40,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\rendering\data_abstraction\mesh.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\rendering\data_abstraction\material.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\rendering\data_management\memory_manager.cpp">
@@ -83,13 +77,7 @@
     <ClInclude Include="src\rendering\vulkan_object_handling\vulkan_object_handler.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\tools\thread_pool_wrap.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="src\rendering\renderer\renderer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="src\MDO_handling\MDO_format.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\camera\camera.h">
@@ -99,9 +87,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\data_abstraction\mesh.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="src\rendering\data_abstraction\material.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="resource.h">
@@ -152,6 +137,9 @@
     <ClInclude Include="src\tools\cubemap_loader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\lighting\light_types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -171,5 +159,9 @@
     <CustomBuild Include="shaders\not cmpld\shader_skybox_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\shader_space_lines_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\light_sphere_bounds_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\light_sphere_bounds_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\spotlight_cone_bounds_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\spotlight_cone_bounds_frag.frag" />
   </ItemGroup>
 </Project>

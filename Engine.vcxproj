@@ -130,6 +130,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>D:\Soft\VulkanSDK\Include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ShowIncludes>false</ShowIncludes>
+      <PreprocessorDefinitions>_USE_MATH_DEFINES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -153,6 +154,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>D:\Soft\VulkanSDK\Include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ShowIncludes>false</ShowIncludes>
+      <PreprocessorDefinitions>_USE_MATH_DEFINES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -171,13 +173,11 @@
   <ItemGroup>
     <ClCompile Include="src\input\input_interface.cpp" />
     <ClCompile Include="src\rendering\data_abstraction\runit.cpp" />
-    <ClCompile Include="src\rendering\data_abstraction\material.cpp" />
     <ClCompile Include="src\rendering\data_abstraction\mesh.cpp" />
     <ClCompile Include="src\camera\camera.cpp" />
     <ClCompile Include="src\rendering\data_management\buffer_class.cpp" />
     <ClCompile Include="src\rendering\data_management\image_classes.cpp" />
     <ClCompile Include="src\main\main.cpp" />
-    <ClCompile Include="src\MDO_handling\MDO_format.cpp" />
     <ClCompile Include="src\rendering\data_management\memory_manager.cpp" />
     <ClCompile Include="src\rendering\renderer\barrier_operations.cpp" />
     <ClCompile Include="src\rendering\renderer\command_management.cpp" />
@@ -191,14 +191,13 @@
     <ClInclude Include="obj loader\obj_loader.h" />
     <ClInclude Include="src\input\input_interface.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
-    <ClInclude Include="src\rendering\data_abstraction\material.h" />
     <ClInclude Include="src\rendering\data_abstraction\mesh.h" />
     <ClInclude Include="src\camera\camera.h" />
     <ClInclude Include="src\rendering\data_abstraction\vertex_layouts.h" />
     <ClInclude Include="src\rendering\data_management\buffer_class.h" />
     <ClInclude Include="src\rendering\data_management\image_classes.h" />
-    <ClInclude Include="src\MDO_handling\MDO_format.h" />
     <ClInclude Include="src\rendering\data_management\memory_manager.h" />
+    <ClInclude Include="src\rendering\lighting\light_types.h" />
     <ClInclude Include="src\rendering\renderer\barrier_operations.h" />
     <ClInclude Include="src\rendering\renderer\command_management.h" />
     <ClInclude Include="src\rendering\renderer\descriptor_management.h" />
@@ -211,7 +210,6 @@
     <ClInclude Include="src\tools\cubemap_loader.h" />
     <ClInclude Include="src\tools\logging.h" />
     <ClInclude Include="src\tools\model_loader.h" />
-    <ClInclude Include="src\tools\thread_pool_wrap.h" />
     <ClInclude Include="src\rendering\vulkan_object_handling\vulkan_object_handler.h" />
     <ClInclude Include="src\window\window.h" />
     <ClInclude Include="src\world_state_class\world_state.h" />
@@ -267,6 +265,34 @@
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_vert.vert">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\light_sphere_bounds_frag.frag">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\light_sphere_bounds_vert.vert">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\spotlight_cone_bounds_frag.frag">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\spotlight_cone_bounds_vert.vert">
       <FileType>Document</FileType>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>

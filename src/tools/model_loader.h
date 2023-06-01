@@ -347,7 +347,7 @@ struct ImageTransferData
 inline void loadTexturesIntoStaging(VkDevice device,
 							 const std::vector<tinygltf::Model>& models,
 							 std::vector<StaticMesh>& loadedMeshes,
-							 std::vector<ImageList>& loadedTextures,
+							 ImageListContainer& loadedTextures,
 							 std::vector<ImageTransferData>& transferOperations,
 							 std::vector<ImageComponentTransformData>& componentTransformOperations,
 							 std::vector<std::vector<int>>& meshesMaterialIndices,
@@ -356,7 +356,7 @@ inline void loadTexturesIntoStaging(VkDevice device,
 							 uint64_t& stagingCurrentSize);
 
 inline Pipeline buildComponentTransformComputePipeline(VkDevice device,
-	std::vector<ImageList>& loadedTextures,
+	ImageListContainer& loadedTextures,
 	std::vector<ImageComponentTransformData>& componentTransformOperations,
 	uint8_t* const stagingDataPtr,
 	uint64_t stagingDeviceAddress,
@@ -370,7 +370,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 												Buffer& vertexBuffer, 
 												Buffer& indexBuffer, 
 												BufferMapped& indirectCmdBuffer, 
-												std::vector<ImageList>& loadedTextures,
+												ImageListContainer& loadedTextures,
 												std::vector<fs::path> filepaths)
 {
 	BufferBaseHostAccessible resourceStaging{ vulkanObjects->getLogicalDevice(), 2147483648ll, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
@@ -398,7 +398,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 	
 	std::vector<ImageTransferData> transferOperations{};
 	std::vector<ImageComponentTransformData> componentTransformOperations{};
-
+	
 	loadTexturesIntoStaging(vulkanObjects->getLogicalDevice(), models, loadedMeshes, loadedTextures, transferOperations, componentTransformOperations, meshesMaterialIndices, stagingDataPtr, stagingDeviceAddress, stagingCurrentSize);
 	
 	Pipeline compute{ buildComponentTransformComputePipeline(vulkanObjects->getLogicalDevice(), loadedTextures, componentTransformOperations, stagingDataPtr, stagingDeviceAddress, stagingCurrentSize, resourceStaging.getBufferAlignment()) };
@@ -467,15 +467,15 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 
 
 	std::vector<VkImageMemoryBarrier> memBarriers{};
-	for (uint32_t i{ 0 }; i < loadedTextures.size(); ++i)
+	for (uint32_t i{ 0 }; i < loadedTextures.getImageListCount(); ++i)
 	{
 		memBarriers.push_back(VkImageMemoryBarrier{ .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 													.srcAccessMask = 0,
 													.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
 													.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 													.newLayout = VK_IMAGE_LAYOUT_GENERAL,
-													.image = loadedTextures[i].getImageHandle(),
-													.subresourceRange = loadedTextures[i].getSubresourceRange() });
+													.image = loadedTextures.getImageHandle(i),
+													.subresourceRange = loadedTextures.getImageListSubresourceRange(i) });
 	}
 	VkCommandBuffer CB{ commandBufferSet.beginRecording(FrameCommandBufferSet::ASYNC_COMPUTE_CB) };
 	{
@@ -499,11 +499,11 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 		}
 		vkCmdPipelineBarrier(CB, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, memBarriers.size(), memBarriers.data());
-
+		 
 		for (uint32_t i{ 0 }; i < transferOperations.size(); ++i)
 		{
 			auto& op{ transferOperations[i] };
-			loadedTextures[op.dstImageListIndex].cmdCopyDataFromBuffer(CB, resourceStaging.getBufferHandle(), 1, &op.bufferOffset, &op.width, &op.height, &op.dstImageLayerIndex);
+			loadedTextures.cmdCopyDataFromBuffer(CB, op.dstImageListIndex, resourceStaging.getBufferHandle(), 1, &op.bufferOffset, &op.width, &op.height, &op.dstImageLayerIndex);
 		}
 
 		for (auto& barrier : memBarriers)
@@ -533,17 +533,14 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 		barrier.dstQueueFamilyIndex = vulkanObjects->getGraphicsFamilyIndex();
 	}
 	vkCmdPipelineBarrier(CB2, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, memBarriers.size(), memBarriers.data());
-	for (auto& imageList : loadedTextures)
-	{
-		imageList.cmdCreateMipmaps(CB2, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-	}
+	loadedTextures.cmdCreateMipmaps(CB2, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	commandBufferSet.endRecording(CB2);
 
 	VkSubmitInfo submitInfo2{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB2 };
 	ASSERT_ALWAYS(vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo2, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
 	ASSERT_ALWAYS(vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
 
-
+	
 	commandBufferSet.resetBuffers();
 	
 	return loadedMeshes;
@@ -552,7 +549,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(std::shared_ptr<VulkanObjectHand
 
 
 inline Pipeline buildComponentTransformComputePipeline(VkDevice device,
-													   std::vector<ImageList>& loadedTextures,
+													   ImageListContainer& loadedTextures,
 													   std::vector<ImageComponentTransformData>& componentTransformOperations,
 													   uint8_t* const stagingDataPtr,
 													   uint64_t stagingDeviceAddress,
@@ -562,11 +559,11 @@ inline Pipeline buildComponentTransformComputePipeline(VkDevice device,
 	std::vector<ResourceSet> resourceSets{};
 	
 	VkDescriptorSetLayoutBinding imageListsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-	std::vector<VkDescriptorImageInfo> storageImageData(loadedTextures.size());
-	std::vector<VkDescriptorDataEXT> imageListsDescData(loadedTextures.size());
+	std::vector<VkDescriptorImageInfo> storageImageData(loadedTextures.getImageListCount());
+	std::vector<VkDescriptorDataEXT> imageListsDescData(loadedTextures.getImageListCount());
 	for (uint32_t i{ 0 }; i < imageListsDescData.size(); ++i)
 	{
-		storageImageData[i] = { .imageView = loadedTextures[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
+		storageImageData[i] = { .imageView = loadedTextures.getImageViewHandle(i), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
 		imageListsDescData[i].pStorageImage = &storageImageData[i];
 	}
 	resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{},
@@ -608,7 +605,7 @@ inline Pipeline buildComponentTransformComputePipeline(VkDevice device,
 inline void loadTexturesIntoStaging(VkDevice device,
 									const std::vector<tinygltf::Model>& models,
 									std::vector<StaticMesh>& loadedMeshes,
-									std::vector<ImageList>& loadedTextures,
+									ImageListContainer& loadedTextures,
 									std::vector<ImageTransferData>& transferOperations,
 									std::vector<ImageComponentTransformData>& componentTransformOperations,
 									std::vector<std::vector<int>>& meshesMaterialIndices,
@@ -616,40 +613,20 @@ inline void loadTexturesIntoStaging(VkDevice device,
 									uint64_t stagingDeviceAddress,
 									uint64_t& stagingCurrentSize)
 {
-	auto imageFindingFunc{ [device, &loadedTextures, &transferOperations, &componentTransformOperations, &stagingCurrentSize, stagingDeviceAddress](const tinygltf::Image& texture, std::pair<uint16_t, uint16_t>& matIndices)
+	auto imageFindingFunc{ [&loadedTextures, &transferOperations, &componentTransformOperations, &stagingCurrentSize, stagingDeviceAddress](const tinygltf::Image& texture, std::pair<uint16_t, uint16_t>& matIndices)
 		{
 			bool listFound{ false };
-			uint16_t listIndex{ 0 };
-			uint16_t layerIndex{ 0 };
-			for (uint32_t k{ 0 }; k < loadedTextures.size(); ++k)
-			{
-				if (loadedTextures[k].getWidth() == texture.width && loadedTextures[k].getHeight() == texture.height && loadedTextures[k].getFormat() == VK_FORMAT_R8G8B8A8_UNORM)
-				{
-					if (loadedTextures[k].getLayer(layerIndex) == false)
-					{
-						continue;
-					}
-					listIndex = k;
-					listFound = true;
-					break;
-				}
-			}
-			if (!listFound)
-			{
-				listIndex = loadedTextures.size();
-				loadedTextures.emplace_back(device, texture.width, texture.height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true)
-					.getLayer(layerIndex);
-			}
-			matIndices.first = listIndex;
-			matIndices.second = layerIndex;
+			ImageListContainer::ImageListContainerIndices indices{ loadedTextures.getNewImage(texture.width, texture.height, VK_FORMAT_R8G8B8A8_UNORM) };
+			matIndices.first = indices.listIndex;
+			matIndices.second = indices.layerIndex;
 
 			if (texture.component == 3)
 			{
-				componentTransformOperations.emplace_back(stagingDeviceAddress + stagingCurrentSize, texture.width, texture.height, listIndex, layerIndex);
+				componentTransformOperations.emplace_back(stagingDeviceAddress + stagingCurrentSize, texture.width, texture.height, indices.listIndex, indices.layerIndex);
 			}
 			else if (texture.component == 4)
 			{
-				transferOperations.emplace_back(stagingCurrentSize, texture.width, texture.height, listIndex, layerIndex);
+				transferOperations.emplace_back(stagingCurrentSize, texture.width, texture.height, indices.listIndex, indices.layerIndex);
 			}
 			else
 			{
