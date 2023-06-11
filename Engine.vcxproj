@@ -128,20 +128,22 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>D:\Soft\VulkanSDK\Include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\Engine\dependencies\include;D:\Soft\VulkanSDK\Include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ShowIncludes>false</ShowIncludes>
       <PreprocessorDefinitions>_USE_MATH_DEFINES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>D:\Soft\VulkanSDK\Lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>vulkan-1.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\Projects\Engine\dependencies\lib;D:\Soft\VulkanSDK\Lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>vulkan-1.lib;ktx.lib;ktx_read.lib</AdditionalDependencies>
     </Link>
     <CustomBuild>
       <Command>$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename)%(Extension)"</Command>
       <Message>Compiling shader "%(Filename)%(Extension)"</Message>
       <Outputs>$(SHADER_OUTPUT_DIR)\%(Filename).spv</Outputs>
+      <VerifyInputsAndOutputsExist>false</VerifyInputsAndOutputsExist>
+      <LinkObjects>false</LinkObjects>
     </CustomBuild>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -168,6 +170,8 @@
       <Command>$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename)%(Extension)"</Command>
       <Message>Compiling shader "%(Filename)%(Extension)"</Message>
       <Outputs>$(SHADER_OUTPUT_DIR)\%(Filename).spv</Outputs>
+      <VerifyInputsAndOutputsExist>false</VerifyInputsAndOutputsExist>
+      <LinkObjects>false</LinkObjects>
     </CustomBuild>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -207,10 +211,11 @@
     <ClInclude Include="src\rendering\shader_management\shader_operations.h" />
     <ClInclude Include="src\tools\alignment.h" />
     <ClInclude Include="src\tools\asserter.h" />
-    <ClInclude Include="src\tools\cubemap_loader.h" />
+    <ClInclude Include="src\tools\gltf_loader.h" />
+    <ClInclude Include="src\tools\texture_loader.h" />
     <ClInclude Include="src\tools\logging.h" />
-    <ClInclude Include="src\tools\model_loader.h" />
     <ClInclude Include="src\rendering\vulkan_object_handling\vulkan_object_handler.h" />
+    <ClInclude Include="src\tools\obj_loader.h" />
     <ClInclude Include="src\window\window.h" />
     <ClInclude Include="src\world_state_class\world_state.h" />
   </ItemGroup>
@@ -221,13 +226,6 @@
     </CustomBuild>
     <CustomBuild Include="shaders\shader_vert.vert">
       <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\shader_comp.comp">
-      <FileType>Document</FileType>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_frag.frag">
       <FileType>Document</FileType>
@@ -293,6 +291,20 @@
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\spotlight_cone_bounds_vert.vert">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_frag.frag">
+      <FileType>Document</FileType>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_vert.vert">
       <FileType>Document</FileType>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>

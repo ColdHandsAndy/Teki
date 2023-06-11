@@ -288,40 +288,44 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 {
 	VkBufferImageCopy* bufferImageCopies{ new VkBufferImageCopy[regionCount] };
 
-	if (mipLevel == nullptr)
+	for (uint32_t i{ 0 }; i < regionCount; ++i)
 	{
-		for (uint32_t i{ 0 }; i < regionCount; ++i)
-		{
-			VkImageSubresourceLayers imageSubresource{};
-			imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			imageSubresource.layerCount = 1;
-			imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
-			imageSubresource.mipLevel = 0;
+		VkImageSubresourceLayers imageSubresource{};
+		imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageSubresource.layerCount = 1;
+		imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
+		imageSubresource.mipLevel = mipLevel == nullptr ? 0 : mipLevel[i];
 
-			bufferImageCopies[i] = VkBufferImageCopy{
-				.bufferOffset = bufferOffset[i],
-				.imageSubresource = imageSubresource,
-				.imageOffset = { 0, 0, 0 },
-				.imageExtent = { width[i], height[i], 1 }
-			};
-		}
+		bufferImageCopies[i] = VkBufferImageCopy{
+			.bufferOffset = bufferOffset[i],
+			.imageSubresource = imageSubresource,
+			.imageOffset = { 0, 0, 0 },
+			.imageExtent = { width[i], height[i], 1 }
+		};
 	}
-	else
+
+	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
+	delete[] bufferImageCopies;
+}
+
+void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel)
+{
+	VkBufferImageCopy* bufferImageCopies{ new VkBufferImageCopy[regionCount] };
+
+	for (uint32_t i{ 0 }; i < regionCount; ++i)
 	{
-		for (uint32_t i{ 0 }; i < regionCount; ++i)
-		{
-			bufferImageCopies[i].bufferOffset = bufferOffset[i];
-			bufferImageCopies[i].imageOffset = { 0, 0, 0 };
-			bufferImageCopies[i].imageExtent = { width[i], height[i], 1 };
+		VkImageSubresourceLayers imageSubresource{};
+		imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageSubresource.layerCount = 1;
+		imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
+		imageSubresource.mipLevel = mipLevel == nullptr ? 0 : mipLevel[i];
 
-			VkImageSubresourceLayers imageSubresource{};
-			imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			imageSubresource.layerCount = 1;
-			imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
-			imageSubresource.mipLevel = mipLevel[i];
-
-			bufferImageCopies[i].imageSubresource = imageSubresource;
-		}
+		bufferImageCopies[i] = VkBufferImageCopy{
+			.bufferOffset = bufferOffset[i],
+			.imageSubresource = imageSubresource,
+			.imageOffset = { 0, 0, 0 },
+			.imageExtent = { static_cast<uint32_t>(m_width / (imageSubresource.mipLevel + 1) + 0.001), static_cast<uint32_t>(m_height / (imageSubresource.mipLevel + 1) + 0.001), 1 }
+		};
 	}
 
 	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
@@ -413,7 +417,7 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 
 
 
-ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags)
+ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags, uint32_t mipLevels)
 {
 	VkImageCreateInfo imageCI{};
 	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -423,8 +427,10 @@ ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength
 	m_format = format;
 	imageCI.extent = { .width = sideLength, .height = sideLength, .depth = 1 };
 	m_sideLength = sideLength;
-	m_mipLevelCount = 1;
-	imageCI.mipLevels = m_mipLevelCount;
+	if (mipLevels == 0)
+		mipLevels = std::floor(std::log2(sideLength)) + 1;
+	m_mipLevelCount = mipLevels;
+	imageCI.mipLevels = mipLevels;
 	constexpr uint32_t cubemapImageLayers{ 6 };
 	m_arrayLayerCount = cubemapImageLayers;
 	imageCI.arrayLayers = m_arrayLayerCount;
@@ -460,14 +466,14 @@ ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength
 	samplerCI.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCI.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCI.anisotropyEnable = VK_TRUE;
-	samplerCI.maxAnisotropy = m_memoryManager->m_physDevLimits.maxSamplerAnisotropy;
-	samplerCI.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+	samplerCI.maxAnisotropy = 1.0;
+	samplerCI.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
 	samplerCI.unnormalizedCoordinates = VK_FALSE;
 	samplerCI.compareEnable = VK_FALSE;
 	samplerCI.compareOp = VK_COMPARE_OP_ALWAYS;
 	samplerCI.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	samplerCI.minLod = 0.0f;
-	samplerCI.maxLod = 1.0f;
+	samplerCI.maxLod = 128.0f;
 	samplerCI.mipLodBias = 0.0f;
 	vkCreateSampler(device, &samplerCI, nullptr, &m_sampler);
 }
@@ -494,7 +500,7 @@ ImageCubeMap::~ImageCubeMap()
 	}
 }
 
-void ImageCubeMap::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t sideLength, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex)
+void ImageCubeMap::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t sideLength, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel)
 {
 	VkBufferImageCopy* bufferImageCopies{ new VkBufferImageCopy[regionCount] };
 
@@ -504,13 +510,13 @@ void ImageCubeMap::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer,
 		imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		imageSubresource.layerCount = 1;
 		imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
-		imageSubresource.mipLevel = 0;
+		imageSubresource.mipLevel = mipLevel == nullptr ? 0 : mipLevel[i];
 
 		bufferImageCopies[i] = VkBufferImageCopy{
 			.bufferOffset = bufferOffset[i],
 			.imageSubresource = imageSubresource,
 			.imageOffset = { 0, 0, 0 },
-			.imageExtent = { sideLength, sideLength, 1 }
+			.imageExtent = { sideLength >> imageSubresource.mipLevel, sideLength >> imageSubresource.mipLevel, 1 } //Power of two side length assumed
 		};
 	}
 
@@ -668,4 +674,8 @@ void ImageListContainer::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout curr
 void ImageListContainer::cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel)
 {
 	m_imageLists[listIndex].list.cmdCopyDataFromBuffer(cb, srcBuffer, regionCount, bufferOffset, width, height, dstImageLayerIndex, mipLevel);
+}
+void ImageListContainer::cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel)
+{
+	m_imageLists[listIndex].list.cmdCopyDataFromBuffer(cb, srcBuffer, regionCount, bufferOffset, dstImageLayerIndex, mipLevel);
 }

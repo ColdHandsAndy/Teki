@@ -8,10 +8,10 @@ layout(location = 2) in uint packedTangents4x8;
 layout(location = 3) in uint packedTexCoords2x16;
 
 layout(location = 0) out flat uint drawID;
-layout(location = 1) out vec3 normal;
-layout(location = 2) out vec3 tangent;
-layout(location = 3) out vec2 texCoords;
-layout(location = 4) out vec3 fragmentPos;
+layout(location = 1) out vec3 outPos;
+layout(location = 2) out vec3 outNorm;
+layout(location = 3) out vec4 outTang;
+layout(location = 4) out vec2 outTexC;
 
 
 
@@ -43,24 +43,23 @@ struct DrawDataIndices
 };
 layout(set = 2, binding = 0) buffer DrawDataIndicesBuffer 
 {
-    DrawDataIndices drawData[];
+    DrawDataIndices indices[];
 } drawDataIndices;
 
 
 void main() 
 {
-    mat4 modelmat = modelMatrices.modelMatrices[drawDataIndices.drawData[gl_DrawID].modelIndex];
+    drawID = gl_DrawID;
+	
+    mat4 modelmat = modelMatrices.modelMatrices[drawDataIndices.indices[gl_DrawID].modelIndex];
     vec4 worldPos = modelmat * vec4(position, 1.0);
-    fragmentPos = vec3(worldPos);
-    vec4 viewPos = viewproj.view * worldPos;
-    gl_Position = viewproj.proj * viewPos;
+    gl_Position = viewproj.proj * viewproj.view * worldPos;
 
     vec3 norm = vec3(unpackSnorm4x8(packedNormals4x8));
-    vec3 tang = vec3(unpackSnorm4x8(packedTangents4x8));
-
-    drawID = gl_DrawID;
-    normal = mat3(modelmat) * vec3(norm.r, norm.b, -norm.g);
-    //tangent = vec3(tang.r, tang.b, -tang.g);
-    tangent = tang;
-    texCoords = unpackHalf2x16(packedTexCoords2x16);
+    vec4 tang = vec4(unpackSnorm4x8(packedTangents4x8));
+	
+	outPos = vec3(worldPos);
+    outNorm = normalize(mat3(modelmat) * vec3(norm.r, norm.g, norm.b));
+    outTang = vec4(normalize(mat3(modelmat) * vec3(tang.r, tang.g, tang.b)), tang.w);
+	outTexC = unpackHalf2x16(packedTexCoords2x16);
 }

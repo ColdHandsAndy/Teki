@@ -137,7 +137,7 @@ public:
 		.dynamicRendering = VK_TRUE} };
 	VkPhysicalDeviceDescriptorBufferFeaturesEXT* dbFeatures{ new VkPhysicalDeviceDescriptorBufferFeaturesEXT{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT, .descriptorBuffer = VK_TRUE} };
 	
-	VkFormat swapchainPreferredFormat{ VK_FORMAT_B8G8R8A8_SRGB };
+	VkFormat swapchainPreferredFormat{ VK_FORMAT_B8G8R8A8_UNORM };
 	VkColorSpaceKHR swapchainPreferredColorspace{ VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
 	VkPresentModeKHR swapchainPreferredPresentMode{ VK_PRESENT_MODE_MAILBOX_KHR };
 

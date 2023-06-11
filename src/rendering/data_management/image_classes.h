@@ -109,6 +109,7 @@ public:
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLayout);
 
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
+	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 
 	bool getLayer(uint16_t& layerIndex);
 	void freeLayer(uint16_t freedLayerIndex);
@@ -127,13 +128,13 @@ private:
 
 public:
 	ImageCubeMap() = delete;
-	ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags);
+	ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags, uint32_t mipLevels = 0);
 	ImageCubeMap(ImageCubeMap&& src) noexcept;
 	~ImageCubeMap();
 
 	VkSampler getSampler() const { return m_sampler; }
 
-	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t sideLength, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex);
+	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t sideLength, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 };
 
 
@@ -178,7 +179,8 @@ public:
 	void cmdCreateListMipmaps(VkCommandBuffer cb, uint16_t listIndex, VkImageLayout currentLayout);
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentLayout);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
-	
+	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
+
 };
 
 #endif

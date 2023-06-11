@@ -12,5 +12,4 @@ void main()
 	vec4 color = texture(samplerCubeMap, inUVW);
 	color.w = 1.0;
 	outFragColor = color;
-	//outFragColor = texture(samplerCubeMap, inUVW);
 }

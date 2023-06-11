@@ -33,7 +33,7 @@ void PipelineAssembler::setViewportState(StatePresets preset, uint32_t viewportW
 	case VIEWPORT_STATE_DEFAULT:
 		m_viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 		m_viewportState.viewportCount = 1;
-		m_viewport = { .x = 0, .y = 0, .width = static_cast<float>(viewportWidth), .height = static_cast<float>(viewportHeight), .minDepth = 0.0f, .maxDepth = 1.0f };
+		m_viewport = { .x = 0, .y = static_cast<float>(viewportHeight), .width = static_cast<float>(viewportWidth), .height = -static_cast<float>(viewportHeight), .minDepth = 0.0f, .maxDepth = 1.0f };
 		m_viewportState.pViewports = &m_viewport;
 		m_viewportState.scissorCount = 1;
 		m_rect = { .offset{0, 0}, .extent{.width = viewportWidth, .height = viewportHeight} };
@@ -310,7 +310,7 @@ Pipeline::Pipeline(const PipelineAssembler& assembler, std::span<const ShaderSta
 	VkPipelineRenderingCreateInfo attachmentsFormats{};
 	attachmentsFormats.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 	attachmentsFormats.colorAttachmentCount = 1;
-	VkFormat format{ VK_FORMAT_B8G8R8A8_SRGB };
+	VkFormat format{ VK_FORMAT_B8G8R8A8_UNORM };
 	attachmentsFormats.pColorAttachmentFormats = &format;
 	attachmentsFormats.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
 

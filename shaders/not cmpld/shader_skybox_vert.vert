@@ -13,7 +13,6 @@ layout(location = 0) out vec3 outUVW;
 void main() 
 {
     outUVW = position;
-    outUVW.x *= -1.0;
     vec4 vertPos = vec4(position, 1.0);
     vertPos = skyboxTransform.proj * skyboxTransform.view * vertPos;
     vec4 vertPosInfFar = vec4(vertPos.xyz, vertPos.z);
