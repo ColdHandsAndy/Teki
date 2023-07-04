@@ -29,6 +29,8 @@ VulkanObjectHandler::VulkanObjectHandler(const VulkanCreateInfo& vulkanCreateInf
 	m_debugMessenger = setupDebugMessenger(m_instance);
 #endif
 
+	m_window = vulkanCreateInfo.windowPtr;
+
 	createWindowSurface(vulkanCreateInfo.windowPtr);
 
 	createPhysicalDevice(vulkanCreateInfo);
@@ -47,7 +49,11 @@ VulkanObjectHandler::VulkanObjectHandler(const VulkanCreateInfo& vulkanCreateInf
 
 	loadFunctions();
 
-	createSwapchain(vulkanCreateInfo);
+	m_preferredFormat = vulkanCreateInfo.swapchainPreferredFormat;
+	m_preferredColorspace = vulkanCreateInfo.swapchainPreferredColorspace;
+	m_prefferedPresentMode = vulkanCreateInfo.swapchainPreferredPresentMode;
+
+	createSwapchain();
 
 	retrieveSwapchainImagesAndViews();
 }
@@ -56,13 +62,7 @@ VulkanObjectHandler::~VulkanObjectHandler()
 {
 	vkDeviceWaitIdle(m_logicalDevice);
 
-
-	for (auto imageView : m_swapchainImageViews)
-	{
-		vkDestroyImageView(m_logicalDevice, imageView, nullptr);
-	}
-
-	vkDestroySwapchainKHR(m_logicalDevice, m_swapchain, nullptr);
+	cleanupSwapchain();
 
 	vkDestroyDevice(m_logicalDevice, nullptr);
 
@@ -252,17 +252,16 @@ void VulkanObjectHandler::loadFunctions()
 VkSurfaceFormatKHR getSurfaceFormat(VkPhysicalDevice device, VkSurfaceKHR surface, VkFormat preferredFormat, VkColorSpaceKHR preferredColorspace);
 VkPresentModeKHR getPresentMode(VkPhysicalDevice device, VkSurfaceKHR surface, VkPresentModeKHR preferredMode);
 VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window);
-void VulkanObjectHandler::createSwapchain(const VulkanCreateInfo& vulkanCreateInfo)
+void VulkanObjectHandler::createSwapchain()
 {
-	VkSurfaceFormatKHR surfaceFormat{ getSurfaceFormat(m_physicalDevice, m_surface, vulkanCreateInfo.swapchainPreferredFormat, vulkanCreateInfo.swapchainPreferredColorspace) };
-	m_swapchainImageFormat = surfaceFormat.format;
+	VkSurfaceFormatKHR surfaceFormat{ getSurfaceFormat(m_physicalDevice, m_surface, m_preferredFormat, m_preferredColorspace) };
 
-	VkPresentModeKHR presentMode{ getPresentMode(m_physicalDevice, m_surface, vulkanCreateInfo.swapchainPreferredPresentMode) };
+	VkPresentModeKHR presentMode{ getPresentMode(m_physicalDevice, m_surface, m_prefferedPresentMode) };
 
 	VkSurfaceCapabilitiesKHR surfaceCapabilities{};
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, &surfaceCapabilities);
 
-	VkExtent2D swapExtent{ chooseSwapExtent(surfaceCapabilities, vulkanCreateInfo.windowPtr)};
+	VkExtent2D swapExtent{ chooseSwapExtent(surfaceCapabilities, m_window)};
 	m_swapchainExtent = swapExtent;
 
 	uint32_t swapchainImageCount{ 
@@ -308,13 +307,12 @@ void VulkanObjectHandler::retrieveSwapchainImagesAndViews()
 	m_swapchainImages.resize(imageCount);
 	vkGetSwapchainImagesKHR(m_logicalDevice, m_swapchain, &imageCount, m_swapchainImages.data());
 
-
 	m_swapchainImageViews.resize(m_swapchainImages.size());
 
 	VkImageViewCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	createInfo.format = m_swapchainImageFormat;
+	createInfo.format = m_preferredFormat;
 	createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -334,7 +332,6 @@ void VulkanObjectHandler::retrieveSwapchainImagesAndViews()
 			assert(false);
 		}
 	}
-
 }
 
 

@@ -34,10 +34,14 @@ private:
 	VkQueue m_transferQueue{};
 
 	VkSwapchainKHR m_swapchain;
-	VkFormat m_swapchainImageFormat;
+	VkFormat m_preferredFormat;
+	VkColorSpaceKHR m_preferredColorspace;
+	VkPresentModeKHR m_prefferedPresentMode;
 	VkExtent2D m_swapchainExtent;
 	std::vector<VkImage> m_swapchainImages;
 	std::vector<VkImageView> m_swapchainImageViews;
+
+	GLFWwindow* m_window{};
 
 #ifdef _DEBUG
 	VkDebugUtilsMessengerEXT m_debugMessenger{};
@@ -65,6 +69,20 @@ public:
 	const std::tuple<VkImage, VkImageView, uint32_t> getSwapchainImageData(uint32_t index) const;
 	const VkSwapchainKHR getSwapchain() const { return m_swapchain; };
 
+	bool checkSwapchain(VkResult swapchainOpRes)
+	{
+		if (swapchainOpRes == VK_ERROR_OUT_OF_DATE_KHR || swapchainOpRes == VK_SUBOPTIMAL_KHR)
+		{
+			recreateSwapchain();
+			return false;
+		}
+		else if (swapchainOpRes != VK_SUCCESS) 
+		{
+			ASSERT_ALWAYS(false, "Vulkan", "Swapchain operation failed.")
+		}
+		return true;
+	}
+
 	enum QueueType
 	{
 		GRAPHICS_QUEUE_TYPE,
@@ -86,10 +104,34 @@ private:
 
 	void loadFunctions();
 
-	void createSwapchain(const VulkanCreateInfo& vulkanCreateInfo);
-
+	void createSwapchain();
 	void retrieveSwapchainImagesAndViews();
+	void cleanupSwapchain() 
+	{
+		for (int i{ 0 }; i < m_swapchainImageViews.size(); ++i)
+		{
+			vkDestroyImageView(m_logicalDevice, m_swapchainImageViews[i], nullptr);
+		}
 
+		vkDestroySwapchainKHR(m_logicalDevice, m_swapchain, nullptr);
+	}
+
+	void recreateSwapchain()
+	{
+		int width{ 0 };
+		int height{ 0 };
+		glfwGetFramebufferSize(m_window, &width, &height);
+		while (width == 0 || height == 0) {
+			glfwGetFramebufferSize(m_window, &width, &height);
+			glfwWaitEvents();
+		}
+		vkDeviceWaitIdle(m_logicalDevice);
+
+		cleanupSwapchain();
+
+		createSwapchain();
+		retrieveSwapchainImagesAndViews();
+	}
 };
 
 
@@ -123,6 +165,7 @@ public:
 		}
 	};
 	VkPhysicalDeviceVulkan11Features* vulkan11Features{ new VkPhysicalDeviceVulkan11Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, 
+		.storageBuffer16BitAccess = VK_TRUE,
 		.uniformAndStorageBuffer16BitAccess = VK_TRUE,
 		.shaderDrawParameters = VK_TRUE} };
 	VkPhysicalDeviceVulkan12Features* vulkan12Features{ new VkPhysicalDeviceVulkan12Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, 

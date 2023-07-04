@@ -32,9 +32,10 @@ protected:
 
 public:
 	VkBuffer getBufferHandle() const;
-	VkDeviceSize getBufferByteSize() const;
-	VkDeviceAddress getBufferDeviceAddress() const;
-	VkDeviceSize getBufferAlignment() const;
+	VkDeviceSize getOffset() const;
+	VkDeviceSize getSize() const;
+	VkDeviceAddress getDeviceAddress() const;
+	VkDeviceSize getAlignment() const;
 
 	static void assignGlobalMemoryManager(MemoryManager& memManager);
 
@@ -90,9 +91,10 @@ private:
 	bool m_invalid{ true };
 
 public:
+	Buffer();
 	Buffer(BufferBaseHostInaccessible& motherBuffer);
 	Buffer(BufferBaseHostInaccessible& motherBuffer, VkDeviceSize size);
-	Buffer(Buffer&& srcBuffer);
+	Buffer(Buffer&& srcBuffer) noexcept;
 	~Buffer();
 
 	VkBuffer getBufferHandle() const;
@@ -101,9 +103,11 @@ public:
 	VkDeviceAddress getDeviceAddress() const;
 	VkDeviceSize getAlignment() const;
 
+	void initialize(BufferBaseHostInaccessible& motherBuffer, VkDeviceSize size);
 	void initialize(VkDeviceSize size);
 
-	Buffer() = delete;
+	void reset();
+
 	void operator=(Buffer&) = delete;
 };
 
@@ -143,9 +147,10 @@ private:
 	bool m_invalid{ true };
 
 public:
+	BufferMapped();
 	BufferMapped(BufferBaseHostAccessible& motherBuffer);
 	BufferMapped(BufferBaseHostAccessible& motherBuffer, VkDeviceSize size);
-	BufferMapped(BufferMapped&& srcBuffer);
+	BufferMapped(BufferMapped&& srcBuffer) noexcept;
 	~BufferMapped();
 
 	VkBuffer getBufferHandle() const;
@@ -155,9 +160,11 @@ public:
 	VkDeviceAddress getDeviceAddress() const;
 	VkDeviceSize getAlignment() const;
 
+	void initialize(BufferBaseHostAccessible& motherBuffer, VkDeviceSize size);
 	void initialize(VkDeviceSize size);
 
-	BufferMapped() = delete;
+	void reset();
+
 	void operator=(BufferMapped&) = delete;
 };
 

@@ -119,9 +119,10 @@ private:
     VkDevice m_device{};
     uint32_t m_setIndex{};
 
-    bool m_invalid{ false };
+    bool m_invalid{ true };
 
 public:
+    ResourceSet() = default;
     ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, uint32_t resCopies, const std::vector<VkDescriptorSetLayoutBinding>& bindings, const std::vector<VkDescriptorBindingFlags>& bindingFlags, const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData);
     ResourceSet(ResourceSet&& srcResourceSet) noexcept;
     ~ResourceSet();
@@ -139,7 +140,6 @@ private:
     const void* getResourcePayload() const;
     uint32_t getDescriptorTypeSize(VkDescriptorType type) const;
 
-    ResourceSet() = delete;
     ResourceSet(ResourceSet&) = delete;
     void operator=(ResourceSet&) = delete;
 

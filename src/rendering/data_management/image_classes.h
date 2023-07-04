@@ -84,6 +84,25 @@ public:
 
 };
 
+class ImageMS : public ImageBase
+{
+private:
+	uint32_t m_width{};
+	uint32_t m_height{};
+	VkImageAspectFlags m_aspects{};
+
+public:
+	ImageMS() = delete;
+	ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkSampleCountFlagBits sampleCount);
+	ImageMS(ImageMS&& src) noexcept;
+	~ImageMS() = default;
+
+	uint32_t getWidth() const;
+	uint32_t getHeight() const;
+	VkImageSubresourceRange getSubresourceRange() const;
+
+};
+
 class ImageList : public ImageBase
 {
 private:
@@ -172,9 +191,9 @@ public:
 
 	[[nodiscard]] ImageListContainerIndices getNewImage(int width, int height, VkFormat format);
 	void freeImage(ImageListContainerIndices indices);
-	VkSampler getSampler();
-	VkImage getImageHandle(uint16_t listIndex);
-	VkImageView getImageViewHandle(uint16_t listIndex);
+	VkSampler getSampler() const;
+	VkImage getImageHandle(uint16_t listIndex) const;
+	VkImageView getImageViewHandle(uint16_t listIndex) const;
 	void cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListContainerIndices indices, VkImageLayout currentLayout);
 	void cmdCreateListMipmaps(VkCommandBuffer cb, uint16_t listIndex, VkImageLayout currentLayout);
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentLayout);

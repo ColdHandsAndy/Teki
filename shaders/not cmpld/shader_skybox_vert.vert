@@ -15,6 +15,5 @@ void main()
     outUVW = position;
     vec4 vertPos = vec4(position, 1.0);
     vertPos = skyboxTransform.proj * skyboxTransform.view * vertPos;
-    vec4 vertPosInfFar = vec4(vertPos.xyz, vertPos.z);
-    gl_Position = vertPosInfFar;
+    gl_Position = vertPos;
 }

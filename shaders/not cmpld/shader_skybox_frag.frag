@@ -11,5 +11,6 @@ void main()
 {
 	vec4 color = texture(samplerCubeMap, inUVW);
 	color.w = 1.0;
+	gl_FragDepth = 0.0;
 	outFragColor = color;
 }

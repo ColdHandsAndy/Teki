@@ -216,6 +216,8 @@ ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayo
     lvkGetDescriptorSetLayoutSizeEXT(device, m_layout, &m_descSetByteSize);
     
     initializeSet(bindingsDescriptorData);
+
+    m_invalid = false;
 }
 
 ResourceSet::ResourceSet(ResourceSet&& srcResourceSet) noexcept
@@ -239,6 +241,8 @@ ResourceSet::ResourceSet(ResourceSet&& srcResourceSet) noexcept
     m_setIndex = srcResourceSet.m_setIndex;
 
     srcResourceSet.m_invalid = true;
+
+    m_invalid = false;
 }
 
 ResourceSet::~ResourceSet()

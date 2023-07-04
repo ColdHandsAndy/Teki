@@ -12,7 +12,7 @@ layout(location = 1) out vec3 outPos;
 layout(location = 2) out vec3 outNorm;
 layout(location = 3) out vec4 outTang;
 layout(location = 4) out vec2 outTexC;
-
+layout(location = 5) out float outViewDepth;
 
 
 layout(set = 0, binding = 0) uniform ViewProjMatrices
@@ -54,6 +54,9 @@ void main()
     mat4 modelmat = modelMatrices.modelMatrices[drawDataIndices.indices[gl_DrawID].modelIndex];
     vec4 worldPos = modelmat * vec4(position, 1.0);
     gl_Position = viewproj.proj * viewproj.view * worldPos;
+
+    outViewDepth = (viewproj.view * worldPos).z;
+
 
     vec3 norm = vec3(unpackSnorm4x8(packedNormals4x8));
     vec4 tang = vec4(unpackSnorm4x8(packedTangents4x8));

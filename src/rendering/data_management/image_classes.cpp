@@ -45,7 +45,7 @@ Image::Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, 
 	imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	imageViewCI.image = m_imageHandle;
 	imageViewCI.format = m_format;
-	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
 	imageViewCI.subresourceRange = { .aspectMask = imageAspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = 1 };
 	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
@@ -146,6 +146,73 @@ void Image::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, VkDevi
 		.imageExtent = {.width = width, .height = height, .depth = 1} };
 
 	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufImageCopy);
+}
+
+
+
+ImageMS::ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkSampleCountFlagBits sampleCount)
+{
+	VkImageCreateInfo imageCI{};
+	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageCI.imageType = VK_IMAGE_TYPE_2D;
+	imageCI.format = format;
+	m_format = format;
+	m_width = width;
+	m_height = height;
+	imageCI.extent = { .width = width, .height = height, .depth = 1 };
+	imageCI.mipLevels = 1;
+	imageCI.arrayLayers = 1;
+	imageCI.samples = sampleCount;
+	imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageCI.usage = usageFlags;
+	imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	//Allocation performed on device through VMA
+	VmaAllocationCreateInfo allocCI{};
+	allocCI.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+	auto allocationIter{ m_memoryManager->addAllocation() };
+	ASSERT_DEBUG(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
+	m_imageAllocIter = allocationIter;
+
+	m_aspects = imageAspects;
+
+	VkImageViewCreateInfo imageViewCI{};
+	imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	imageViewCI.image = m_imageHandle;
+	imageViewCI.format = m_format;
+	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
+	imageViewCI.subresourceRange = { .aspectMask = imageAspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
+	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+}
+ImageMS::ImageMS(ImageMS&& src) noexcept
+{
+	m_imageHandle = src.m_imageHandle;
+	m_imageViewHandle = src.m_imageViewHandle;
+
+	m_format = src.m_format;
+	m_width = src.m_width;
+	m_height = src.m_height;
+
+	m_imageAllocIter = src.m_imageAllocIter;
+
+	src.m_invalid = true;
+}
+
+uint32_t ImageMS::getWidth() const
+{
+	return m_width;
+}
+uint32_t ImageMS::getHeight() const
+{
+	return m_height;
+}
+VkImageSubresourceRange ImageMS::getSubresourceRange() const
+{
+	return VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 0, .baseArrayLayer = 0, .layerCount = 1 };
 }
 
 
@@ -584,15 +651,15 @@ void ImageListContainer::freeImage(ImageListContainerIndices indices)
 {
 	m_imageLists[indices.listIndex].list.freeLayer(indices.layerIndex);
 }
-VkSampler ImageListContainer::getSampler()
+VkSampler ImageListContainer::getSampler() const
 {
 	return m_sampler;
 }
-VkImage ImageListContainer::getImageHandle(uint16_t listIndex)
+VkImage ImageListContainer::getImageHandle(uint16_t listIndex) const
 {
 	return m_imageLists[listIndex].list.getImageHandle();
 }
-VkImageView ImageListContainer::getImageViewHandle(uint16_t listIndex)
+VkImageView ImageListContainer::getImageViewHandle(uint16_t listIndex) const
 {
 	return m_imageLists[listIndex].list.getImageView();
 }

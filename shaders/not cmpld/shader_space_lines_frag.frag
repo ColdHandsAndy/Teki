@@ -13,8 +13,8 @@ layout(location = 0) out vec4 outColor;
 void main() 
 {
 	float distanceToPoint = distance(fragPos.xz, pushConstants.camPos.xz);
-	vec4 color = vec4(lineColor, 1.0);
+	vec4 color = vec4(lineColor, 0.75);
 	if (distanceToPoint > 30.0)
-		color.w = -(1.0/15.0) * distanceToPoint + 3.0;
+		color.w = (-(1.0/15.0) * distanceToPoint + 3.0) * 0.75;
     outColor = color;
 }

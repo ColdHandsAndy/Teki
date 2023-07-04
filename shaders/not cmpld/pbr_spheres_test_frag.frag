@@ -30,61 +30,16 @@ layout(push_constant) uniform PushConsts
 #define SAMPLE_COUNT 256
 
 
-vec3 F_Schlick(vec3 f0, float f90, float u);
-
-
-float Fr_DisneyDiffuse(float NdotV, float NdotL, float LdotH, float roughness)
-{
-	float energyBias = mix(0, 0.5, roughness);
-	float energyFactor = mix(1.0, 1.0 / 1.51 , roughness);
-	float fd90 = energyBias + 2.0 * LdotH * LdotH * roughness;
-	vec3 f0 = vec3(1.0, 1.0, 1.0);
-	float lightScatter = F_Schlick(f0, fd90, NdotL).r;
-	float viewScatter = F_Schlick(f0, fd90, NdotV).r;
-	
-	return lightScatter * viewScatter * energyFactor;
-}
-
-
 vec3 F_Schlick(vec3 f0, float f90, float u)
 {
 	return f0 + (f90 - f0) * pow(1.0 - u , 5.0);
 }
-
-float V_SmithGGXCorrelated(float NdotL, float NdotV, float alpha)
-{
-	float alpha2 = alpha * alpha;
-	
-	float Lambda_GGXV = NdotL * sqrt((-NdotV * alpha2 + NdotV) * NdotV + alpha2);
-	float Lambda_GGXL = NdotV * sqrt((-NdotL * alpha2 + NdotL) * NdotL + alpha2);
-	
-	return 0.5 / (Lambda_GGXV + Lambda_GGXL);
-}
-
-float D_GGX(float NdotH, float alpha)
-{
-	float alpha2 = alpha * alpha;
-	float d = (NdotH * alpha2 - NdotH) * NdotH + 1;
-	return alpha2 / (d * d);
-}
-
-
 
 vec3 getSpecularDominantDir(vec3 N, vec3 R, float alpha, float NdotV)
 {
 	float lerpFactor = pow(1 - NdotV , 10.8649) * (1 - 0.298475 * log(39.4115 - 39.0029 * alpha)) + 0.298475 * log(39.4115 - 39.0029 * alpha);
 	return mix(N, R, lerpFactor);
 }
-vec3 evalIBLspecular(vec3 N, vec3 R, float NdotV, float alpha, float roughness, vec3 F0)
-{
-	vec3 dominantR = getSpecularDominantDir(N, R, alpha, NdotV);
-	NdotV = max(NdotV, 0.5 / BRDF_LUT_TEXTURE_SIZE);
-	float mipLevel = sqrt(roughness) * RAD_MIP_COUNT;
-	vec3 specLD = texture(samplerCubeMapRad, dominantR, mipLevel).rgb;
-	vec2 specDFG = texture(brdfLUT, vec2(NdotV, alpha)).xy;
-	return specLD * (F0 * specDFG.x + specDFG.y);
-}
-
 vec3 getDiffuseDominantDir(vec3 N, vec3 V, float NdotV, float alpha)
 {
 	float a = 1.02341 * alpha - 1.51174;
@@ -92,14 +47,64 @@ vec3 getDiffuseDominantDir(vec3 N, vec3 V, float NdotV, float alpha)
 	float lerpFactor = clamp((NdotV * a + b) * alpha, 0.0, 1.0);
 	return mix(N, V, lerpFactor);
 }
+vec3 evalIBLspecular(vec3 N, vec3 R, float NdotV, float alpha, float roughness, vec3 F0)
+{
+	vec3 dominantR = getSpecularDominantDir(N, R, alpha, NdotV);
+	NdotV = max(NdotV, 0.5 / BRDF_LUT_TEXTURE_SIZE);
+	float mipLevel = sqrt(roughness) * RAD_MIP_COUNT;
+	//vec3 specLD = texture(samplerCubeMapRad, dominantR, mipLevel).rgb;
+	//vec2 specDFG = texture(brdfLUT, vec2(NdotV, alpha)).xy;
+	//return specLD * (F0 * specDFG.x + specDFG.y);
+
+	//
+	//vec2 specDFG = texture(brdfLUT, vec2(NdotV, alpha)).xy;
+	//return (F0 * specDFG.x + specDFG.y) * vec3(0.5);
+	//
+	//
+	vec2 specDFG = texture(brdfLUT, vec2(NdotV, alpha)).xy;
+	return mix(specDFG.xxx, specDFG.yyy, F0) * vec3(0.5);
+	//
+}
 vec3 evalIBLdiffuse(vec3 N, vec3 V, float NdotV, float alpha)
 {
 	vec3 dominantN = getDiffuseDominantDir(N, V, NdotV, alpha);
 	vec3 diffLD = texture(samplerCubeMapIrrad, dominantN).rgb;
+	//float diffDFG = texture(brdfLUT, vec2(NdotV, alpha)).z;
+	//return diffLD * diffDFG;
+
+	//
+	//float diffDFG = texture(brdfLUT, vec2(NdotV, alpha)).z;
+	//return vec3(diffDFG) * vec3(0.5);
+	//
+	//
 	float diffDFG = texture(brdfLUT, vec2(NdotV, alpha)).z;
-	return diffLD * diffDFG;
+	return vec3(diffDFG) * vec3(0.5);
+	//
 }
 
+vec3 evalIBL(vec3 N, vec3 R, vec3 V, float NdotV, float alpha, float roughness, vec3 F0)
+{
+	vec3 Fr = max(vec3(1.0 - alpha), F0) - F0;
+
+    vec3 k_S = F0 + Fr * pow(1.0 - NdotV, 5.0);
+
+	vec3 DFG = texture(brdfLUT, vec2(NdotV, roughness)).xyz;
+
+	vec3 dominantR = getSpecularDominantDir(N, R, alpha, NdotV);
+	float mipLevel = sqrt(roughness) * RAD_MIP_COUNT;
+	vec3 specLD = texture(samplerCubeMapRad, R, mipLevel).rgb;
+	vec3 dominantN = getDiffuseDominantDir(N, V, NdotV, alpha);
+	vec3 diffLD = texture(samplerCubeMapIrrad, N).rgb;
+    vec3 FssEss = k_S * DFG.x + DFG.y;
+
+    float Ems = (1.0 - (DFG.x + DFG.y));
+    vec3 F_avg = F0 + (1.0 - F0) / 21.0;
+    vec3 FmsEms = Ems * FssEss * F_avg / (1.0 - F_avg * Ems);
+    vec3 k_D = (1.0 - FssEss - FmsEms);
+    vec3 color = FssEss * specLD + (FmsEms + k_D) * diffLD;
+
+	return color;
+}
 
 
 void main()
@@ -121,5 +126,6 @@ void main()
 	vec3 diffuseWeight = vec3(1.0) - F_Schlick(F0, 1.0, NdotV);
 	
 	vec3 result = specIBL + diffIBL * diffuseWeight;
-	finalColor = vec4(result, 1.0);
+	finalColor = vec4(evalIBL(N, R, V, NdotV, alpha, roughness, F0), 1.0);
+	//finalColor = vec4(result, 1.0);
 }

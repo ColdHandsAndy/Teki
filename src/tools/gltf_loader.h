@@ -7,15 +7,16 @@
 #include <iostream>
 #include <map>
 
+#include <tbb/task_arena.h>
+#include <tbb/spin_mutex.h>
+
 #include <glm/glm.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <OpenImageIO/imagebuf.h>
-
-#include <tbb/parallel_for.h>
-#include <tbb/spin_mutex.h>
+#include <OpenImageIO/imageio.h>
+#include <ktx.h>
 
 #include "src/rendering/shader_management/shader_operations.h"
 #include "src/rendering/renderer/pipeline_management.h"
@@ -61,7 +62,8 @@ inline void processNode(cgltf_data* model,
 	std::vector<MaterialURIs>& meshesMaterialURIs,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
-	StaticMesh& loadedMesh);
+	StaticMesh& loadedMesh,
+	const glm::mat4& nodeTransformL);
 template<typename T>
 inline void formVertexChunk(cgltf_data* model,
 	cgltf_primitive* meshData,
@@ -102,16 +104,20 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	std::vector<MaterialURIs> meshesMaterialURIs{};
 
 	BufferBaseHostAccessible resourceStaging{ vulkanObjects->getLogicalDevice(),
-		2147483648ll, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-	uint32_t stagingBufferAlignment{ static_cast<uint32_t>(resourceStaging.getBufferAlignment()) };
+		2147483648ll, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
+	uint32_t stagingBufferAlignment{ static_cast<uint32_t>(resourceStaging.getAlignment()) };
 	uint64_t stagingCurrentSize{ 0 };
 	uint8_t* const stagingDataPtr{ reinterpret_cast<uint8_t*>(resourceStaging.getData()) };
 	for (int i{ 0 }; i < modelCount; ++i)
 	{
 		cgltf_result result1 = cgltf_parse_file(&options, filepaths[i].generic_string().c_str(), &(modelsData[i]));
+		if (result1 != cgltf_result_success)
+		{
+			ASSERT_ALWAYS(false, "cgltf", "Parsing failed.");
+		}
 		cgltf_data* currentModel{ modelsData[i] };
 		cgltf_result result2 = cgltf_load_buffers(&options, currentModel, filepaths[i].generic_string().c_str());
-		if (result1 == cgltf_result_success && result2 == cgltf_result_success)
+		if (result2 == cgltf_result_success)
 		{
 			meshes.emplace_back();
 			for (int j{0}; j < currentModel->scenes_count; ++j)
@@ -193,7 +199,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	loadTexturesIntoStaging(stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, texDataTransfersData, loadedTextures, meshes, meshesMaterialURIs);
 
 	std::vector<VkImageMemoryBarrier> memBarriers{};
-	for (uint32_t i{ 0 }; i < loadedTextures.getImageListCount(); ++i)
+	for (uint32_t i{ 1 }; i < loadedTextures.getImageListCount(); ++i)
 	{
 		memBarriers.push_back(VkImageMemoryBarrier{ .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 													.srcAccessMask = 0,
@@ -258,7 +264,9 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 						  std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>>& texDataTransfersData,
 						  uint8_t* const stagingDataPtr,
 						  uint64_t& stagingCurrentSize,
-						  uint32_t stagingBufferAlignment)
+						  uint32_t stagingBufferAlignment,
+						  std::vector<std::unique_ptr<OIIO::ImageInput>>& images,
+						  oneapi::tbb::task_group& group)
 		{
 			if (texPathsAndIndices.contains(path))
 			{
@@ -274,18 +282,28 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 					matIndices[materialTypeInd].second = materialTypeInd;
 					return;
 				}
-				auto imInp{ OIIO::ImageInput::open(path) };
-				const OIIO::ImageSpec& spec{ imInp->spec() };
 
-				uint32_t grainsize{ std::thread::hardware_concurrency() ? std::thread::hardware_concurrency() : 1};
+				VkFormat format{};
+				uint32_t width{ 0 };
+				uint32_t height{ 0 };
 
-				imInp->read_image(0, -1, OIIO::TypeDesc::UINT8, stagingDataPtr + stagingCurrentSize, sizeof(uint8_t) * 4);
+				auto imageIndex{ images.size() };
+				images.push_back(OIIO::ImageInput::open(path));
 
-				ImageListContainer::ImageListContainerIndices indices{ loadedTextures.getNewImage(spec.width, spec.height, VK_FORMAT_R8G8B8A8_UNORM) };
+				group.run([&images, imageIndex, stagingDataPtr, stagingCurrentSize]()
+					{
+						ASSERT_ALWAYS(images[imageIndex]->read_image(0, -1, OIIO::TypeDesc::UINT8, stagingDataPtr + stagingCurrentSize, sizeof(uint8_t) * 4) == true, "OIIO", "Could not load image.");
+					});
+
+				width = images.back()->spec().width;
+				height = images.back()->spec().height;
+				format = VK_FORMAT_R8G8B8A8_UNORM;
+
+				ImageListContainer::ImageListContainerIndices indices{ loadedTextures.getNewImage(width, height, format) };
 				texDataTransfersData.emplace_back();
 				std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>& transferData{ texDataTransfersData.back() };
 				std::get<0>(transferData) = stagingCurrentSize;
-				std::get<1>(transferData) = spec.width * spec.height * sizeof(uint8_t) * 4;
+				std::get<1>(transferData) = width * height * sizeof(uint8_t) * 4;
 				std::get<2>(transferData) = indices.listIndex;
 				std::get<3>(transferData) = indices.layerIndex;
 
@@ -302,6 +320,12 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 	};
 
 	std::map<std::string, std::pair<uint16_t, uint16_t>> texPathsAndIndices{};
+
+	oneapi::tbb::task_group group{};
+
+	std::vector<std::unique_ptr<OIIO::ImageInput>> images{};
+	images.reserve(meshesMaterialURIs.size() * 4);
+
 	for (int i{ 0 }, matInd{ 0 }; i < meshes.size(); ++i)
 	{
 		std::vector<RUnit>& rUnits{ meshes[i].getRUnits() };
@@ -310,12 +334,13 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 		{
 			RUnit& currentRUnit{ rUnits[j] };
 			MaterialURIs uris{ meshesMaterialURIs[matInd++] };
-			genImageList(0, uris.bcURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment);
-			genImageList(1, uris.nmURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment);
-			genImageList(2, uris.mrURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment);
-			genImageList(3, uris.emURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment);
+			genImageList(0, uris.bcURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
+			genImageList(1, uris.nmURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
+			genImageList(2, uris.mrURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
+			genImageList(3, uris.emURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
 		}
 	}
+	group.wait();
 }
 
 inline void processMeshData(cgltf_data* model,
@@ -328,7 +353,8 @@ inline void processMeshData(cgltf_data* model,
 {
 	for (int i{ 0 }; i < scene.nodes_count; ++i)
 	{
-		processNode(model, scene.nodes[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, mesh);
+		glm::mat4 nodeTransform{ 1.0 };
+		processNode(model, scene.nodes[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, mesh, nodeTransform);
 	}
 }
 
@@ -338,15 +364,12 @@ inline void processNode(cgltf_data* model,
 	std::vector<MaterialURIs>& meshesMaterialURIs,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
-	StaticMesh& loadedMesh)
+	StaticMesh& loadedMesh,
+	const glm::mat4& nodeTransformL)
 {
-	glm::mat4 nodeTransform{ 1.0 };
-	if (node->has_matrix)
-	{
-		float matr[16]{};
-		cgltf_node_transform_world(node, matr);
-		nodeTransform = glm::make_mat4x4(matr);
-	}
+	float matr[16]{};
+	cgltf_node_transform_local(node, matr);
+	glm::mat4 nodeTransformW{ glm::make_mat4x4(matr) * nodeTransformL };
 
 	cgltf_mesh* mesh{ node->mesh };
 
@@ -358,23 +381,37 @@ inline void processNode(cgltf_data* model,
 
 			RUnit& renderUnit{ loadedMesh.getRUnits().emplace_back() };
 			renderUnit.setVertexSize(sizeof(StaticVertex));
-			formVertexChunk<StaticVertex>(model, mesh->primitives + i, stagingDataPtr, stagingCurrentSize, renderUnit, nodeTransform);
+			formVertexChunk<StaticVertex>(model, mesh->primitives + i, stagingDataPtr, stagingCurrentSize, renderUnit, nodeTransformW);
 
 			renderUnit.setIndexSize(sizeof(uint32_t));
 			formIndexChunk(model, mesh->primitives[i].indices, stagingDataPtr, stagingCurrentSize, renderUnit);
 
 			cgltf_material* mat{ mesh->primitives[i].material };
-			MaterialURIs mUri{
-				.bcURI = mat->pbr_metallic_roughness.base_color_texture.texture != nullptr ? (workPath / mat->pbr_metallic_roughness.base_color_texture.texture->image->uri).generic_string() : std::string{} ,
-				.nmURI = mat->normal_texture.texture != nullptr ? (workPath / mat->normal_texture.texture->image->uri).generic_string() : std::string{} ,
-				.mrURI = mat->pbr_metallic_roughness.metallic_roughness_texture.texture != nullptr ? (workPath / mat->pbr_metallic_roughness.metallic_roughness_texture.texture->image->uri).generic_string() : std::string{} ,
-				.emURI = mat->emissive_texture.texture != nullptr ? (workPath / mat->emissive_texture.texture->image->uri).generic_string() : std::string{} };
+			MaterialURIs mUri{};
+
+			if (mat->pbr_metallic_roughness.base_color_texture.texture == nullptr)
+				mUri.bcURI = std::string{};
+			else
+				mUri.bcURI = (workPath / mat->pbr_metallic_roughness.base_color_texture.texture->image->uri).generic_string();
+			if (mat->normal_texture.texture == nullptr)
+				mUri.nmURI = std::string{};
+			else
+				mUri.nmURI = (workPath / mat->normal_texture.texture->image->uri).generic_string();
+			if (mat->pbr_metallic_roughness.metallic_roughness_texture.texture == nullptr)
+				mUri.mrURI = std::string{};
+			else
+				mUri.mrURI = (workPath / mat->pbr_metallic_roughness.metallic_roughness_texture.texture->image->uri).generic_string();
+			if (mat->emissive_texture.texture == nullptr)
+				mUri.emURI = std::string{};
+			else
+				mUri.emURI = (workPath / mat->emissive_texture.texture->image->uri).generic_string();
+
 			meshesMaterialURIs.push_back(mUri);
 		}
 	}
 	for (int i{ 0 }; i < node->children_count; ++i)
 	{
-		processNode(model, node->children[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, loadedMesh);
+		processNode(model, node->children[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, loadedMesh, nodeTransformW);
 	}
 }
 
@@ -431,7 +468,12 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 				break;
 		}
 	}
-	ASSERT_ALWAYS(((flagcheck & 1) && (flagcheck & 2) && (flagcheck & 4) && (flagcheck & 8)), "App", "Not every required accessor is present.");
+	if (!(flagcheck & 2))
+		LOG_WARNING("{} accessor is not present.", "Normal");
+	if (!(flagcheck & 4))
+		LOG_WARNING("{} accessor is not present.", "Tangent");
+	if (!(flagcheck & 8))
+		LOG_WARNING("{} accessor is not present.", "Texture");
 
 	int attrCount{ static_cast<int>(posAtrrib.data->count) };
 	uint64_t chunkSize{ sizeof(StaticVertex) * attrCount };
@@ -440,7 +482,7 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 	renderUnit.setVertBufOffset(stagingCurrentSize);
 	stagingCurrentSize += chunkSize;
 
-	ASSERT_ALWAYS(posAtrrib.data->count == normAtrrib.data->count && normAtrrib.data->count == tangAtrrib.data->count && tangAtrrib.data->count == texcAtrrib.data->count,
+	/*ASSERT_ALWAYS(posAtrrib.data->count == normAtrrib.data->count && normAtrrib.data->count == tangAtrrib.data->count && tangAtrrib.data->count == texcAtrrib.data->count,
 		"App", "Not every vertex in a mesh has equal amount of attributes.");
 
 	ASSERT_ALWAYS(
@@ -453,29 +495,51 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 		texcAtrrib.data->type == cgltf_type_vec2 &&
 		texcAtrrib.data->component_type == cgltf_component_type_r_32f,
 		"App", "Attribute data is in an unsupported format."
-	);
+	);*/
 
 	const uint8_t* posData{ reinterpret_cast<uint8_t*>(posAtrrib.data->buffer_view->buffer->data) + posAtrrib.data->buffer_view->offset + posAtrrib.data->offset };
-	const uint8_t* normData{ reinterpret_cast<uint8_t*>(normAtrrib.data->buffer_view->buffer->data) + normAtrrib.data->buffer_view->offset + normAtrrib.data->offset };
-	const uint8_t* tangData{ reinterpret_cast<uint8_t*>(tangAtrrib.data->buffer_view->buffer->data) + tangAtrrib.data->buffer_view->offset + tangAtrrib.data->offset };
-	const uint8_t* texCoordData{ reinterpret_cast<uint8_t*>(texcAtrrib.data->buffer_view->buffer->data) + texcAtrrib.data->buffer_view->offset + texcAtrrib.data->offset };
+	const uint8_t* normData{ flagcheck & 2 ? reinterpret_cast<uint8_t*>(normAtrrib.data->buffer_view->buffer->data) + normAtrrib.data->buffer_view->offset + normAtrrib.data->offset : nullptr };
+	const uint8_t* tangData{ flagcheck & 4 ? reinterpret_cast<uint8_t*>(tangAtrrib.data->buffer_view->buffer->data) + tangAtrrib.data->buffer_view->offset + tangAtrrib.data->offset : nullptr };
+	const uint8_t* texCoordData{ flagcheck & 8 ? reinterpret_cast<uint8_t*>(texcAtrrib.data->buffer_view->buffer->data) + texcAtrrib.data->buffer_view->offset + texcAtrrib.data->offset : nullptr };
 	for (uint64_t i{ 0 }; i < attrCount; ++i)
 	{
 		const float* posDataTyped{ reinterpret_cast<const float*>(posData) };
-		vertexDataPtr->position = nodeTransform * glm::vec4{ *(posDataTyped + 0), *(posDataTyped + 1), -*(posDataTyped + 2), 1.0f };
+		vertexDataPtr->position = nodeTransform * glm::vec4{ *(posDataTyped + 0), *(posDataTyped + 1), *(posDataTyped + 2), 1.0f };
+		vertexDataPtr->position.z = -vertexDataPtr->position.z;
 		posData += posAtrrib.data->stride;
 
-		const float* normDataTyped{ reinterpret_cast<const float*>(normData) };
-		vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{ *(normDataTyped + 0), *(normDataTyped + 1), -*(normDataTyped + 2), 0.0f });
-		normData += normAtrrib.data->stride;
+		if (flagcheck & 2)
+		{
+			const float* normDataTyped{ reinterpret_cast<const float*>(normData) };
+			vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{ *(normDataTyped + 0), *(normDataTyped + 1), -*(normDataTyped + 2), 0.0f });
+			normData += normAtrrib.data->stride;
+		}
+		else
+		{
+			vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{0.0f});
+		}
 
-		const float* tangDataTyped{ reinterpret_cast<const float*>(tangData) };
-		vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{ *(tangDataTyped + 0), *(tangDataTyped + 1), -*(tangDataTyped + 2), *(tangDataTyped + 3) });
-		tangData += tangAtrrib.data->stride;
+		if (flagcheck & 4)
+		{
+			const float* tangDataTyped{ reinterpret_cast<const float*>(tangData) };
+			vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{ *(tangDataTyped + 0), *(tangDataTyped + 1), -*(tangDataTyped + 2), * (tangDataTyped + 3) });
+			tangData += tangAtrrib.data->stride;
+		}
+		else
+		{
+			vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{0.0f});
+		}
 
-		const float* texCoordDataTyped{ reinterpret_cast<const float*>(texCoordData) };
-		vertexDataPtr->texCoords = glm::packHalf2x16(glm::vec2{ *texCoordDataTyped, * (texCoordDataTyped + 1) });
-		texCoordData += texcAtrrib.data->stride;
+		if (flagcheck & 8)
+		{
+			const float* texCoordDataTyped{ reinterpret_cast<const float*>(texCoordData) };
+			vertexDataPtr->texCoords = glm::packHalf2x16(glm::vec2{ *texCoordDataTyped, *(texCoordDataTyped + 1) });
+			texCoordData += texcAtrrib.data->stride;
+		}
+		else
+		{
+			vertexDataPtr->texCoords = glm::packHalf2x16(glm::vec2{0.0});
+		}
 
 		++vertexDataPtr;
 	}

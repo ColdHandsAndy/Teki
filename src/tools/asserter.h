@@ -2,6 +2,7 @@
 #define ASSERTER_HEADER
 
 #include <iostream>
+#include <cassert>
 
 #ifdef _DEBUG
 
@@ -10,7 +11,7 @@
 
 #else
 
-#define ASSERT_DEBUG(cond, source, message) (cond)
+#define ASSERT_DEBUG(cond, source, message) (cond);
 
 #endif
 
