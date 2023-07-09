@@ -41,7 +41,8 @@ layout(push_constant) uniform PushConsts
 {
 	vec3 camPos;
 	float binWidth;
-	layout(offset = 16)uint windowTileWidth;
+	vec2 resolutionAO;
+	uint windowTileWidth;
 } pushConstants;
 
 layout(set = 0, binding = 0) uniform ViewProjMatrices 
@@ -109,6 +110,7 @@ layout(set = 4, binding = 0) uniform samplerCube samplerCubeMap;
 layout(set = 4, binding = 1) uniform samplerCube samplerCubeMapRad;
 layout(set = 4, binding = 2) uniform samplerCube samplerCubeMapIrrad;
 layout(set = 4, binding = 3) uniform sampler2D brdfLUT;
+layout(set = 4, binding = 4) uniform sampler2D AO;
 
 struct DirectionalLightLayout
 {
@@ -336,6 +338,7 @@ vec3 calculateLightContribution(vec3 V, vec3 N, float NdotV, MaterialData data)
 }
 
 
+
 layout(location = 0) out vec4 outputColor;
 
 void main() 
@@ -360,8 +363,8 @@ void main()
 	data.roughness = mrData.g;
 	data.alpha = mrData.g * mrData.g + 0.001;
 	data.alpha2 = data.alpha * data.alpha;
-	data.diffAO = mrData.r;
-	data.specAO = computeSpecOcclusion(NdotV, mrData.r, data.alpha);
+	data.diffAO = mrData.r != 1.0 ? max(mrData.r, texture(AO, gl_FragCoord.xy / pushConstants.resolutionAO).x) : texture(AO, gl_FragCoord.xy / pushConstants.resolutionAO).x;
+	data.specAO = computeSpecOcclusion(NdotV, data.diffAO, data.alpha);
 
 	vec3 DFG = texture(brdfLUT, vec2(NdotV, data.roughness)).xyz;
 	

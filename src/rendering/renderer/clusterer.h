@@ -131,7 +131,7 @@ public:
 		m_flowGraph.wait_for_all();
 	}
 
-	void cmdConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager);
+	void cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 	void cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager, Pipeline& pointLPipeline, Pipeline& spotLPipeline, VkRenderingInfo& renderInfo);
 
 	const BufferMapped& getSortedLightsUB() const

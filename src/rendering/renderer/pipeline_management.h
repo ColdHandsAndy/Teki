@@ -50,6 +50,7 @@ public:
 		COLOR_BLEND_STATE_DISABLED,
 		COLOR_BLEND_STATE_DEFAULT,
 		PIPELINE_RENDERING_STATE_DEFAULT,
+		PIPELINE_RENDERING_STATE_DEPTH_ATTACHMENT_ONLY,
 		PIPELINE_RENDERING_STATE_NO_ATTACHMENT,
 		MAX_STATE_PRESETS
 	};
@@ -63,8 +64,8 @@ public:
 	void setMultisamplingState(StatePresets preset, VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT);
 	void setRasterizationState(StatePresets preset, float lineWidth = 1.0f, VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT);
 	void setDepthStencilState(StatePresets preset);
-	void setColorBlendState(StatePresets preset);
-	void setPipelineRenderingState(StatePresets preset);
+	void setColorBlendState(StatePresets preset, VkColorComponentFlags writeMask = 0xFFFFFFFF);
+	void setPipelineRenderingState(StatePresets preset, VkFormat colorAttachmentFormat = VK_FORMAT_B8G8R8A8_UNORM);
 
 	const VkPipelineDynamicStateCreateInfo& getDynamicState() const;
 	const VkPipelineViewportStateCreateInfo& getViewportState() const;

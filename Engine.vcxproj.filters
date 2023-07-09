@@ -143,6 +143,9 @@
     <ClInclude Include="src\rendering\renderer\clusterer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\renderer\HBAO.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -169,5 +172,10 @@
     <CustomBuild Include="shaders\not cmpld\raster_tile_point_light_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\raster_tile_spot_light_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\point_BV_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\fullscreen_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\hbao_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\lin_depth_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\lin_depth_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\hbao_blur_frag.frag" />
   </ItemGroup>
 </Project>

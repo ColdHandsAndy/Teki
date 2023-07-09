@@ -203,7 +203,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 			break;
 	}
 }
-void PipelineAssembler::setColorBlendState(StatePresets preset)
+void PipelineAssembler::setColorBlendState(StatePresets preset, VkColorComponentFlags writeMask)
 {
 	switch (preset)
 	{
@@ -212,7 +212,7 @@ void PipelineAssembler::setColorBlendState(StatePresets preset)
 		m_colorBlendingState.logicOpEnable = VK_FALSE;
 		m_colorBlendingState.logicOp = VK_LOGIC_OP_COPY;
 		m_colorBlendingState.attachmentCount = 1;
-		m_colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		m_colorBlendAttachment.colorWriteMask = writeMask;
 		m_colorBlendAttachment.blendEnable = VK_FALSE;
 		m_colorBlendingState.pAttachments = &m_colorBlendAttachment;
 		m_colorBlendingState.blendConstants[0] = 0.0f;
@@ -226,7 +226,7 @@ void PipelineAssembler::setColorBlendState(StatePresets preset)
 		m_colorBlendingState.logicOp = VK_LOGIC_OP_COPY;
 		m_colorBlendingState.attachmentCount = 1;
 		m_colorBlendAttachment.blendEnable = VK_TRUE;
-		m_colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		m_colorBlendAttachment.colorWriteMask = writeMask;
 		m_colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 		m_colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 		m_colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
@@ -245,15 +245,20 @@ void PipelineAssembler::setColorBlendState(StatePresets preset)
 	}
 }
 
-void PipelineAssembler::setPipelineRenderingState(StatePresets preset)
+void PipelineAssembler::setPipelineRenderingState(StatePresets preset, VkFormat colorAttachmentFormat)
 {
 	switch (preset)
 	{
 	case PIPELINE_RENDERING_STATE_DEFAULT:
 		m_pipelineRenderingState.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 		m_pipelineRenderingState.colorAttachmentCount = 1;
-		m_colorAttachmentFormat = VK_FORMAT_B8G8R8A8_UNORM;
+		m_colorAttachmentFormat = colorAttachmentFormat;
 		m_pipelineRenderingState.pColorAttachmentFormats = &m_colorAttachmentFormat;
+		m_pipelineRenderingState.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+		break;
+	case PIPELINE_RENDERING_STATE_DEPTH_ATTACHMENT_ONLY:
+		m_pipelineRenderingState.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+		m_pipelineRenderingState.colorAttachmentCount = 0;
 		m_pipelineRenderingState.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
 		break;
 	case PIPELINE_RENDERING_STATE_NO_ATTACHMENT:

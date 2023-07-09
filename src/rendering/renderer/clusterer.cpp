@@ -190,7 +190,7 @@ void Clusterer::fillZBins()
 			minMax[1] = max;
 		});
 }
-void Clusterer::cmdConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 {
 	VkRenderingInfo renderInfo{};
 	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
