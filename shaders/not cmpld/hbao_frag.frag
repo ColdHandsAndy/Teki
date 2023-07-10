@@ -1,5 +1,8 @@
 #version 460
 
+#extension GL_KHR_shader_subgroup_arithmetic				: enable
+
+
 #define PI 3.141592653589
 
 #define FOV_EXPANSION_SCALE 0.9090909
@@ -130,8 +133,8 @@ void main()
 	vec3 viewNorm = getNorm(fetchUV, viewPos);
 	
 	float pixelRad = pushConstants.radius / viewPos.z;
-	
-	if (pixelRad < 1.0) //Possible subgroup optimization
+
+	if (subgroupMax(pixelRad) < 1.0)
 	{
 		AO = 1.0;
 		return;

@@ -10,7 +10,7 @@ VkCommandPool FrameCommandPoolSet::createCommandPool(VkDevice deviceHandle, VkCo
 	}
 	createInfo.queueFamilyIndex = queueFamilyIndex;
 	VkCommandPool commandPool{};
-	ASSERT_ALWAYS(vkCreateCommandPool(deviceHandle, &createInfo, nullptr, &commandPool) == VK_SUCCESS, "Vulkan", "Command pool creation failed.")
+	EASSERT(vkCreateCommandPool(deviceHandle, &createInfo, nullptr, &commandPool) == VK_SUCCESS, "Vulkan", "Command pool creation failed.")
 	return commandPool;
 }
 
@@ -83,7 +83,7 @@ void FrameCommandBufferSet::allocateBuffers(VkCommandBuffer* buffers, VkCommandP
 	allocateInfo.level = level;
 	allocateInfo.commandBufferCount = count;
 
-	ASSERT_DEBUG(vkAllocateCommandBuffers(m_deviceHandle, &allocateInfo, buffers) == VK_SUCCESS, "Vulkan", "Command buffer allocation failed");
+	EASSERT(vkAllocateCommandBuffers(m_deviceHandle, &allocateInfo, buffers) == VK_SUCCESS, "Vulkan", "Command buffer allocation failed");
 }
 
 FrameCommandBufferSet::FrameCommandBufferSet(FrameCommandPoolSet& poolSet)
@@ -135,13 +135,13 @@ VkCommandBuffer FrameCommandBufferSet::beginRecording(CommandBufferType type)
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-	ASSERT_DEBUG(vkBeginCommandBuffer(cBuffer, &beginInfo) == VK_SUCCESS, "Vulkan", "Couldn't begin a command buffer");
+	EASSERT(vkBeginCommandBuffer(cBuffer, &beginInfo) == VK_SUCCESS, "Vulkan", "Couldn't begin a command buffer");
 	return cBuffer;
 }
 
 void FrameCommandBufferSet::endRecording(VkCommandBuffer recordedBuffer)
 {
-	ASSERT_DEBUG(vkEndCommandBuffer(recordedBuffer) == VK_SUCCESS, "Vulkan", "Couldn't end a command buffer");
+	EASSERT(vkEndCommandBuffer(recordedBuffer) == VK_SUCCESS, "Vulkan", "Couldn't end a command buffer");
 }
 
 void FrameCommandBufferSet::resetCommandBuffer(VkCommandBuffer commandBuffer, bool releaseResources)
@@ -149,7 +149,7 @@ void FrameCommandBufferSet::resetCommandBuffer(VkCommandBuffer commandBuffer, bo
 	VkCommandBufferResetFlags flags{};
 	if (releaseResources)
 		flags |= VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT;
-	ASSERT_DEBUG(vkResetCommandBuffer(commandBuffer, flags) == VK_SUCCESS, "Vulkan", "Couldn't reset a command buffer");
+	EASSERT(vkResetCommandBuffer(commandBuffer, flags) == VK_SUCCESS, "Vulkan", "Couldn't reset a command buffer");
 }
 
 //Function doesn't support multithreading
@@ -192,7 +192,7 @@ VkCommandBuffer FrameCommandBufferSet::beginTransientRecording()
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-	ASSERT_DEBUG(vkBeginCommandBuffer(m_transientCBs[index], &beginInfo) == VK_SUCCESS, "Vulkan", "Couldn't begin a command buffer");
+	EASSERT(vkBeginCommandBuffer(m_transientCBs[index], &beginInfo) == VK_SUCCESS, "Vulkan", "Couldn't begin a command buffer");
 	return m_transientCBs[index];
 }
 
@@ -201,7 +201,7 @@ VkCommandBuffer FrameCommandBufferSet::beginPerThreadRecording(int32_t index)
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-	ASSERT_DEBUG(vkBeginCommandBuffer(m_perThreadCBs.at(index), &beginInfo) == VK_SUCCESS, "Vulkan", "Couldn't begin a command buffer");
+	EASSERT(vkBeginCommandBuffer(m_perThreadCBs.at(index), &beginInfo) == VK_SUCCESS, "Vulkan", "Couldn't begin a command buffer");
 	return m_perThreadCBs.at(index);
 }
 

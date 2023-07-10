@@ -94,7 +94,7 @@ const VkQueue VulkanObjectHandler::getQueue(QueueType type) const
 		retQueue = m_transferQueue;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Unknown function type")
+		EASSERT(false, "App", "Unknown function type")
 	}
 	return retQueue;
 }

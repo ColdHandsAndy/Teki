@@ -10,7 +10,7 @@ MemoryManager::MemoryManager(const VulkanObjectHandler& vulkanObjects) : m_physD
 	createInfo.device = vulkanObjects.getLogicalDevice();
 	createInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 
-	ASSERT_ALWAYS(vmaCreateAllocator(&createInfo, &m_allocator) == VK_SUCCESS, "VMA", "Allocator creation failed.")
+	EASSERT(vmaCreateAllocator(&createInfo, &m_allocator) == VK_SUCCESS, "VMA", "Allocator creation failed.")
 
 	m_device = vulkanObjects.getLogicalDevice();
 

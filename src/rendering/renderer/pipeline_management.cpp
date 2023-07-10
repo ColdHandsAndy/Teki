@@ -22,7 +22,7 @@ void PipelineAssembler::setDynamicState(StatePresets preset)
 		m_dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -41,7 +41,7 @@ void PipelineAssembler::setViewportState(StatePresets preset, uint32_t viewportW
 		m_viewportState.pScissors = &m_rect;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -70,7 +70,7 @@ void PipelineAssembler::setInputAssemblyState(StatePresets preset)
 		m_inputAssemblyState.primitiveRestartEnable = VK_FALSE;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -82,7 +82,7 @@ void PipelineAssembler::setTesselationState(StatePresets preset)
 		m_tesselationState.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -101,7 +101,7 @@ void  PipelineAssembler::setMultisamplingState(StatePresets preset, VkSampleCoun
 		m_multisamplingState.rasterizationSamples = sampleCount;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -150,7 +150,7 @@ void PipelineAssembler::setRasterizationState(StatePresets preset, float lineWid
 		m_rasterizationState.depthBiasEnable = VK_FALSE;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -199,7 +199,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -240,7 +240,7 @@ void PipelineAssembler::setColorBlendState(StatePresets preset, VkColorComponent
 		m_colorBlendingState.blendConstants[3] = 1.0f;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -266,7 +266,7 @@ void PipelineAssembler::setPipelineRenderingState(StatePresets preset, VkFormat 
 		m_pipelineRenderingState.colorAttachmentCount = 0;
 		break;
 	default:
-		ASSERT_ALWAYS(false, "App", "Invalid state preset.")
+		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
@@ -341,7 +341,7 @@ Pipeline::Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<
 	}
 	pipelineLayoutCI.setLayoutCount = setLayouts.size();
 	pipelineLayoutCI.pSetLayouts = setLayouts.data();
-	ASSERT_ALWAYS(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
+	EASSERT(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
 	m_resourceSets = std::move(resourceSets);
 	m_setsInUse = std::vector<uint32_t>(m_resourceSets.size(), 0u);
 	
@@ -355,7 +355,7 @@ Pipeline::Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<
 	compPipelineCI.stage = shaderStage;
 	compPipelineCI.flags = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
 	
-	ASSERT_ALWAYS(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compPipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Compute pipeline creation failed.");
+	EASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compPipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Compute pipeline creation failed.");
 
 	vkDestroyShaderModule(device, shaderStage.module, nullptr);
 }
@@ -477,12 +477,12 @@ void Pipeline::initializeGraphics(const PipelineAssembler& assembler,
 		pipelineLayoutCI.pushConstantRangeCount = pushConstantsRanges.size();
 		pipelineLayoutCI.pPushConstantRanges = pushConstantsRanges.data();
 	}
-	ASSERT_ALWAYS(vkCreatePipelineLayout(m_device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
+	EASSERT(vkCreatePipelineLayout(m_device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
 	pipelineCI.layout = m_pipelineLayoutHandle;
 	m_resourceSets = std::move(resourceSets);
 	m_setsInUse = std::vector<uint32_t>(m_resourceSets.size(), 0u);
 
-	ASSERT_ALWAYS(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Pipeline creation failed.");
+	EASSERT(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Pipeline creation failed.");
 
 
 

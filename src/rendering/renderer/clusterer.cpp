@@ -309,7 +309,7 @@ void Clusterer::computeFrontAndBack(const LightFormat& light, LightFormat::Types
 		break;
 	}
 	default:
-		ASSERT_ALWAYS(false, "App", "Unknown unified light type. Should never happen.");
+		EASSERT(false, "App", "Unknown unified light type. Should never happen.");
 		break;
 	}
 }
@@ -386,7 +386,7 @@ void Clusterer::uploadBuffersData(FrameCommandBufferSet& cmdBufferSet, VkQueue q
 {
 	BufferBaseHostAccessible staging{ m_device, m_lightBoundingVolumeVertexData.getSize(), VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
 
-	std::ifstream istream{ "bins/octasphere_1sub.bin", std::ios::binary };
+	std::ifstream istream{ "internal/BVmeshes/octasphere_1sub.bin", std::ios::binary };
 	istream.seekg(0, std::ios::beg);
 
 	uint32_t vertNum{};
@@ -415,7 +415,7 @@ void Clusterer::uploadBuffersData(FrameCommandBufferSet& cmdBufferSet, VkQueue q
 void Clusterer::getNewLight(LightFormat* lightData, glm::vec4* boundingSphere, LightFormat::Types type)
 {
 	uint32_t newIndex = m_lightData.size();
-	ASSERT_ALWAYS(newIndex < MAX_LIGHTS, "App", "Number of lights exceeds the maximum.");
+	EASSERT(newIndex < MAX_LIGHTS, "App", "Number of lights exceeds the maximum.");
 	lightData = &m_lightData.emplace_back();
 	boundingSphere = &m_boundingSpheres[newIndex];
 

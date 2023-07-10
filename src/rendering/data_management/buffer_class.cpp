@@ -41,13 +41,13 @@ BufferBase::BufferBase(VkDevice device, const VkBufferCreateInfo& bufferCI, bool
 	VmaVirtualBlockCreateInfo virtBlockCI{};
 	virtBlockCI.size = bufferCI.size;
 
-	ASSERT_DEBUG((m_memoryManager != nullptr), "App", "Memory manager is not assigned.")
-	ASSERT_DEBUG(vmaCreateVirtualBlock(&virtBlockCI, &m_memoryProxy) == VK_SUCCESS, "VMA", "Virtual block creation failed.")
+	EASSERT((m_memoryManager != nullptr), "App", "Memory manager is not assigned.")
+	EASSERT(vmaCreateVirtualBlock(&virtBlockCI, &m_memoryProxy) == VK_SUCCESS, "VMA", "Virtual block creation failed.")
 
 	std::list<VmaAllocation>::iterator allocationIter{ m_memoryManager->addAllocation() };
 	m_bufferAllocIter = allocationIter;
 
-	ASSERT_DEBUG(vmaCreateBuffer(m_memoryManager->getAllocator(), &bufferCI, &allocCI, &m_bufferHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Buffer creation failed.")
+	EASSERT(vmaCreateBuffer(m_memoryManager->getAllocator(), &bufferCI, &allocCI, &m_bufferHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Buffer creation failed.")
 
 	m_memoryByteSize = bufferCI.size;
 	if (bufferCI.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
@@ -225,7 +225,7 @@ void Buffer::initialize(BufferBaseHostInaccessible& motherBuffer, VkDeviceSize s
 void Buffer::initialize(VkDeviceSize size)
 {
 	LOG_IF_INFO(!m_invalid, "{}", "Buffer is already initialized");
-	ASSERT_ALWAYS(m_motherBuffer != nullptr, "App", "Buffer doesn't have a mother buffer assigned.");
+	EASSERT(m_motherBuffer != nullptr, "App", "Buffer doesn't have a mother buffer assigned.");
 
 	if (m_invalid)
 	{
@@ -394,7 +394,7 @@ void BufferMapped::initialize(BufferBaseHostAccessible& motherBuffer, VkDeviceSi
 void BufferMapped::initialize(VkDeviceSize size)
 {
 	LOG_IF_INFO(!m_invalid, "{}", "Buffer is already initialized.");
-	ASSERT_ALWAYS(m_motherBuffer != nullptr, "App", "Buffer doesn't have a mother buffer assigned.");
+	EASSERT(m_motherBuffer != nullptr, "App", "Buffer doesn't have a mother buffer assigned.");
 
 	if (m_invalid)
 	{

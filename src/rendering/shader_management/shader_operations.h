@@ -14,7 +14,7 @@ namespace ShaderOperations
 	inline std::vector<char> getShaderCode(const fs::path & filepath)
 	{
 		std::ifstream stream{ filepath, std::ios::ate | std::ios::binary };
-		ASSERT_ALWAYS(stream.is_open(), "App", "Could not open shader file");
+		EASSERT(stream.is_open(), "App", "Could not open shader file");
 
 		size_t streamSize{ static_cast<size_t>(stream.tellg()) };
 		size_t codeSize{ streamSize };
@@ -35,7 +35,7 @@ namespace ShaderOperations
 		createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
 		VkShaderModule shaderModule;
-		ASSERT_ALWAYS(vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) == VK_SUCCESS, "Vulkan", "Shader module creation failed.");
+		EASSERT(vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) == VK_SUCCESS, "Vulkan", "Shader module creation failed.");
 		return shaderModule;
 	}
 }

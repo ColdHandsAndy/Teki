@@ -30,9 +30,6 @@
     <ClCompile Include="src\main\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\camera\camera.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\rendering\data_abstraction\runit.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -48,9 +45,6 @@
     <ClCompile Include="src\rendering\renderer\command_management.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\input\input_interface.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\rendering\renderer\descriptor_management.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -63,21 +57,21 @@
     <ClCompile Include="src\rendering\renderer\clusterer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\rendering\renderer\HBAO.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\rendering\data_management\image_classes.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\world_state_class\world_state.h">
+    <ClInclude Include="src\world_state\world_state.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\window\window.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\vulkan_object_handling\vulkan_object_handler.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="src\camera\camera.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\data_abstraction\runit.h">
@@ -102,9 +96,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\data_abstraction\vertex_layouts.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="src\input\input_interface.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\renderer\descriptor_management.h">
@@ -144,6 +135,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\renderer\HBAO.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\rendering\scene\parse_scene.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

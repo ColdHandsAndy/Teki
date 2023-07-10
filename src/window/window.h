@@ -17,6 +17,7 @@ private:
 public:
 	Window() = default;
 	Window(uint32_t width, uint32_t height, std::string windowName);
+	Window(std::string windowName);
 
 	~Window() 
 	{

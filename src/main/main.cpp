@@ -25,6 +25,10 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 
+
+#define WINDOW_WIDTH_DEFAULT  1280
+#define WINDOW_HEIGHT_DEFAULT 720
+
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/rendering/renderer/pipeline_management.h"
 #include "src/rendering/shader_management/shader_operations.h"
@@ -36,22 +40,20 @@
 #include "src/rendering/renderer/barrier_operations.h"
 #include "src/rendering/lighting/light_types.h"
 #include "src/rendering/renderer/clusterer.h"
+#include "src/rendering/scene/parse_scene.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/data_abstraction/mesh.h"
 #include "src/rendering/data_abstraction/runit.h"
 #include "src/rendering/renderer/HBAO.h"
 
 #include "src/window/window.h"
-#include "src/world_state_class/world_state.h"
+#include "src/world_state/world_state.h"
 
 #include "src/tools/asserter.h"
 #include "src/tools/alignment.h"
 #include "src/tools/texture_loader.h"
 #include "src/tools/gltf_loader.h"
 #include "src/tools/obj_loader.h"
-
-#define WINDOW_WIDTH_DEFAULT  1280
-#define WINDOW_HEIGHT_DEFAULT 720
 
 #define GENERAL_BUFFER_DEFAULT_SIZE 134217728ll
 #define STAGING_BUFFER_DEFAULT_SIZE 8388608ll
@@ -135,7 +137,8 @@ VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy)
 
 int main()
 {
-	ASSERT_ALWAYS(glfwInit(), "GLFW", "GLFW was not initialized.")
+	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
+
 	Window window(WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Engine");
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetWindowUserPointer(window, &camInfo);
@@ -153,20 +156,21 @@ int main()
 	DescriptorManager descriptorManager{ *vulkanObjectHandler };
 	ResourceSetSharedData::initializeResourceManagement(*vulkanObjectHandler, descriptorManager);
 
-
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
-
-	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
-	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
-	BufferBaseHostAccessible baseHostCachedBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
+	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, 
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+	BufferBaseHostAccessible baseHostCachedBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
+		VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
 
 	BufferMapped viewprojDataUB{ baseHostBuffer, sizeof(glm::mat4) * 2 };
+
 	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), viewprojDataUB};
 	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 
 	HBAO hbao{ device, WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT };
-
 
 	ImageListContainer materialTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true, 
 		VkSamplerCreateInfo{ 
@@ -191,34 +195,29 @@ int main()
 	Buffer vertexData{ baseDeviceBuffer };
 	Buffer indexData{ baseDeviceBuffer };
 	BufferMapped indirectCmdBuffer{ baseHostCachedBuffer };
-	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, indirectCmdBuffer, materialTextures, 
-		{
-			//"A:/Models/gltf/sci-fi_personal_space_pod_shipweekly_challenge/scene.gltf",
-			//"A:/Models/gltf/skull_trophy/scene.gltf",
-			"A:/Models/gltf/sponzaM2/scene.gltf",
-			//"A:/Models/gltf/flightHelmet/FlightHelmet.gltf",
-			//"A:/Models/gltf/hoverbike_on_service/scene.gltf"
-		},
+
+
+	std::vector<fs::path> modelPaths{};
+	std::vector<glm::mat4> modelMatrices{};
+	fs::path envPath{};
+	Scene::parseSceneData("internal/scene_info.json", modelPaths, modelMatrices, envPath);
+
+	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, indirectCmdBuffer,
+		materialTextures, 
+		modelPaths,
 		vulkanObjectHandler, descriptorManager, cmdBufferSet)
 	};
-
 	uint32_t drawCount{ static_cast<uint32_t>(indirectCmdBuffer.getSize() / sizeof(VkDrawIndexedIndirectCommand)) };
 
 	cmdBufferSet.resetBuffers();
 
 	VkSampler universalSampler{ createUniversalSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
-	//ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/room/skybox/skybox.ktx2")};
-	//ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/room/radiance/radiance.ktx2") };
-	//ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/room/irradiance/irradiance.ktx2") };
-	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/beach/skybox/skybox.ktx2") };
-	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/beach/radiance/radiance.ktx2") };
-	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/beach/irradiance/irradiance.ktx2") };
-	//ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/green/skybox/skybox.ktx2") };
-	//ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/green/radiance/radiance.ktx2") };
-	//ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "A:/materials/distant_probes_cubemaps/green/irradiance/irradiance.ktx2") };
+	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
+	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance/radiance.ktx2") };
+	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance/irradiance.ktx2") };
 
 	Image brdfLUT{ TextureLoaders::loadImage(vulkanObjectHandler, cmdBufferSet, baseHostBuffer,
-											 "A:/materials/brdfLUT/brdfLUT.exr",
+											 "internal/brdfLUT/brdfLUT.exr",
 											 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
 											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
 
@@ -230,25 +229,25 @@ int main()
 	std::mt19937 rng(dev());
 	std::uniform_real_distribution<> dist(0.0, 1.0);
 
-	/*for (int i{ 0 }; i < 256; ++i)
+	for (int i{ 0 }; i < 0; ++i)
 	{
 		glm::vec3 posP = glm::vec3(dist(rng) * 20.0 - 10.0, dist(rng) * 10.0, dist(rng) * 7.0 - 3.5);
 		glm::vec3 colorP = glm::vec3( dist(rng), dist(rng), dist(rng) );
-		float powerP = ( dist(rng) * 3000.0 );
+		float powerP = ((dist(rng) + 0.3) * 600.0 );
 		float radP = ( dist(rng) * 3.0 );
 
 		clusterer.submitPointLight(posP, colorP, powerP, radP);
 
 		glm::vec3 posS = glm::vec3(dist(rng) * 20.0 - 10.0, dist(rng) * 10.0, dist(rng) * 7.0 - 3.5);
 		glm::vec3 colorS = glm::vec3( dist(rng), dist(rng), dist(rng) );
-		float powerS = ( 3000.0 );
+		float powerS = ((dist(rng) + 0.3) * 600.0 );
 		float radS = ( dist(rng) * 4.0 );
 		glm::vec3 dirS = glm::vec3( dist(rng) * 2.0 - 1.0, dist(rng) * 2.0 - 1.0, dist(rng) * 2.0 - 1.0 );
 		float cutoffAngle = ( dist(rng) * 80.0 );
 		float cutoffS = glm::radians(cutoffAngle);
 		float falloffS = glm::radians(cutoffAngle * dist(rng));
 		clusterer.submitSpotLight(posS, colorS, powerS, radS, dirS, falloffS, cutoffS);
-	}*/
+	}
 	glm::vec3 posS{ 0.0, 70.0, 0.0 };
 	glm::vec3 colorS = glm::vec3(1.0, 0.0, 0.0);
 	float powerS = (8000.0);
@@ -270,7 +269,7 @@ int main()
 	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
-	BufferMapped modelTransformDataUB{ baseHostBuffer, sizeof(glm::mat4) * 8 };
+	BufferMapped modelTransformDataUB{ baseHostBuffer, sizeof(glm::mat4) * modelMatrices.size() };
 	BufferMapped perDrawDataIndicesSSBO{ baseHostBuffer, sizeof(uint8_t) * 12 * drawCount };
 	
 	BufferMapped directionalLightUB{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
@@ -308,7 +307,7 @@ int main()
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.5f);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
 	Buffer spaceLinesVertexData{ baseDeviceBuffer };
-	uint32_t lineVertNum{ uploadLineVertices("bins/space_lines_vertices.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
+	uint32_t lineVertNum{ uploadLineVertices("internal/spaceLinesMesh/space_lines_vertices.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
 	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, viewprojDataUB) };
 
 	hbao.acquireDepthPassData(modelTransformDataUB, perDrawDataIndicesSSBO);
@@ -326,7 +325,11 @@ int main()
 	hbao.submitFrustum(0.01, 10000.0, static_cast<double>(window.getWidth()) / window.getHeight(), glm::radians(60.0));
 
 	glm::mat4* transformMatrices{ reinterpret_cast<glm::mat4*>(modelTransformDataUB.getData()) };
-	
+	for (int i{ 0 }; i < modelMatrices.size(); ++i)
+	{
+		transformMatrices[i] = modelMatrices[i];
+	}
+
 	uint8_t* drawDataIndices{ reinterpret_cast<uint8_t*>(perDrawDataIndicesSSBO.getData()) };
 	//Per mesh indices
 	uint32_t transMatIndex{ 0 };
@@ -444,8 +447,6 @@ int main()
 	while (!glfwWindowShouldClose(window))
 	{
 		WorldState::refreshFrameTime();
-		double angle{ glfwGetTime() * 0.5 };
-		double mplier{ std::sin(glfwGetTime() * 0.5) * 0.5 + 0.5 };
 
 		vpMatrices[0] = glm::lookAt(camInfo.camPos, camInfo.camPos + camInfo.camFront, upVec);
 		skyboxTransform[0] = vpMatrices[0];
@@ -454,12 +455,6 @@ int main()
 		hbao.submitViewMatrix(vpMatrices[0]);
 		clusterer.submitViewMatrix(vpMatrices[0]);
 		clusterer.startClusteringProcess();
-
-		//transformMatrices[0] = glm::translate(glm::dvec3{ 0.0f, 15.0f, 0.0f }) * glm::scale(glm::dvec3{ 0.5 });
-		//transformMatrices[0] = glm::translate(glm::dvec3{ -15.0f, 2.0f, -5.0f } * 1.0) * glm::rotate(glm::radians(90.0), glm::dvec3(1.0, 0.0, 0.0))* glm::scale(glm::dvec3{ 1.3 });
-		//transformMatrices[0] = glm::translate(glm::dvec3{ 5.0 } * 1.0) * glm::scale(glm::dvec3{ 0.8 });
-		transformMatrices[0] = glm::translate(glm::vec3{ 0.0f, 0.0f, 0.0f } * 1.0f) * glm::rotate(glm::radians(0.0f), glm::vec3(0.0, 1.0, 0.0)) * glm::scale(glm::vec3{ 1.0 });//scale 6 sponza
-		
 		
 		if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
 		{
@@ -524,7 +519,7 @@ int main()
 				vkCmdBindIndexBuffer(cbDraw, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 				forwardClusteredPipeline.cmdBind(cbDraw);
 				struct { glm::vec3 camInfo{}; float binWidth{}; glm::vec2 resolutionAO{}; uint32_t widthTiles{}; } pushConstData;
-				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{hbao.getAOImageWidth(), hbao.getAOImageHeight()}, clusterer.getWidthInTiles() };
+				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{window.getWidth(), window.getHeight()}, clusterer.getWidthInTiles()};
 				vkCmdPushConstants(cbDraw, forwardClusteredPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstData), &pushConstData);
 				vkCmdDrawIndexedIndirect(cbDraw, indirectCmdBuffer.getBufferHandle(), indirectCmdBuffer.getOffset(), drawCount, sizeof(VkDrawIndexedIndirectCommand));
 
@@ -615,7 +610,7 @@ int main()
 	}
 
 
-	ASSERT_ALWAYS(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
+	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
 	vkDestroySampler(device, universalSampler, nullptr);
 	vkDestroyFence(device, renderCompleteFence, nullptr);
 	vkDestroySemaphore(device, readyToPresentSemaphore, nullptr);
@@ -784,7 +779,7 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 		storageImageData[i] = { .sampler = imageLists.getSampler(), .imageView = imageLists.getImageViewHandle(i), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		imageListsDescData[i].pStorageImage = &storageImageData[i];
 	}
-	VkDescriptorSetLayoutBinding modelTransformBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorSetLayoutBinding modelTransformBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT modelTransformAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = modelTransformDataUB.getDeviceAddress(), .range = modelTransformDataUB.getSize() };
 
 	VkDescriptorSetLayoutBinding uniformDrawIndicesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
@@ -820,7 +815,7 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 			{{{.pUniformBuffer = &viewprojAddressInfo}}} });
 	resourceSets.push_back({ device, 1, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{imageListsBinding, modelTransformBinding}, {{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, {}},
-			{imageListsDescData, {{.pUniformBuffer = &modelTransformAddressInfo}}} });
+			{imageListsDescData, {{.pStorageBuffer = &modelTransformAddressInfo}}} });
 	resourceSets.push_back({ device, 2, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{uniformDrawIndicesBinding}, {},
 			{{{.pStorageBuffer = &uniformDrawIndicesAddressInfo}}} });

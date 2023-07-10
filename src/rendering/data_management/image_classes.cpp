@@ -36,7 +36,7 @@ Image::Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, 
 	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	auto allocationIter{ m_memoryManager->addAllocation() };
-	ASSERT_DEBUG(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
+	EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
 	m_imageAllocIter = allocationIter;
 
 	m_aspects = imageAspects;
@@ -48,7 +48,7 @@ Image::Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, 
 	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
 	imageViewCI.subresourceRange = { .aspectMask = imageAspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = 1 };
-	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
 }
 Image::Image(Image&& src) noexcept
 {
@@ -174,7 +174,7 @@ ImageMS::ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t heig
 	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	auto allocationIter{ m_memoryManager->addAllocation() };
-	ASSERT_DEBUG(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
+	EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
 	m_imageAllocIter = allocationIter;
 
 	m_aspects = imageAspects;
@@ -186,7 +186,7 @@ ImageMS::ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t heig
 	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
 	imageViewCI.subresourceRange = { .aspectMask = imageAspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
-	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
 }
 ImageMS::ImageMS(ImageMS&& src) noexcept
 {
@@ -257,7 +257,7 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	auto allocationIter{ m_memoryManager->addAllocation() };
-	ASSERT_DEBUG(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
+	EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
 	m_imageAllocIter = allocationIter;
 
 	VkImageViewCreateInfo imageViewCI{};
@@ -267,7 +267,7 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 	imageViewCI.components = {.r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A};
 	imageViewCI.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
-	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
 
 	for (int i{ static_cast<int>(m_arrayLayerCount - 1) }; i >= 0; --i)
 	{
@@ -513,7 +513,7 @@ ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength
 	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	auto allocationIter{ m_memoryManager->addAllocation() };
-	ASSERT_DEBUG(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
+	EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
 	m_imageAllocIter = allocationIter;
 
 	VkImageViewCreateInfo imageViewCI{};
@@ -523,7 +523,7 @@ ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength
 	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
 	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
 	imageViewCI.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount };
-	ASSERT_DEBUG(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
 
 	VkSamplerCreateInfo samplerCI{};
 	samplerCI.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -634,14 +634,14 @@ ImageListContainer::ImageListContainerIndices ImageListContainer::getNewImage(in
 		{
 			indices.listIndex = m_imageLists.size();
 			m_imageLists.emplace_back(ImageList{ m_device, static_cast<uint32_t>(width), static_cast<uint32_t>(height), format, m_listsUsage, m_allocateMipmaps, static_cast<uint32_t>(m_listLayerCount) }, false);
-			ASSERT_ALWAYS(m_imageLists.back().list.getLayer(indices.layerIndex) == true, "App", "No free layers in a new ImageList. || Should never happen.");
+			EASSERT(m_imageLists.back().list.getLayer(indices.layerIndex) == true, "App", "No free layers in a new ImageList. || Should never happen.");
 		}
 		else
 		{
 			indices.listIndex = availableImageListIndex;
 			m_imageLists[availableImageListIndex].list = ImageList{ m_device, static_cast<uint32_t>(width), static_cast<uint32_t>(height), format, m_listsUsage, m_allocateMipmaps, static_cast<uint32_t>(m_listLayerCount) };
 			m_imageLists[availableImageListIndex].available = false;
-			ASSERT_ALWAYS(m_imageLists[availableImageListIndex].list.getLayer(indices.layerIndex) == true, "App", "No free layers in a new ImageList. || Should never happen.");
+			EASSERT(m_imageLists[availableImageListIndex].list.getLayer(indices.layerIndex) == true, "App", "No free layers in a new ImageList. || Should never happen.");
 		}
 	}
 

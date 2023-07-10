@@ -7,7 +7,7 @@
 #include <iostream>
 #include <map>
 
-#include <tbb/task_arena.h>
+#include <tbb/task_group.h>
 #include <tbb/spin_mutex.h>
 
 #include <glm/glm.hpp>
@@ -48,14 +48,16 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 	std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>>& texDataTransfersData,	//staging offset, staging size, list index, layer index
 	ImageListContainer& loadedTextures,
 	std::vector<StaticMesh>& meshes,
-	std::vector<MaterialURIs>& meshesMaterialURIs);
+	std::vector<MaterialURIs>& meshesMaterialURIs,
+	oneapi::tbb::task_group& taskGroup);
 inline void processMeshData(cgltf_data* model,
 	cgltf_scene& scene,
 	const fs::path& workPath,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	StaticMesh& mesh,
-	std::vector<MaterialURIs>& meshesMaterialURIs);
+	std::vector<MaterialURIs>& meshesMaterialURIs,
+	oneapi::tbb::task_group& taskGroup);
 inline void processNode(cgltf_data* model,
 	cgltf_node* node,
 	const fs::path& workPath,
@@ -63,26 +65,30 @@ inline void processNode(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	StaticMesh& loadedMesh,
-	const glm::mat4& nodeTransformL);
+	const glm::mat4& nodeTransformL,
+	oneapi::tbb::task_group& taskGroup);
 template<typename T>
 inline void formVertexChunk(cgltf_data* model,
 	cgltf_primitive* meshData,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
-	const glm::mat4& nodeTransform);
+	const glm::mat4& nodeTransform,
+	oneapi::tbb::task_group& taskGroup);
 template<>
 inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 	cgltf_primitive* meshData,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
-	const glm::mat4& nodeTransform);
+	const glm::mat4& nodeTransform,
+	oneapi::tbb::task_group& taskGroup);
 inline void formIndexChunk(cgltf_data* model,
 	cgltf_accessor* indexAccessor,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
-	RUnit& renderUnit);
+	RUnit& renderUnit,
+	oneapi::tbb::task_group& taskGroup);
 
 
 
@@ -103,6 +109,8 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	std::vector<StaticMesh> meshes{};
 	std::vector<MaterialURIs> meshesMaterialURIs{};
 
+	oneapi::tbb::task_group taskGroup{};
+
 	BufferBaseHostAccessible resourceStaging{ vulkanObjects->getLogicalDevice(),
 		2147483648ll, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
 	uint32_t stagingBufferAlignment{ static_cast<uint32_t>(resourceStaging.getAlignment()) };
@@ -113,16 +121,16 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 		cgltf_result result1 = cgltf_parse_file(&options, filepaths[i].generic_string().c_str(), &(modelsData[i]));
 		if (result1 != cgltf_result_success)
 		{
-			ASSERT_ALWAYS(false, "cgltf", "Parsing failed.");
+			EASSERT(false, "cgltf", "Parsing failed.");
 		}
 		cgltf_data* currentModel{ modelsData[i] };
 		cgltf_result result2 = cgltf_load_buffers(&options, currentModel, filepaths[i].generic_string().c_str());
 		if (result2 == cgltf_result_success)
 		{
 			meshes.emplace_back();
-			for (int j{0}; j < currentModel->scenes_count; ++j)
+			for (int j{ 0 }; j < currentModel->scenes_count; ++j)
 			{
-				processMeshData(currentModel, currentModel->scenes[j], filepaths[i].parent_path(), stagingDataPtr, stagingCurrentSize, meshes.back(), meshesMaterialURIs);
+				processMeshData(currentModel, currentModel->scenes[j], filepaths[i].parent_path(), stagingDataPtr, stagingCurrentSize, meshes.back(), meshesMaterialURIs, taskGroup);
 			}
 		}
 		else
@@ -130,7 +138,11 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 			std::cerr << "Parsing failed on file " << i << std::endl;
 			assert(false);
 		}
+		taskGroup.wait();
+		cgltf_free(modelsData[i]);
 	}
+	delete[] modelsData;
+
 	stagingCurrentSize = ALIGNED_SIZE(stagingCurrentSize, stagingBufferAlignment);
 
 	//Prepare vertex data for upload
@@ -196,7 +208,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 
 	//staging offset, staging size, list index, layer index
 	std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>> texDataTransfersData{};
-	loadTexturesIntoStaging(stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, texDataTransfersData, loadedTextures, meshes, meshesMaterialURIs);
+	loadTexturesIntoStaging(stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, texDataTransfersData, loadedTextures, meshes, meshesMaterialURIs, taskGroup);
 
 	std::vector<VkImageMemoryBarrier> memBarriers{};
 	for (uint32_t i{ 1 }; i < loadedTextures.getImageListCount(); ++i)
@@ -235,16 +247,16 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	commandBufferSet.endRecording(CB);
 
 	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB };
-	ASSERT_ALWAYS(vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
-	ASSERT_ALWAYS(vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
+	EASSERT(vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
+	EASSERT(vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
 
 	commandBufferSet.resetBuffers();
 
-	while (--modelCount >= 0)
+	/*while (--modelCount >= 0)
 	{
 		cgltf_free(modelsData[modelCount]);
 	}
-	delete[] modelsData;
+	delete[] modelsData;*/
 	return meshes;
 }
 
@@ -254,7 +266,8 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 	std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>>& texDataTransfersData,	//staging offset, staging size, list index, layer index
 	ImageListContainer& loadedTextures, 
 	std::vector<StaticMesh>& meshes,
-	std::vector<MaterialURIs>& meshesMaterialURIs)
+	std::vector<MaterialURIs>& meshesMaterialURIs,
+	oneapi::tbb::task_group& taskGroup)
 {
 	auto genImageList{ [](int materialTypeInd, 
 						  const std::string& path,
@@ -266,7 +279,7 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 						  uint64_t& stagingCurrentSize,
 						  uint32_t stagingBufferAlignment,
 						  std::vector<std::unique_ptr<OIIO::ImageInput>>& images,
-						  oneapi::tbb::task_group& group)
+						  oneapi::tbb::task_group& taskGroup)
 		{
 			if (texPathsAndIndices.contains(path))
 			{
@@ -290,9 +303,9 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 				auto imageIndex{ images.size() };
 				images.push_back(OIIO::ImageInput::open(path));
 
-				group.run([&images, imageIndex, stagingDataPtr, stagingCurrentSize]()
+				taskGroup.run([&images, imageIndex, stagingDataPtr, stagingCurrentSize]()
 					{
-						ASSERT_ALWAYS(images[imageIndex]->read_image(0, -1, OIIO::TypeDesc::UINT8, stagingDataPtr + stagingCurrentSize, sizeof(uint8_t) * 4) == true, "OIIO", "Could not load image.");
+						EASSERT(images[imageIndex]->read_image(0, -1, OIIO::TypeDesc::UINT8, stagingDataPtr + stagingCurrentSize, sizeof(uint8_t) * 4) == true, "OIIO", "Could not load image.");
 					});
 
 				width = images.back()->spec().width;
@@ -321,8 +334,6 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 
 	std::map<std::string, std::pair<uint16_t, uint16_t>> texPathsAndIndices{};
 
-	oneapi::tbb::task_group group{};
-
 	std::vector<std::unique_ptr<OIIO::ImageInput>> images{};
 	images.reserve(meshesMaterialURIs.size() * 4);
 
@@ -334,13 +345,13 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 		{
 			RUnit& currentRUnit{ rUnits[j] };
 			MaterialURIs uris{ meshesMaterialURIs[matInd++] };
-			genImageList(0, uris.bcURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
-			genImageList(1, uris.nmURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
-			genImageList(2, uris.mrURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
-			genImageList(3, uris.emURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, group);
+			genImageList(0, uris.bcURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
+			genImageList(1, uris.nmURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
+			genImageList(2, uris.mrURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
+			genImageList(3, uris.emURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
 		}
 	}
-	group.wait();
+	taskGroup.wait();
 }
 
 inline void processMeshData(cgltf_data* model,
@@ -349,12 +360,13 @@ inline void processMeshData(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	StaticMesh& mesh,
-	std::vector<MaterialURIs>& meshesMaterialURIs)
+	std::vector<MaterialURIs>& meshesMaterialURIs,
+	oneapi::tbb::task_group& taskGroup)
 {
 	for (int i{ 0 }; i < scene.nodes_count; ++i)
 	{
 		glm::mat4 nodeTransform{ 1.0 };
-		processNode(model, scene.nodes[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, mesh, nodeTransform);
+		processNode(model, scene.nodes[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, mesh, nodeTransform, taskGroup);
 	}
 }
 
@@ -365,7 +377,8 @@ inline void processNode(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	StaticMesh& loadedMesh,
-	const glm::mat4& nodeTransformL)
+	const glm::mat4& nodeTransformL,
+	oneapi::tbb::task_group& taskGroup)
 {
 	float matr[16]{};
 	cgltf_node_transform_local(node, matr);
@@ -377,14 +390,14 @@ inline void processNode(cgltf_data* model,
 	{
 		for (int i{ 0 }; i < mesh->primitives_count; ++i)
 		{
-			ASSERT_ALWAYS(mesh->primitives->type == cgltf_primitive_type_triangles, "App", "Primitive type is not supported yet");
+			EASSERT(mesh->primitives->type == cgltf_primitive_type_triangles, "App", "Primitive type is not supported yet");
 
 			RUnit& renderUnit{ loadedMesh.getRUnits().emplace_back() };
 			renderUnit.setVertexSize(sizeof(StaticVertex));
-			formVertexChunk<StaticVertex>(model, mesh->primitives + i, stagingDataPtr, stagingCurrentSize, renderUnit, nodeTransformW);
+			formVertexChunk<StaticVertex>(model, mesh->primitives + i, stagingDataPtr, stagingCurrentSize, renderUnit, nodeTransformW, taskGroup);
 
 			renderUnit.setIndexSize(sizeof(uint32_t));
-			formIndexChunk(model, mesh->primitives[i].indices, stagingDataPtr, stagingCurrentSize, renderUnit);
+			formIndexChunk(model, mesh->primitives[i].indices, stagingDataPtr, stagingCurrentSize, renderUnit, taskGroup);
 
 			cgltf_material* mat{ mesh->primitives[i].material };
 			MaterialURIs mUri{};
@@ -411,7 +424,7 @@ inline void processNode(cgltf_data* model,
 	}
 	for (int i{ 0 }; i < node->children_count; ++i)
 	{
-		processNode(model, node->children[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, loadedMesh, nodeTransformW);
+		processNode(model, node->children[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, loadedMesh, nodeTransformW, taskGroup);
 	}
 }
 
@@ -421,7 +434,8 @@ inline void formVertexChunk(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
-	const glm::mat4& nodeTransform) {};
+	const glm::mat4& nodeTransform,
+	oneapi::tbb::task_group& taskGroup) {};
 
 template<>
 inline void formVertexChunk<StaticVertex>(cgltf_data* model,
@@ -429,7 +443,8 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
-	const glm::mat4& nodeTransform)
+	const glm::mat4& nodeTransform,
+	oneapi::tbb::task_group& taskGroup)
 {
 	uint32_t flagcheck{ 0 };
 	cgltf_attribute posAtrrib{};
@@ -477,79 +492,69 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 
 	int attrCount{ static_cast<int>(posAtrrib.data->count) };
 	uint64_t chunkSize{ sizeof(StaticVertex) * attrCount };
-	StaticVertex* vertexDataPtr{ reinterpret_cast<StaticVertex*>(stagingDataPtr + stagingCurrentSize) };
+	taskGroup.run(
+		[flagcheck, attrCount, chunkSize, posAtrrib, normAtrrib, tangAtrrib, texcAtrrib, stagingDataPtr, stagingCurrentSize, nodeTransform]()
+		{
+			StaticVertex* vertexDataPtr{ reinterpret_cast<StaticVertex*>(stagingDataPtr + stagingCurrentSize) };
+
+			const uint8_t* posData{ reinterpret_cast<uint8_t*>(posAtrrib.data->buffer_view->buffer->data) + posAtrrib.data->buffer_view->offset + posAtrrib.data->offset };
+			const uint8_t* normData{ flagcheck & 2 ? reinterpret_cast<uint8_t*>(normAtrrib.data->buffer_view->buffer->data) + normAtrrib.data->buffer_view->offset + normAtrrib.data->offset : nullptr };
+			const uint8_t* tangData{ flagcheck & 4 ? reinterpret_cast<uint8_t*>(tangAtrrib.data->buffer_view->buffer->data) + tangAtrrib.data->buffer_view->offset + tangAtrrib.data->offset : nullptr };
+			const uint8_t* texCoordData{ flagcheck & 8 ? reinterpret_cast<uint8_t*>(texcAtrrib.data->buffer_view->buffer->data) + texcAtrrib.data->buffer_view->offset + texcAtrrib.data->offset : nullptr };
+			for (uint64_t i{ 0 }; i < attrCount; ++i)
+			{
+				const float* posDataTyped{ reinterpret_cast<const float*>(posData) };
+				vertexDataPtr->position = nodeTransform * glm::vec4{ *(posDataTyped + 0), * (posDataTyped + 1), * (posDataTyped + 2), 1.0f };
+				vertexDataPtr->position.z = -vertexDataPtr->position.z;
+				posData += posAtrrib.data->stride;
+
+				if (normData)
+				{
+					const float* normDataTyped{ reinterpret_cast<const float*>(normData) };
+					vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{ *(normDataTyped + 0), * (normDataTyped + 1), -*(normDataTyped + 2), 0.0f });
+					normData += normAtrrib.data->stride;
+				}
+				else
+				{
+					vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{0.0f});
+				}
+
+				if (tangData)
+				{
+					const float* tangDataTyped{ reinterpret_cast<const float*>(tangData) };
+					vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{ *(tangDataTyped + 0), * (tangDataTyped + 1), -*(tangDataTyped + 2), * (tangDataTyped + 3) });
+					tangData += tangAtrrib.data->stride;
+				}
+				else
+				{
+					vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{0.0f});
+				}
+
+				if (texCoordData)
+				{
+					const float* texCoordDataTyped{ reinterpret_cast<const float*>(texCoordData) };
+					vertexDataPtr->texCoords = glm::packHalf2x16(glm::vec2{ *texCoordDataTyped, * (texCoordDataTyped + 1) });
+					texCoordData += texcAtrrib.data->stride;
+				}
+				else
+				{
+					vertexDataPtr->texCoords = glm::packHalf2x16(glm::vec2{0.0});
+				}
+
+				++vertexDataPtr;
+			}
+		});
 	renderUnit.setVertBufByteSize(chunkSize);
 	renderUnit.setVertBufOffset(stagingCurrentSize);
 	stagingCurrentSize += chunkSize;
-
-	/*ASSERT_ALWAYS(posAtrrib.data->count == normAtrrib.data->count && normAtrrib.data->count == tangAtrrib.data->count && tangAtrrib.data->count == texcAtrrib.data->count,
-		"App", "Not every vertex in a mesh has equal amount of attributes.");
-
-	ASSERT_ALWAYS(
-		posAtrrib.data->type == cgltf_type_vec3 &&
-		posAtrrib.data->component_type == cgltf_component_type_r_32f &&
-		normAtrrib.data->type == cgltf_type_vec3 &&
-		normAtrrib.data->component_type == cgltf_component_type_r_32f &&
-		tangAtrrib.data->type == cgltf_type_vec4 &&
-		tangAtrrib.data->component_type == cgltf_component_type_r_32f &&
-		texcAtrrib.data->type == cgltf_type_vec2 &&
-		texcAtrrib.data->component_type == cgltf_component_type_r_32f,
-		"App", "Attribute data is in an unsupported format."
-	);*/
-
-	const uint8_t* posData{ reinterpret_cast<uint8_t*>(posAtrrib.data->buffer_view->buffer->data) + posAtrrib.data->buffer_view->offset + posAtrrib.data->offset };
-	const uint8_t* normData{ flagcheck & 2 ? reinterpret_cast<uint8_t*>(normAtrrib.data->buffer_view->buffer->data) + normAtrrib.data->buffer_view->offset + normAtrrib.data->offset : nullptr };
-	const uint8_t* tangData{ flagcheck & 4 ? reinterpret_cast<uint8_t*>(tangAtrrib.data->buffer_view->buffer->data) + tangAtrrib.data->buffer_view->offset + tangAtrrib.data->offset : nullptr };
-	const uint8_t* texCoordData{ flagcheck & 8 ? reinterpret_cast<uint8_t*>(texcAtrrib.data->buffer_view->buffer->data) + texcAtrrib.data->buffer_view->offset + texcAtrrib.data->offset : nullptr };
-	for (uint64_t i{ 0 }; i < attrCount; ++i)
-	{
-		const float* posDataTyped{ reinterpret_cast<const float*>(posData) };
-		vertexDataPtr->position = nodeTransform * glm::vec4{ *(posDataTyped + 0), *(posDataTyped + 1), *(posDataTyped + 2), 1.0f };
-		vertexDataPtr->position.z = -vertexDataPtr->position.z;
-		posData += posAtrrib.data->stride;
-
-		if (flagcheck & 2)
-		{
-			const float* normDataTyped{ reinterpret_cast<const float*>(normData) };
-			vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{ *(normDataTyped + 0), *(normDataTyped + 1), -*(normDataTyped + 2), 0.0f });
-			normData += normAtrrib.data->stride;
-		}
-		else
-		{
-			vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{0.0f});
-		}
-
-		if (flagcheck & 4)
-		{
-			const float* tangDataTyped{ reinterpret_cast<const float*>(tangData) };
-			vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{ *(tangDataTyped + 0), *(tangDataTyped + 1), -*(tangDataTyped + 2), * (tangDataTyped + 3) });
-			tangData += tangAtrrib.data->stride;
-		}
-		else
-		{
-			vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{0.0f});
-		}
-
-		if (flagcheck & 8)
-		{
-			const float* texCoordDataTyped{ reinterpret_cast<const float*>(texCoordData) };
-			vertexDataPtr->texCoords = glm::packHalf2x16(glm::vec2{ *texCoordDataTyped, *(texCoordDataTyped + 1) });
-			texCoordData += texcAtrrib.data->stride;
-		}
-		else
-		{
-			vertexDataPtr->texCoords = glm::packHalf2x16(glm::vec2{0.0});
-		}
-
-		++vertexDataPtr;
-	}
 }
 
 inline void formIndexChunk(cgltf_data* model,
 	cgltf_accessor* indexAccessor,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
-	RUnit& renderUnit)
+	RUnit& renderUnit,
+	oneapi::tbb::task_group& taskGroup)
 {
 	uint64_t count{ indexAccessor->count };
 	uint64_t offset{ indexAccessor->buffer_view->offset + indexAccessor->offset };
@@ -592,7 +597,7 @@ inline void formIndexChunk(cgltf_data* model,
 		break;
 	}
 	default:
-		ASSERT_ALWAYS(false, "App", "Unknown index type.");
+		EASSERT(false, "App", "Unknown index type.");
 	}
 }
 

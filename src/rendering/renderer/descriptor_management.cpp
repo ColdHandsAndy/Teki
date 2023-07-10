@@ -6,7 +6,7 @@
 DescriptorManager::DescriptorManager(VulkanObjectHandler& vulkanObjectHandler)
 {
     m_descriptorBufferAlignment = vulkanObjectHandler.getPhysDevDescBufferProperties().descriptorBufferOffsetAlignment;
-    ASSERT_ALWAYS((m_descriptorBufferAlignment & (m_descriptorBufferAlignment - 1)) == 0, "App", "Non power of two alignment isn't supported.");
+    EASSERT((m_descriptorBufferAlignment & (m_descriptorBufferAlignment - 1)) == 0, "App", "Non power of two alignment isn't supported.");
     m_queueFamilyIndices = { vulkanObjectHandler.getGraphicsFamilyIndex(), vulkanObjectHandler.getComputeFamilyIndex() };
 
     m_device = vulkanObjectHandler.getLogicalDevice();
@@ -72,7 +72,7 @@ void DescriptorManager::cmdSubmitPipelineResources(VkCommandBuffer cb, VkPipelin
     {
         ResourceSet& currentSet{ resourceSets[i] };
         uint32_t currentResIndex{ resourceIndices[i] };
-        ASSERT_ALWAYS(currentSet.getCopiesCount() > 1 ? (currentResIndex < currentSet.getCopiesCount()) : true, "App", "Resource index is bigger than number of resources in a resource set")
+        EASSERT(currentSet.getCopiesCount() > 1 ? (currentResIndex < currentSet.getCopiesCount()) : true, "App", "Resource index is bigger than number of resources in a resource set")
 
         uint32_t resourceDescBufferIndex{ currentSet.getDescBufferIndex() };
         std::vector<uint32_t>::iterator beginIter{ m_descBuffersBindings.begin() };
@@ -130,7 +130,7 @@ void DescriptorManager::createNewDescriptorBuffer()
     newBuffer.deviceAddress = vkGetBufferDeviceAddress(m_device, &addrInfo);
     VmaVirtualBlockCreateInfo virtualBlockCI{};
     virtualBlockCI.size = DESCRIPTOR_BUFFER_DEFAULT_SIZE;
-    ASSERT_ALWAYS(vmaCreateVirtualBlock(&virtualBlockCI, &newBuffer.memoryProxy) == VK_SUCCESS, "VMA", "Virtual block creation failed.")
+    EASSERT(vmaCreateVirtualBlock(&virtualBlockCI, &newBuffer.memoryProxy) == VK_SUCCESS, "VMA", "Virtual block creation failed.")
 }
 
 
@@ -156,7 +156,7 @@ void DescriptorManager::insertResourceSetInBuffer(ResourceSet& resourceSet)
     } 
     if (allocation == VK_NULL_HANDLE)
     {
-        ASSERT_ALWAYS(false, "App", "Descriptor set allocation failed. || Should never happen.")
+        EASSERT(false, "App", "Descriptor set allocation failed. || Should never happen.")
     }
     resourceSet.setDescBufferOffset(offset);
     bufferIndex = static_cast<uint32_t>(bufferIter - m_descriptorBuffers.begin());
@@ -179,7 +179,7 @@ ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayo
     m_setIndex = setIndex;
     m_resCopies = resCopies;
 
-    ASSERT_ALWAYS(bindings.size() == bindingsDescriptorData.size(), "App", "Descriptors are not provided for every binding");
+    EASSERT(bindings.size() == bindingsDescriptorData.size(), "App", "Descriptors are not provided for every binding");
 
     VkDescriptorSetLayoutCreateInfo layoutCI{};
     layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -197,7 +197,7 @@ ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayo
 
     if (bindingFlags.empty())
     {
-        ASSERT_ALWAYS(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
+        EASSERT(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
     }
     else
     {
@@ -205,7 +205,7 @@ ResourceSet::ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayo
         bindingFlagsCI.bindingCount = bindingFlags.size();
         bindingFlagsCI.pBindingFlags = bindingFlags.data();
         layoutCI.pNext = &bindingFlagsCI;
-        ASSERT_ALWAYS(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
+        EASSERT(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
     }
 
 
@@ -341,7 +341,7 @@ uint32_t ResourceSet::getDescriptorTypeSize(VkDescriptorType type) const
     case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
         return m_descriptorBufferProperties->accelerationStructureDescriptorSize;
     default:
-        ASSERT_ALWAYS(false, "App", "Descriptor isn't supported yet")
+        EASSERT(false, "App", "Descriptor isn't supported yet")
     }
     return UINT32_MAX;
 }

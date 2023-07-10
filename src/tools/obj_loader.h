@@ -32,7 +32,7 @@ namespace LoaderOBJ
 
         if (!reader.ParseFromFile(filepath.generic_string()))
         {
-            ASSERT_ALWAYS(reader.Error().empty(), "tinyobjloader", reader.Error());
+            EASSERT(reader.Error().empty(), "tinyobjloader", reader.Error());
         }
 
         LOG_IF_WARNING(!reader.Warning().empty(), "tinyobjloader issued a warning:\n\t{}", reader.Warning());
@@ -42,7 +42,7 @@ namespace LoaderOBJ
         auto& materials = reader.GetMaterials();
         std::vector<float> vertices{};
 
-        ASSERT_ALWAYS(shapes.size() == 1, "App", "Unsupported number of shapes in obj model");
+        EASSERT(shapes.size() == 1, "App", "Unsupported number of shapes in obj model");
         // Loop over shapes
         for (size_t s = 0; s < shapes.size(); ++s)
         {

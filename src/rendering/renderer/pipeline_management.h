@@ -8,9 +8,6 @@
 
 #include "src/rendering/renderer/descriptor_management.h"
 
-#define WINDOW_WIDTH_DEFAULT  1280
-#define WINDOW_HEIGHT_DEFAULT 720
-
 struct ShaderStage;
 class Pipeline;
 class ResourceSet;

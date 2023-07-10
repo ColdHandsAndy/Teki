@@ -263,7 +263,7 @@ namespace LightTypes
 	public:
 		PointLight(glm::vec3 worldPos, glm::vec3 lightColor, float lightPower, float radius) : LightBase{ lightColor, lightPower }
 		{
-			ASSERT_ALWAYS(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
+			EASSERT(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
 			m_clusterer->getNewLight(m_data, m_boundingSphere, Clusterer::LightFormat::TYPE_POINT);
 			m_data->position = worldPos;
 			m_data->length = radius;
@@ -297,7 +297,7 @@ namespace LightTypes
 		SpotLight(glm::vec3 worldPos, glm::vec3 lightColor, float lightPower, float length, glm::vec3 lightDir, float cutoffStartAngle, float cutoffEndAngle)
 			: LightBase{ lightColor, lightPower }
 		{
-			ASSERT_ALWAYS(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
+			EASSERT(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
 			m_clusterer->getNewLight(m_data, m_boundingSphere, Clusterer::LightFormat::TYPE_SPOT);
 			m_data->position = worldPos;
 			m_data->spectrum = lightColor * lightPower;

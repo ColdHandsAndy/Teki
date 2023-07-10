@@ -30,8 +30,8 @@ namespace TextureLoaders
 
 		ktxTexture2* texture{};
 
-		ASSERT_ALWAYS(ktxTexture2_CreateFromNamedFile(filepath.generic_string().c_str(), KTX_TEXTURE_CREATE_NO_FLAGS, &texture) == KTX_SUCCESS, "ktx", "Could not load cubemap.");
-		ASSERT_ALWAYS(texture->isCubemap, "App", "Cubemap image has more than six faces");
+		EASSERT(ktxTexture2_CreateFromNamedFile(filepath.generic_string().c_str(), KTX_TEXTURE_CREATE_NO_FLAGS, &texture) == KTX_SUCCESS, "ktx", "Could not load cubemap.");
+		EASSERT(texture->isCubemap, "App", "Cubemap image has more than six faces");
 
 		VkFormat format{ static_cast<VkFormat>(texture->vkFormat) };
 		uint64_t totalByteSize{ texture->dataSize };
@@ -113,7 +113,7 @@ namespace TextureLoaders
 		config["oiio:UnassociatedAlpha"] = 1;
 		auto imInp = OIIO::ImageInput::open(filepath, &config);
 		OIIO::ImageSpec spec{ imInp->spec() };
-		ASSERT_ALWAYS(spec.depth == 1, "App", "Multi-layered image is not supported yet");
+		EASSERT(spec.depth == 1, "App", "Multi-layered image is not supported yet");
 		LOG_IF_WARNING(spec.format.basetype != oiioFormat, "Image native format is not the same as required format. {}", "Data will be converted.");
 
 		uint64_t totalByteSize{ spec.image_bytes() };

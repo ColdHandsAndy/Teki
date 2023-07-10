@@ -78,7 +78,7 @@ public:
 		}
 		else if (swapchainOpRes != VK_SUCCESS) 
 		{
-			ASSERT_ALWAYS(false, "Vulkan", "Swapchain operation failed.")
+			EASSERT(false, "Vulkan", "Swapchain operation failed.")
 		}
 		return true;
 	}
