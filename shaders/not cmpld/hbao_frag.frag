@@ -2,6 +2,8 @@
 
 #extension GL_KHR_shader_subgroup_arithmetic				: enable
 
+#pragma optionNV(unroll all)
+
 
 #define PI 3.141592653589
 
@@ -132,8 +134,8 @@ void main()
 	vec3 viewPos = getPos(fetchUV);
 	vec3 viewNorm = getNorm(fetchUV, viewPos);
 	
-	float pixelRad = pushConstants.radius / viewPos.z;
-
+	float pixelRad = min(pushConstants.radius / viewPos.z, 75.0);
+	
 	if (subgroupMax(pixelRad) < 1.0)
 	{
 		AO = 1.0;

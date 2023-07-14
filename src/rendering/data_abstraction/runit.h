@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <array>
 
+#include <glm/glm.hpp>
+
 class RUnit
 {
 private:

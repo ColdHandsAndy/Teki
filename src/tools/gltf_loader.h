@@ -27,6 +27,7 @@
 #include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/data_abstraction/mesh.h"
 #include "src/rendering/data_abstraction/runit.h"
+#include "src/rendering/data_abstraction/BB.h"
 
 #include "src/tools/logging.h"
 #include "src/tools/alignment.h"
@@ -56,11 +57,13 @@ inline void processMeshData(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	StaticMesh& mesh,
+	OBBs& rUnitOBBs,
 	std::vector<MaterialURIs>& meshesMaterialURIs,
 	oneapi::tbb::task_group& taskGroup);
 inline void processNode(cgltf_data* model,
 	cgltf_node* node,
 	const fs::path& workPath,
+	OBBs& rUnitOBBs,
 	std::vector<MaterialURIs>& meshesMaterialURIs,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
@@ -73,6 +76,7 @@ inline void formVertexChunk(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
+	OBBs& rUnitOBBs,
 	const glm::mat4& nodeTransform,
 	oneapi::tbb::task_group& taskGroup);
 template<>
@@ -81,6 +85,7 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
+	OBBs& rUnitOBBs,
 	const glm::mat4& nodeTransform,
 	oneapi::tbb::task_group& taskGroup);
 inline void formIndexChunk(cgltf_data* model,
@@ -96,6 +101,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 								Buffer& vertexBuffer,
 								Buffer& indexBuffer,
 								BufferMapped& indirectCmdBuffer,
+								OBBs& rUnitOBBs,
 								ImageListContainer& loadedTextures,
 								std::vector<fs::path> filepaths,
 								std::shared_ptr<VulkanObjectHandler> vulkanObjects,
@@ -130,7 +136,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 			meshes.emplace_back();
 			for (int j{ 0 }; j < currentModel->scenes_count; ++j)
 			{
-				processMeshData(currentModel, currentModel->scenes[j], filepaths[i].parent_path(), stagingDataPtr, stagingCurrentSize, meshes.back(), meshesMaterialURIs, taskGroup);
+				processMeshData(currentModel, currentModel->scenes[j], filepaths[i].parent_path(), stagingDataPtr, stagingCurrentSize, meshes.back(), rUnitOBBs, meshesMaterialURIs, taskGroup);
 			}
 		}
 		else
@@ -252,11 +258,6 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 
 	commandBufferSet.resetBuffers();
 
-	/*while (--modelCount >= 0)
-	{
-		cgltf_free(modelsData[modelCount]);
-	}
-	delete[] modelsData;*/
 	return meshes;
 }
 
@@ -360,19 +361,21 @@ inline void processMeshData(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	StaticMesh& mesh,
+	OBBs& rUnitOBBs,
 	std::vector<MaterialURIs>& meshesMaterialURIs,
 	oneapi::tbb::task_group& taskGroup)
 {
 	for (int i{ 0 }; i < scene.nodes_count; ++i)
 	{
 		glm::mat4 nodeTransform{ 1.0 };
-		processNode(model, scene.nodes[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, mesh, nodeTransform, taskGroup);
+		processNode(model, scene.nodes[i], workPath, rUnitOBBs, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, mesh, nodeTransform, taskGroup);
 	}
 }
 
 inline void processNode(cgltf_data* model,
 	cgltf_node* node,
 	const fs::path& workPath,
+	OBBs& rUnitOBBs,
 	std::vector<MaterialURIs>& meshesMaterialURIs,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
@@ -392,14 +395,16 @@ inline void processNode(cgltf_data* model,
 		{
 			EASSERT(mesh->primitives->type == cgltf_primitive_type_triangles, "App", "Primitive type is not supported yet");
 
+			cgltf_primitive& meshPrimitive{ mesh->primitives[i] };
+
 			RUnit& renderUnit{ loadedMesh.getRUnits().emplace_back() };
 			renderUnit.setVertexSize(sizeof(StaticVertex));
-			formVertexChunk<StaticVertex>(model, mesh->primitives + i, stagingDataPtr, stagingCurrentSize, renderUnit, nodeTransformW, taskGroup);
+			formVertexChunk<StaticVertex>(model, &meshPrimitive, stagingDataPtr, stagingCurrentSize, renderUnit, rUnitOBBs, nodeTransformW, taskGroup);
 
 			renderUnit.setIndexSize(sizeof(uint32_t));
-			formIndexChunk(model, mesh->primitives[i].indices, stagingDataPtr, stagingCurrentSize, renderUnit, taskGroup);
+			formIndexChunk(model, meshPrimitive.indices, stagingDataPtr, stagingCurrentSize, renderUnit, taskGroup);
 
-			cgltf_material* mat{ mesh->primitives[i].material };
+			cgltf_material* mat{ meshPrimitive.material };
 			MaterialURIs mUri{};
 
 			if (mat->pbr_metallic_roughness.base_color_texture.texture == nullptr)
@@ -424,7 +429,7 @@ inline void processNode(cgltf_data* model,
 	}
 	for (int i{ 0 }; i < node->children_count; ++i)
 	{
-		processNode(model, node->children[i], workPath, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, loadedMesh, nodeTransformW, taskGroup);
+		processNode(model, node->children[i], workPath, rUnitOBBs, meshesMaterialURIs, stagingDataPtr, stagingCurrentSize, loadedMesh, nodeTransformW, taskGroup);
 	}
 }
 
@@ -434,6 +439,7 @@ inline void formVertexChunk(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
+	OBBs& rUnitOBBs,
 	const glm::mat4& nodeTransform,
 	oneapi::tbb::task_group& taskGroup) {};
 
@@ -443,6 +449,7 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 	uint8_t* const stagingDataPtr,
 	uint64_t& stagingCurrentSize,
 	RUnit& renderUnit,
+	OBBs& rUnitOBBs,
 	const glm::mat4& nodeTransform,
 	oneapi::tbb::task_group& taskGroup)
 {
@@ -544,6 +551,30 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 				++vertexDataPtr;
 			}
 		});
+	
+	EASSERT(posAtrrib.data->has_max && posAtrrib.data->has_min, "App", "Application requires min and max mesh position values.");
+	glm::vec4 point0{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->max[1], posAtrrib.data->min[2], 1.0} };
+	glm::vec4 point1{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->max[1], posAtrrib.data->min[2], 1.0} };
+	glm::vec4 point2{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->max[1], posAtrrib.data->max[2], 1.0} };
+	glm::vec4 point3{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->max[1], posAtrrib.data->max[2], 1.0} };
+	glm::vec4 point4{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->min[1], posAtrrib.data->min[2], 1.0} };
+	glm::vec4 point5{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->min[1], posAtrrib.data->min[2], 1.0} };
+	glm::vec4 point6{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->min[1], posAtrrib.data->max[2], 1.0} };
+	glm::vec4 point7{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->min[1], posAtrrib.data->max[2], 1.0} };
+
+	float dataOBB[3 * 8]
+		{
+			point0.x, point0.y, -point0.z,
+			point1.x, point1.y, -point1.z,
+			point2.x, point2.y, -point2.z,
+			point3.x, point3.y, -point3.z,
+			point4.x, point4.y, -point4.z,
+			point5.x, point5.y, -point5.z,
+			point6.x, point6.y, -point6.z,
+			point7.x, point7.y, -point7.z,
+		};
+	rUnitOBBs.addOBB(dataOBB);
+	
 	renderUnit.setVertBufByteSize(chunkSize);
 	renderUnit.setVertBufOffset(stagingCurrentSize);
 	stagingCurrentSize += chunkSize;

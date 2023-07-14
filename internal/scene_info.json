@@ -1,9 +1,9 @@
 { 
 	"models" : 
-		[{"path" : "A:/Models/gltf/sponzaM2/scene.gltf", "model index" : 0}],
+		[{"path" : "A:/Models/gltf/sponza/scene.gltf", "model index" : 0}],
 
 	"environment" : "A:/materials/distant_probes_cubemaps/beach",
 
 	"model matrices" : 
-		[[1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, 0.0, 1.0]]
+		[[1.01, 0.0, 0.0, 0.0,  0.0, 1.01, 0.0, 0.0,  0.0, 0.0, 1.01, 0.0,  0.0, 0.0, 0.0, 1.0]]
 }

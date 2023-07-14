@@ -7,6 +7,7 @@
 #include <random>
 #include <string>
 #include <bitset>
+#include <intrin.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -24,7 +25,6 @@
 #include <glm/gtx/transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/rotate_vector.hpp>
-
 
 #define WINDOW_WIDTH_DEFAULT  1280
 #define WINDOW_HEIGHT_DEFAULT 720
@@ -45,6 +45,7 @@
 #include "src/rendering/data_abstraction/mesh.h"
 #include "src/rendering/data_abstraction/runit.h"
 #include "src/rendering/renderer/HBAO.h"
+#include "src/rendering/data_abstraction/BB.h"
 
 #include "src/window/window.h"
 #include "src/world_state/world_state.h"
@@ -54,12 +55,27 @@
 #include "src/tools/texture_loader.h"
 #include "src/tools/gltf_loader.h"
 #include "src/tools/obj_loader.h"
+#include "src/tools/time_measurement.h"
 
 #define GENERAL_BUFFER_DEFAULT_SIZE 134217728ll
 #define STAGING_BUFFER_DEFAULT_SIZE 8388608ll
 #define DEVICE_BUFFER_DEFAULT_SIZE  268435456ll
 
 namespace fs = std::filesystem;
+
+struct FrustumInfo
+{
+	glm::vec4 planes[6]{};
+	glm::vec3 points[8]{};
+} frustumInfo;
+struct CamInfo
+{
+	glm::vec3 camPos{ 0.0, 0.0, -20.0 };
+	double speed{ 10.0 };
+	glm::vec3 camFront{ 0.0, 0.0, 1.0 };
+	double sensetivity{ 1.9 };
+	glm::vec2 lastCursorP{};
+} camInfo;
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
 
@@ -100,46 +116,25 @@ void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagin
 uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
 
 void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
+void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices);
 
-struct CamInfo
-{
-	glm::vec3 camPos{ 0.0, 0.0, -20.0 };
-	double speed{ 10.0 };
-	glm::vec3 camFront{ 0.0, 0.0, 1.0 };
-	double sensetivity{ 1.9 };
-	glm::vec2 lastCursorP{};
-} camInfo;
+void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao);
+void fillModelMatrices(const BufferMapped& modelTransformDataUB, const std::vector<glm::mat4>& modelMatrices);
+void fillDrawDataIndices(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
+void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform);
+void fillPBRSphereTestInstanceData(const BufferMapped& perInstPBRTestSSBO, int sphereInstCount);
+
 void mouseCallback(GLFWwindow* window, double xpos, double ypos);
 
-VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy)
-{
-	VkSamplerCreateInfo samplerCI{
-			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-			.magFilter = VK_FILTER_LINEAR,
-			.minFilter = VK_FILTER_LINEAR,
-			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-			.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-			.mipLodBias = 0.0f,
-			.anisotropyEnable = VK_TRUE,
-			.maxAnisotropy = maxAnisotropy,
-			.compareEnable = VK_FALSE,
-			.compareOp = VK_COMPARE_OP_ALWAYS,
-			.minLod = 0.0f,
-			.maxLod = 128.0f,
-			.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-			.unnormalizedCoordinates = VK_FALSE };
-	VkSampler sampler{};
-	vkCreateSampler(device, &samplerCI, nullptr, &sampler);
-	return sampler;
-}
+VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy);
+
+int cullMeshes(const OBBs& boundingBoxes, VkDrawIndexedIndirectCommand* drawCommands, const glm::mat4& viewMat);
 
 int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window(WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Engine");
+	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Engine" };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetWindowUserPointer(window, &camInfo);
 	glfwSetCursorPosCallback(window, mouseCallback);
@@ -170,7 +165,7 @@ int main()
 	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), viewprojDataUB};
 	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 
-	HBAO hbao{ device, WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT };
+	HBAO hbao{ device, window.getWidth(), window.getHeight() };
 
 	ImageListContainer materialTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true, 
 		VkSamplerCreateInfo{ 
@@ -195,19 +190,22 @@ int main()
 	Buffer vertexData{ baseDeviceBuffer };
 	Buffer indexData{ baseDeviceBuffer };
 	BufferMapped indirectCmdBuffer{ baseHostCachedBuffer };
-
-
+	
 	std::vector<fs::path> modelPaths{};
 	std::vector<glm::mat4> modelMatrices{};
 	fs::path envPath{};
 	Scene::parseSceneData("internal/scene_info.json", modelPaths, modelMatrices, envPath);
 
-	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, indirectCmdBuffer,
+	OBBs rUnitOBBs{ 256 };
+
+	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, indirectCmdBuffer, rUnitOBBs,
 		materialTextures, 
 		modelPaths,
 		vulkanObjectHandler, descriptorManager, cmdBufferSet)
 	};
 	uint32_t drawCount{ static_cast<uint32_t>(indirectCmdBuffer.getSize() / sizeof(VkDrawIndexedIndirectCommand)) };
+
+	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
 
 	cmdBufferSet.resetBuffers();
 
@@ -221,7 +219,7 @@ int main()
 											 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
 											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
 
-	Image depthBuffer{ device, VK_FORMAT_D32_SFLOAT, WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT };
+	Image depthBuffer{ device, VK_FORMAT_D32_SFLOAT, window.getWidth(), window.getHeight(), VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT };
 
 	cmdBufferSet.resetBuffers();
 
@@ -229,16 +227,16 @@ int main()
 	std::mt19937 rng(dev());
 	std::uniform_real_distribution<> dist(0.0, 1.0);
 
-	for (int i{ 0 }; i < 0; ++i)
+	for (int i{ 0 }; i < 4; ++i)
 	{
-		glm::vec3 posP = glm::vec3(dist(rng) * 20.0 - 10.0, dist(rng) * 10.0, dist(rng) * 7.0 - 3.5);
+		glm::vec3 posP = glm::vec3(dist(rng) * 28.0 - 14.0, dist(rng) * 10.0, dist(rng) * 9.0 - 4.5);
 		glm::vec3 colorP = glm::vec3( dist(rng), dist(rng), dist(rng) );
 		float powerP = ((dist(rng) + 0.3) * 600.0 );
 		float radP = ( dist(rng) * 3.0 );
 
 		clusterer.submitPointLight(posP, colorP, powerP, radP);
 
-		glm::vec3 posS = glm::vec3(dist(rng) * 20.0 - 10.0, dist(rng) * 10.0, dist(rng) * 7.0 - 3.5);
+		glm::vec3 posS = glm::vec3(dist(rng) * 28.0 - 14.0, dist(rng) * 10.0, dist(rng) * 9.0 - 4.5);
 		glm::vec3 colorS = glm::vec3( dist(rng), dist(rng), dist(rng) );
 		float powerS = ((dist(rng) + 0.3) * 600.0 );
 		float radS = ( dist(rng) * 4.0 );
@@ -256,12 +254,12 @@ int main()
 	float cutoffAngle = (dist(rng) * 80.0);
 	float cutoffS = glm::radians(40.0f);
 	float falloffS = glm::radians(20.0f);
-	clusterer.submitSpotLight(posS, colorS, powerS, radS, dirS, falloffS, cutoffS);
+	//clusterer.submitSpotLight(posS, colorS, powerS, radS, dirS, falloffS, cutoffS);
 
 	PipelineAssembler assembler{ device };
 	
 	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
-	assembler.setViewportState(PipelineAssembler::VIEWPORT_STATE_DEFAULT, WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT);
+	assembler.setViewportState(PipelineAssembler::VIEWPORT_STATE_DEFAULT, window.getWidth(), window.getHeight());
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_DEFAULT);
 	assembler.setTesselationState(PipelineAssembler::TESSELATION_STATE_DEFAULT);
 	assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
@@ -314,84 +312,13 @@ int main()
 	hbao.fiilRandomRotationImage(cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 
 	//Resource filling 
-	glm::vec3 cameraPos{ glm::vec3{0.0, 2.0, 24.0} };
-	glm::vec3 viewDir{ glm::normalize(-cameraPos) };
-	glm::vec3 upVec{ glm::vec3{0.0, 1.0, 0.0} };
-
 	glm::mat4* vpMatrices{ reinterpret_cast<glm::mat4*>(viewprojDataUB.getData()) };
-	vpMatrices[0] = glm::lookAt(cameraPos, viewDir, upVec);
-	vpMatrices[1] = getProjection(glm::radians(60.0), static_cast<double>(window.getWidth()) / window.getHeight(), 0.01, 10000.0);
-	clusterer.submitFrustum(0.01, 10000.0, static_cast<double>(window.getWidth()) / window.getHeight(), glm::radians(60.0));
-	hbao.submitFrustum(0.01, 10000.0, static_cast<double>(window.getWidth()) / window.getHeight(), glm::radians(60.0));
-
-	glm::mat4* transformMatrices{ reinterpret_cast<glm::mat4*>(modelTransformDataUB.getData()) };
-	for (int i{ 0 }; i < modelMatrices.size(); ++i)
-	{
-		transformMatrices[i] = modelMatrices[i];
-	}
-
-	uint8_t* drawDataIndices{ reinterpret_cast<uint8_t*>(perDrawDataIndicesSSBO.getData()) };
-	//Per mesh indices
-	uint32_t transMatIndex{ 0 };
-	uint32_t drawNum{ static_cast<uint32_t>(staticMeshes[transMatIndex].getRUnits().size()) };
-	for (uint32_t i{ 0 }; i < drawCount; ++i)
-	{
-		if (i == drawNum)
-		{
-			drawNum += staticMeshes[++transMatIndex].getRUnits().size();
-		}
-		*(drawDataIndices + i * 12 + 0) = transMatIndex;
-		*(drawDataIndices + i * 12 + 1) = 0;
-		*(drawDataIndices + i * 12 + 2) = 0;
-		*(drawDataIndices + i * 12 + 3) = 0;
-	}
-	//Per unit indices
-	for (auto& mesh : staticMeshes)
-	{
-		for (auto& rUnit : mesh.getRUnits())
-		{
-			auto indices{rUnit.getMaterialIndices()};
-			*(drawDataIndices + 4) = indices[0].first;
-			*(drawDataIndices + 5) = indices[0].second;
-			*(drawDataIndices + 6) = indices[1].first;
-			*(drawDataIndices + 7) = indices[1].second;
-			*(drawDataIndices + 8) = indices[2].first;
-			*(drawDataIndices + 9) = indices[2].second;
-			*(drawDataIndices + 10) = indices[3].first;
-			*(drawDataIndices + 11) = indices[3].second;
-			drawDataIndices += sizeof(uint8_t) * 12;
-		}
-	}
-
-
 	glm::mat4* skyboxTransform{ reinterpret_cast<glm::mat4*>(skyboxTransformUB.getData()) };
-	skyboxTransform[0] = vpMatrices[0];
-	skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
-	skyboxTransform[1] = vpMatrices[1];
-
-	/*uint8_t* perInstDataPtr{ reinterpret_cast<uint8_t*>(perInstPBRTestSSBO.getData()) };
-	for (int i{ 0 }; i < sphereInstCount; ++i)
-	{
-		glm::vec4* color_metalnessData{ reinterpret_cast<glm::vec4*>(perInstDataPtr) };
-		glm::vec4* wPos_roughnessData{ color_metalnessData + 1 };
-	
-		int row{ i / 5 };
-		int column{ i % 5 };
-	
-		glm::vec3 sphereHorDistance{ 4.0, 0.0, 0.0 };
-		glm::vec3 sphereVerDistance{ 0.0, 4.0, 0.0 };
-	
-		glm::vec3 color{ 1.0f, 1.0f, 1.0f };
-		float metalness{ 0.25f * row };
-	
-		glm::vec3 position{ -8.0, -8.0, 0.0 };
-		position += (sphereHorDistance * static_cast<float>(column) + sphereVerDistance * static_cast<float>(row));
-		float roughness{ 0.25f * column };
-	
-		*color_metalnessData = glm::vec4{ color, metalness };
-		*wPos_roughnessData = glm::vec4{ position, roughness };
-		perInstDataPtr += sizeof(glm::vec4) * 2;
-	}*/
+	fillFrustumData(vpMatrices, window, clusterer, hbao);
+	fillModelMatrices(modelTransformDataUB, modelMatrices);
+	fillDrawDataIndices(perDrawDataIndicesSSBO, staticMeshes, drawCount);
+	fillSkyboxTransformData(vpMatrices, skyboxTransform);
+	//fillPBRSphereTestInstanceData(perInstPBRTestSSBO, sphereInstCount);
 	//end   
 
 	
@@ -421,8 +348,8 @@ int main()
 		VkClearAttachment{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .colorAttachment = 0, .clearValue = {.color{.float32{0.4f, 1.0f, 0.8f}}} }, 
 			VkClearAttachment{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .clearValue = {.depthStencil = {.depth = 0.0f, .stencil = 0}}}};
 	std::array<VkClearRect, 2> attachmentClearRects{
-		VkClearRect{.rect = {.offset = {.x = 0, .y = 0}, .extent = {.width = WINDOW_WIDTH_DEFAULT, .height = WINDOW_HEIGHT_DEFAULT}}, .baseArrayLayer = 0, .layerCount = 1}, 
-			VkClearRect{.rect = {.offset = {.x = 0, .y = 0}, .extent = {.width = WINDOW_WIDTH_DEFAULT, .height = WINDOW_HEIGHT_DEFAULT}}, .baseArrayLayer = 0, .layerCount = 1}};
+		VkClearRect{.rect = {.offset = {.x = 0, .y = 0}, .extent = {.width = window.getWidth(), .height = window.getHeight()}}, .baseArrayLayer = 0, .layerCount = 1},
+			VkClearRect{.rect = {.offset = {.x = 0, .y = 0}, .extent = {.width = window.getWidth(), .height = window.getHeight()}}, .baseArrayLayer = 0, .layerCount = 1}};
 
 	VkFence renderCompleteFence{};
 	VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT };
@@ -430,7 +357,7 @@ int main()
 
 	VkRenderingInfo renderInfo{};
 	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-	renderInfo.renderArea = { .offset{0,0}, .extent{.width = WINDOW_WIDTH_DEFAULT, .height = WINDOW_HEIGHT_DEFAULT} };
+	renderInfo.renderArea = { .offset{0,0}, .extent{.width = window.getWidth(), .height = window.getHeight()} };
 	renderInfo.layerCount = 1;
 	renderInfo.colorAttachmentCount = 1;
 	renderInfo.pDepthAttachment = &depthAttachmentInfo;
@@ -446,16 +373,22 @@ int main()
 	vkDeviceWaitIdle(device);
 	while (!glfwWindowShouldClose(window))
 	{
+		//
+		TIME_MEASURE_START(100, 0);
+		//
+
 		WorldState::refreshFrameTime();
 
-		vpMatrices[0] = glm::lookAt(camInfo.camPos, camInfo.camPos + camInfo.camFront, upVec);
+		vpMatrices[0] = glm::lookAt(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{0.0, 1.0, 0.0});
 		skyboxTransform[0] = vpMatrices[0];
 		skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
 
 		hbao.submitViewMatrix(vpMatrices[0]);
 		clusterer.submitViewMatrix(vpMatrices[0]);
 		clusterer.startClusteringProcess();
-		
+
+		cullMeshes(rUnitOBBs, reinterpret_cast<VkDrawIndexedIndirectCommand*>(indirectCmdBuffer.getData()), vpMatrices[0]);
+
 		if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
 		{
 			vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
@@ -545,7 +478,7 @@ int main()
 			vkCmdEndRendering(cbDraw);
 
 			//Space lines
-			/*BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
+			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
 				{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
 					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 					VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)}
@@ -561,7 +494,7 @@ int main()
 				vkCmdPushConstants(cbDraw, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
 				vkCmdDraw(cbDraw, lineVertNum, 1, 0, 0);
 
-			vkCmdEndRendering(cbDraw);*/
+			vkCmdEndRendering(cbDraw);
 			//
 
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
@@ -583,10 +516,10 @@ int main()
 		//End recording
 
 		vkResetFences(device, 1, &renderCompleteFence);
-		VkPipelineStageFlags stagesToWaitOn[]{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+		VkPipelineStageFlags stagesToWaitOn[]{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 		VkSubmitInfo submitInfos[2]{};
 		submitInfos[0] = VkSubmitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			.waitSemaphoreCount = 1, .pWaitSemaphores = &swapchainSemaphore, .pWaitDstStageMask = stagesToWaitOn + 1,
+			.waitSemaphoreCount = 1, .pWaitSemaphores = &swapchainSemaphore, .pWaitDstStageMask = stagesToWaitOn + 0,
 			.commandBufferCount = 1, .pCommandBuffers = &cbPreprocessing,
 			.signalSemaphoreCount = 1, .pSignalSemaphores = &preprocessingDoneSemaphore };
 		submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -607,6 +540,10 @@ int main()
 		cmdBufferSet.resetBuffers();
 
 		glfwPollEvents();
+
+		//
+		TIME_MEASURE_END(100, 0);
+		//
 	}
 
 
@@ -707,18 +644,21 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 
 	double xOffs{};
 	double yOffs{};
-
 	static bool firstCall{ true };
+	static int width{};
+	static int height{};
+
 	if (firstCall)
 	{
 		xOffs = 0.0f;
 		yOffs = 0.0f;
+		glfwGetWindowSize(window, &width, &height);
 		firstCall = false;
 	}
 	else
 	{
-		xOffs = (xpos - camInfo->lastCursorP.x) / WINDOW_WIDTH_DEFAULT;
-		yOffs = (ypos - camInfo->lastCursorP.y ) / WINDOW_HEIGHT_DEFAULT;
+		xOffs = (xpos - camInfo->lastCursorP.x) / width;
+		yOffs = (ypos - camInfo->lastCursorP.y ) / height;
 	}
 
 	glm::vec3 upWVec{ 0.0, 1.0, 0.0 };
@@ -1090,4 +1030,204 @@ uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, Buf
 	vkQueueWaitIdle(queue);
 
 	return staging.getSize() / (5 * sizeof(float));
+}
+
+
+void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices)
+{
+	uint32_t transMatIndex{ 0 };
+	uint32_t drawNum{ static_cast<uint32_t>(staticMeshes[transMatIndex].getRUnits().size()) };
+	for (uint32_t i{ 0 }; i < drawCount; ++i)
+	{
+		if (i == drawNum)
+		{
+			drawNum += staticMeshes[++transMatIndex].getRUnits().size();
+		}
+		boundingBoxes.transformOBB(i, modelMatrices[transMatIndex]);
+	}
+}
+
+void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao)
+{
+	float nearPlane{ 0.01 };
+	float farPlane{ 10000.0 };
+	float aspect{ static_cast<float>(static_cast<double>(window.getWidth()) / window.getHeight()) };
+	float FOV{ glm::radians(60.0) };
+
+	vpMatrices[1] = getProjection(FOV, aspect, nearPlane, farPlane);
+	clusterer.submitFrustum(nearPlane, farPlane, aspect, FOV);
+	hbao.submitFrustum(nearPlane, farPlane, aspect, FOV);
+
+	double FOV_X{ glm::atan(glm::tan(FOV / 2) * aspect) * 2 }; //FOV provided to glm::perspective defines vertical frustum angle in radians
+	frustumInfo.planes[0] = { 0.0f, 0.0f, -1.0f, nearPlane }; //near plane
+	frustumInfo.planes[1] = glm::vec4{ glm::rotate(glm::dvec3{-1.0, 0.0, 0.0}, FOV_X / 2.0, glm::dvec3{0.0, -1.0, 0.0}), 0.0 }; //left plane
+	frustumInfo.planes[2] = glm::vec4{ glm::rotate(glm::dvec3{1.0, 0.0, 0.0}, FOV_X / 2.0, glm::dvec3{0.0, 1.0, 0.0}), 0.0 }; //right plane
+	frustumInfo.planes[3] = glm::vec4{ glm::rotate(glm::dvec3{0.0, 1.0, 0.0}, FOV / 2.0, glm::dvec3{-1.0, 0.0, 0.0}), 0.0 }; //up plane
+	frustumInfo.planes[4] = glm::vec4{ glm::rotate(glm::dvec3{0.0, -1.0, 0.0}, FOV / 2.0, glm::dvec3{1.0, 0.0, 0.0}), 0.0 }; //down plane
+	frustumInfo.planes[5] = { 0.0f, 0.0f, 1.0f, -farPlane }; //far plane
+
+	double fovXScale{ glm::tan(FOV_X / 2) };
+	double fovYScale{ glm::tan(FOV / 2) };
+
+	frustumInfo.points[0] = { -(nearPlane)*fovXScale, -(nearPlane)*fovYScale, nearPlane }; //near bot left
+	frustumInfo.points[1] = { -(nearPlane)*fovXScale, (nearPlane)*fovYScale, nearPlane }; //near top left
+	frustumInfo.points[2] = { (nearPlane)*fovXScale, (nearPlane)*fovYScale, nearPlane }; //near top right
+	frustumInfo.points[3] = { (nearPlane)*fovXScale, -(nearPlane)*fovYScale, nearPlane }; //near bot right
+	frustumInfo.points[4] = { -(farPlane)*fovXScale, -(farPlane)*fovYScale, farPlane }; //far bot left
+	frustumInfo.points[5] = { -(farPlane)*fovXScale, (farPlane)*fovYScale, farPlane }; //far top left
+	frustumInfo.points[6] = { (farPlane)*fovXScale, (farPlane)*fovYScale, farPlane }; //far top right
+	frustumInfo.points[7] = { (farPlane)*fovXScale, -(farPlane)*fovYScale, farPlane }; //far bot right
+}
+void fillModelMatrices(const BufferMapped& modelTransformDataUB, const std::vector<glm::mat4>& modelMatrices)
+{
+	glm::mat4* transformMatrices{ reinterpret_cast<glm::mat4*>(modelTransformDataUB.getData()) };
+	for (int i{ 0 }; i < modelMatrices.size(); ++i)
+	{
+		transformMatrices[i] = modelMatrices[i];
+	}
+}
+void fillDrawDataIndices(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount)
+{
+	uint8_t* drawDataIndices{ reinterpret_cast<uint8_t*>(perDrawDataIndicesSSBO.getData()) };
+	//Per mesh indices
+	uint32_t transMatIndex{ 0 };
+	uint32_t drawNum{ static_cast<uint32_t>(staticMeshes[transMatIndex].getRUnits().size()) };
+	for (uint32_t i{ 0 }; i < drawCount; ++i)
+	{
+		if (i == drawNum)
+		{
+			drawNum += staticMeshes[++transMatIndex].getRUnits().size();
+		}
+		*(drawDataIndices + i * 12 + 0) = transMatIndex;
+		*(drawDataIndices + i * 12 + 1) = 0;
+		*(drawDataIndices + i * 12 + 2) = 0;
+		*(drawDataIndices + i * 12 + 3) = 0;
+	}
+	//Per unit indices
+	for (auto& mesh : staticMeshes)
+	{
+		for (auto& rUnit : mesh.getRUnits())
+		{
+			auto indices{ rUnit.getMaterialIndices() };
+			*(drawDataIndices + 4) = indices[0].first;
+			*(drawDataIndices + 5) = indices[0].second;
+			*(drawDataIndices + 6) = indices[1].first;
+			*(drawDataIndices + 7) = indices[1].second;
+			*(drawDataIndices + 8) = indices[2].first;
+			*(drawDataIndices + 9) = indices[2].second;
+			*(drawDataIndices + 10) = indices[3].first;
+			*(drawDataIndices + 11) = indices[3].second;
+			drawDataIndices += sizeof(uint8_t) * 12;
+		}
+	}
+}
+void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform)
+{
+	skyboxTransform[0] = vpMatrices[0];
+	skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
+	skyboxTransform[1] = vpMatrices[1];
+}
+void fillPBRSphereTestInstanceData(const BufferMapped& perInstPBRTestSSBO, int sphereInstCount)
+{
+	uint8_t* perInstDataPtr{ reinterpret_cast<uint8_t*>(perInstPBRTestSSBO.getData()) };
+	for (int i{ 0 }; i < sphereInstCount; ++i)
+	{
+		glm::vec4* color_metalnessData{ reinterpret_cast<glm::vec4*>(perInstDataPtr) };
+		glm::vec4* wPos_roughnessData{ color_metalnessData + 1 };
+
+		int row{ i / 5 };
+		int column{ i % 5 };
+
+		glm::vec3 sphereHorDistance{ 4.0, 0.0, 0.0 };
+		glm::vec3 sphereVerDistance{ 0.0, 4.0, 0.0 };
+
+		glm::vec3 color{ 1.0f, 1.0f, 1.0f };
+		float metalness{ 0.25f * row };
+
+		glm::vec3 position{ -8.0, -8.0, 0.0 };
+		position += (sphereHorDistance * static_cast<float>(column) + sphereVerDistance * static_cast<float>(row));
+		float roughness{ 0.25f * column };
+
+		*color_metalnessData = glm::vec4{ color, metalness };
+		*wPos_roughnessData = glm::vec4{ position, roughness };
+		perInstDataPtr += sizeof(glm::vec4) * 2;
+	}
+}
+
+int cullMeshes(const OBBs& boundingBoxes, VkDrawIndexedIndirectCommand* drawCommands, const glm::mat4& viewMat)
+{
+	glm::mat4 viewInv{ glm::inverse(viewMat) };
+
+	__m128 planes[6]{};
+	auto transformPlanes{ [&planes](const FrustumInfo& frustum, const glm::mat4& viewMatr)
+		{
+			for (int i{ 0 }; i < 6; ++i)
+			{
+				glm::vec3 newNormal{ glm::mat3{viewMatr} *glm::vec3{frustum.planes[i]} };
+				float dot{ glm::dot(glm::vec3{viewMatr[3][0], viewMatr[3][1], viewMatr[3][2]}, newNormal) };
+				float newDist{ -(dot - frustum.planes[i].w) };
+				planes[i] = _mm_set_ps(newNormal.x, newNormal.y, newNormal.z, newDist);
+			}
+		} };
+	transformPlanes(frustumInfo, viewInv);
+
+	int meshesCulled{ 0 };
+	for (int i{ 0 }; i < boundingBoxes.getBBCount(); ++i)
+	{
+		float* xs{};
+		float* ys{};
+		float* zs{};
+		boundingBoxes.getOBB(i, &xs, &ys, &zs);
+		__m128 points[8]{};
+		for (int j{ 0 }; j < 8; ++j)
+		{
+			points[j] = _mm_set_ps(xs[j], ys[j], zs[j], 1.0);
+		}
+		for (int j{ 0 }; j < 6; ++j)
+		{
+			int out = 0;
+			out += ((_mm_dp_ps(planes[j], points[0], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+			out += ((_mm_dp_ps(planes[j], points[1], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+			out += ((_mm_dp_ps(planes[j], points[2], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+			out += ((_mm_dp_ps(planes[j], points[3], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+			out += ((_mm_dp_ps(planes[j], points[4], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+			out += ((_mm_dp_ps(planes[j], points[5], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+			out += ((_mm_dp_ps(planes[j], points[6], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+			out += ((_mm_dp_ps(planes[j], points[7], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
+
+			if (out == 8)
+				goto next;
+		}
+
+		drawCommands[i].instanceCount = 1;
+		continue;
+	next:
+		drawCommands[i].instanceCount = 0;
+		++meshesCulled;
+	}
+	return meshesCulled;
+}
+
+VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy)
+{
+	VkSamplerCreateInfo samplerCI{
+			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+			.magFilter = VK_FILTER_LINEAR,
+			.minFilter = VK_FILTER_LINEAR,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = VK_TRUE,
+			.maxAnisotropy = maxAnisotropy,
+			.compareEnable = VK_FALSE,
+			.compareOp = VK_COMPARE_OP_ALWAYS,
+			.minLod = 0.0f,
+			.maxLod = 128.0f,
+			.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+			.unnormalizedCoordinates = VK_FALSE };
+	VkSampler sampler{};
+	vkCreateSampler(device, &samplerCI, nullptr, &sampler);
+	return sampler;
 }

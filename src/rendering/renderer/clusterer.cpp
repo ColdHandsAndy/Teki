@@ -163,7 +163,8 @@ void Clusterer::fillZBins()
 {
 	float binWidth{ m_currentFurthestLight / Z_BIN_COUNT };
 
-	oneapi::tbb::parallel_for(0u, Z_BIN_COUNT, 
+	static oneapi::tbb::affinity_partitioner ap{};
+	oneapi::tbb::parallel_for(0u, Z_BIN_COUNT, 1u,
 		[this, binWidth](uint32_t i) 
 		{
 			//Front is faced to zero
@@ -188,7 +189,7 @@ void Clusterer::fillZBins()
 			uint16_t* minMax{ reinterpret_cast<uint16_t*>(m_binsMinMax.getData()) + i * 2 };
 			minMax[0] = min;
 			minMax[1] = max;
-		});
+		}, ap);
 }
 void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 {
@@ -386,7 +387,7 @@ void Clusterer::uploadBuffersData(FrameCommandBufferSet& cmdBufferSet, VkQueue q
 {
 	BufferBaseHostAccessible staging{ m_device, m_lightBoundingVolumeVertexData.getSize(), VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
 
-	std::ifstream istream{ "internal/BVmeshes/octasphere_1sub.bin", std::ios::binary };
+	std::ifstream istream{ "internal/BVmeshes/octasphere_1sub_M.bin", std::ios::binary };
 	istream.seekg(0, std::ios::beg);
 
 	uint32_t vertNum{};

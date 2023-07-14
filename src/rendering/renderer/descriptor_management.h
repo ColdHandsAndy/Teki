@@ -23,11 +23,18 @@ class DescriptorManager
 private:
 	VkDevice m_device{};
 
+    enum DescriptorBufferType
+    {
+        RESOURCE_TYPE,
+        SAMPLER_TYPE,
+        TYPES_MAX_NUM
+    };
 	struct DescriptorBuffer
 	{
 		VmaVirtualBlock memoryProxy{};
         BufferBaseHostAccessible descriptorBuffer;
 		VkDeviceAddress deviceAddress{};
+        DescriptorBufferType type{};
 	};
 	std::vector<DescriptorBuffer> m_descriptorBuffers{};
 	inline static uint32_t m_descriptorBufferAlignment;
@@ -49,19 +56,12 @@ public:
 	DescriptorManager(VulkanObjectHandler& vulkanObjectHandler);
 	~DescriptorManager();
 
-	void cmdSubmitResource(VkCommandBuffer cb, VkPipelineLayout layout, ResourceSet& resource);
     void cmdSubmitPipelineResources(VkCommandBuffer cb, VkPipelineBindPoint bindPoint, std::vector<ResourceSet>& resourceSets, const std::vector<uint32_t>& resourceIndices, VkPipelineLayout pipelineLayout);
 
 private:
-    enum DescriptorBufferType
-    {
-        RESOURCE_TYPE,
-        SAMPLER_TYPE,
-        TYPES_MAX_NUM
-    };
-	void createNewDescriptorBuffer();
+	void createNewDescriptorBuffer(DescriptorBufferType type);
 
-	void insertResourceSetInBuffer(ResourceSet& resourceSet);
+	void insertResourceSetInBuffer(ResourceSet& resourceSet, bool containsSampledData);
 	void removeResourceSetFromBuffer(std::list<DescriptorAllocation>::const_iterator allocationIter);
 
 
@@ -123,7 +123,14 @@ private:
 
 public:
     ResourceSet() = default;
-    ResourceSet(VkDevice device, uint32_t setIndex, VkDescriptorSetLayoutCreateFlags flags, uint32_t resCopies, const std::vector<VkDescriptorSetLayoutBinding>& bindings, const std::vector<VkDescriptorBindingFlags>& bindingFlags, const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData);
+    ResourceSet(VkDevice device, 
+        uint32_t setIndex, 
+        VkDescriptorSetLayoutCreateFlags flags, 
+        uint32_t resCopies, 
+        const std::vector<VkDescriptorSetLayoutBinding>& bindings, 
+        const std::vector<VkDescriptorBindingFlags>& bindingFlags, 
+        const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData,
+        bool containsSampledData = true);
     ResourceSet(ResourceSet&& srcResourceSet) noexcept;
     ~ResourceSet();
 
@@ -132,7 +139,7 @@ public:
     const VkDescriptorSetLayout& getSetLayout() const;
 
 private:
-    void initializeSet(const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData);
+    void initializeSet(const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData, bool containsSampledData);
     uint32_t getDescBufferIndex() const;
     VkDeviceSize getDescriptorSetAlignedSize();
     void setDescBufferOffset(VkDeviceSize offset);

@@ -157,6 +157,7 @@
       <AdditionalIncludeDirectories>dependencies\include;D:\Soft\VulkanSDK\Include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ShowIncludes>false</ShowIncludes>
       <PreprocessorDefinitions>_USE_MATH_DEFINES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -192,6 +193,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="obj loader\obj_loader.h" />
+    <ClInclude Include="src\rendering\data_abstraction\BB.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
     <ClInclude Include="src\rendering\data_abstraction\mesh.h" />
     <ClInclude Include="src\rendering\data_abstraction\vertex_layouts.h" />
@@ -215,6 +217,7 @@
     <ClInclude Include="src\tools\logging.h" />
     <ClInclude Include="src\rendering\vulkan_object_handling\vulkan_object_handler.h" />
     <ClInclude Include="src\tools\obj_loader.h" />
+    <ClInclude Include="src\tools\time_measurement.h" />
     <ClInclude Include="src\window\window.h" />
     <ClInclude Include="src\world_state\world_state.h" />
   </ItemGroup>
