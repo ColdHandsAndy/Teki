@@ -132,7 +132,7 @@ public:
 	}
 
 	void cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager);
-	void cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager, Pipeline& pointLPipeline, Pipeline& spotLPipeline, VkRenderingInfo& renderInfo);
+	void cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager, Pipeline& pointLPipeline, Pipeline& spotLPipeline);
 
 	const BufferMapped& getSortedLightsUB() const
 	{
@@ -186,7 +186,7 @@ private:
 
 	void createTileTestObjects(const BufferMapped& viewprojDataUB);
 	void uploadBuffersData(FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
-	void getNewLight(Clusterer::LightFormat* lightData, glm::vec4* boundingSphere, LightFormat::Types type);
+	void getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type);
 
 
 	Clusterer() = delete;

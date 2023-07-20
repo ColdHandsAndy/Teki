@@ -1,7 +1,5 @@
 #version 460
 
-//#extension GL_EXT_shader_explicit_arithmetic_types_int8    :  enable
-#extension GL_KHR_shader_subgroup					       :  enable
 #extension GL_KHR_shader_subgroup_basic    				   :  enable
 #extension GL_KHR_shader_subgroup_vote    				   :  enable
 #extension GL_KHR_shader_subgroup_arithmetic    		   :  enable

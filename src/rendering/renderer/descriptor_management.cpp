@@ -55,7 +55,17 @@ void DescriptorManager::cmdSubmitPipelineResources(VkCommandBuffer cb, VkPipelin
         bindingInfos[i].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
         bindingInfos[i].pNext = nullptr;
         bindingInfos[i].address = m_descriptorBuffers[m_descBuffersBindings[i]].deviceAddress;
-        bindingInfos[i].usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+        switch (m_descriptorBuffers[m_descBuffersBindings[i]].type)
+        {
+        case DescriptorManager::RESOURCE_TYPE:
+            bindingInfos[i].usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+            break;
+        case DescriptorManager::SAMPLER_TYPE:
+            bindingInfos[i].usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+            break;
+        default:
+            EASSERT(false, "App", "Unknown descriptor buffer type. Should never happen.");
+        }
     }
 
     lvkCmdBindDescriptorBuffersEXT(cb, bufferCount, bindingInfos);

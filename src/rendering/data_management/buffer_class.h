@@ -6,8 +6,8 @@
 #include <cassert>
 #include <span>
 
-#include "vulkan/vulkan.h"
-#include "vma/vk_mem_alloc.h"
+#include <vulkan/vulkan.h>
+#include <vma/vk_mem_alloc.h>
 
 #include "memory_manager.h"
 

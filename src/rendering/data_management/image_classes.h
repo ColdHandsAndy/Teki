@@ -4,8 +4,8 @@
 #include <list>
 #include <deque>
 
-#include "vulkan/vulkan.h"
-#include "vma/vk_mem_alloc.h"
+#include <vulkan/vulkan.h>
+#include <vma/vk_mem_alloc.h>
 
 #include "src/rendering/data_management/memory_manager.h"
 

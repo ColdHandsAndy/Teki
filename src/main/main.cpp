@@ -28,6 +28,8 @@
 
 #define WINDOW_WIDTH_DEFAULT  1280
 #define WINDOW_HEIGHT_DEFAULT 720
+#define HBAO_WIDTH_DEFAULT  1280
+#define HBAO_HEIGHT_DEFAULT 720
 
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/rendering/renderer/pipeline_management.h"
@@ -45,6 +47,7 @@
 #include "src/rendering/data_abstraction/mesh.h"
 #include "src/rendering/data_abstraction/runit.h"
 #include "src/rendering/renderer/HBAO.h"
+#include "src/rendering/renderer/FXAA.h"
 #include "src/rendering/data_abstraction/BB.h"
 
 #include "src/window/window.h"
@@ -70,9 +73,9 @@ struct FrustumInfo
 } frustumInfo;
 struct CamInfo
 {
-	glm::vec3 camPos{ 0.0, 0.0, -20.0 };
+	glm::vec3 camPos{ 9.305, 3.871, 0.228 };
 	double speed{ 10.0 };
-	glm::vec3 camFront{ 0.0, 0.0, 1.0 };
+	glm::vec3 camFront{ -0.997, -0.077, 0.02 };
 	double sensetivity{ 1.9 };
 	glm::vec2 lastCursorP{};
 } camInfo;
@@ -134,7 +137,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Engine" };
+	Window window{ "Engine" };
+	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Engine" };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetWindowUserPointer(window, &camInfo);
 	glfwSetCursorPosCallback(window, mouseCallback);
@@ -165,7 +169,10 @@ int main()
 	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), viewprojDataUB};
 	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 
-	HBAO hbao{ device, window.getWidth(), window.getHeight() };
+	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT };
+
+	Image framebufferImage{ device, vulkanObjectHandler->getSwapchainFormat(), window.getWidth(), window.getHeight(), VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT };
+	FXAA fxaa{ device, window.getWidth(), window.getHeight(), framebufferImage };
 
 	ImageListContainer materialTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true, 
 		VkSamplerCreateInfo{ 
@@ -223,38 +230,32 @@ int main()
 
 	cmdBufferSet.resetBuffers();
 
-	std::random_device dev;
-	std::mt19937 rng(dev());
-	std::uniform_real_distribution<> dist(0.0, 1.0);
 
+
+	std::random_device dev{};
+	std::mt19937 rng(dev());
+	std::uniform_real_distribution<float> dist{};
+
+	std::vector<LightTypes::PointLight> points{};
+	int pointLightsX{ 24 };
+	int pointLightsY{ 8 };
+	for (int i{ 0 }; i < pointLightsX * pointLightsY; ++i)
+	{
+		points.emplace_back(glm::vec3{0.0}, glm::vec3{ dist(rng), dist(rng), dist(rng) }, 22.0, 1.0);
+	}
+	std::vector<LightTypes::SpotLight> spots{};
+	float spotLightAngle{ glm::radians(30.0) };
+	glm::vec3 spotsLeftDir{0.0, -std::cos(spotLightAngle), std::sin(spotLightAngle)};
+	glm::vec3 spotsRightDir{0.0, -std::cos(spotLightAngle), -std::sin(spotLightAngle)};
+	glm::vec3 spotsLeftRotDir{0.0, -std::cos(spotLightAngle * 0.5), std::sin(spotLightAngle * 0.5)};
+	glm::vec3 spotsRightRotDir{0.0, -std::cos(spotLightAngle * 0.5), -std::sin(spotLightAngle * 0.5)};
 	for (int i{ 0 }; i < 4; ++i)
 	{
-		glm::vec3 posP = glm::vec3(dist(rng) * 28.0 - 14.0, dist(rng) * 10.0, dist(rng) * 9.0 - 4.5);
-		glm::vec3 colorP = glm::vec3( dist(rng), dist(rng), dist(rng) );
-		float powerP = ((dist(rng) + 0.3) * 600.0 );
-		float radP = ( dist(rng) * 3.0 );
-
-		clusterer.submitPointLight(posP, colorP, powerP, radP);
-
-		glm::vec3 posS = glm::vec3(dist(rng) * 28.0 - 14.0, dist(rng) * 10.0, dist(rng) * 9.0 - 4.5);
-		glm::vec3 colorS = glm::vec3( dist(rng), dist(rng), dist(rng) );
-		float powerS = ((dist(rng) + 0.3) * 600.0 );
-		float radS = ( dist(rng) * 4.0 );
-		glm::vec3 dirS = glm::vec3( dist(rng) * 2.0 - 1.0, dist(rng) * 2.0 - 1.0, dist(rng) * 2.0 - 1.0 );
-		float cutoffAngle = ( dist(rng) * 80.0 );
-		float cutoffS = glm::radians(cutoffAngle);
-		float falloffS = glm::radians(cutoffAngle * dist(rng));
-		clusterer.submitSpotLight(posS, colorS, powerS, radS, dirS, falloffS, cutoffS);
+		spots.emplace_back(glm::vec3{3.0f * i - 3.0f * i / 2.0f, 8.0, -3.0}, glm::vec3{ dist(rng), dist(rng), dist(rng) }, 900.0, 10.0, spotsLeftDir, glm::radians(4.0), glm::radians(14.0));
+		spots.emplace_back(glm::vec3{3.0f * i - 3.0f * i / 2.0f, 8.0,  3.0}, glm::vec3{ dist(rng), dist(rng), dist(rng) }, 900.0, 10.0, spotsRightDir, glm::radians(4.0), glm::radians(14.0));
 	}
-	glm::vec3 posS{ 0.0, 70.0, 0.0 };
-	glm::vec3 colorS = glm::vec3(1.0, 0.0, 0.0);
-	float powerS = (8000.0);
-	float radS = (140.0);
-	glm::vec3 dirS = glm::vec3(0.7, -1.0, 0.0);
-	float cutoffAngle = (dist(rng) * 80.0);
-	float cutoffS = glm::radians(40.0f);
-	float falloffS = glm::radians(20.0f);
-	//clusterer.submitSpotLight(posS, colorS, powerS, radS, dirS, falloffS, cutoffS);
+
+
 
 	PipelineAssembler assembler{ device };
 	
@@ -283,16 +284,16 @@ int main()
 			clusterer.getSortedLightsUB(), clusterer.getSortedTypeDataUB(), clusterer.getTileDataSSBO(), clusterer.getZBinUB())
 	);
 
-	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_LINE_POLYGONS, 1.4f, VK_CULL_MODE_NONE);
-	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
-	Pipeline pointBVPipeline{ createPointBVPipeline(assembler, viewprojDataUB, clusterer.getPointIndicesUB(), clusterer.getSortedLightsUB())};
-	Pipeline spotBVPipeline{ createSpotBVPipeline(assembler, viewprojDataUB, clusterer.getSpotIndicesUB(), clusterer.getSortedLightsUB())};
-
 	/*Buffer sphereTestPBRdata{ baseDeviceBuffer };
 	uint32_t sphereTestPBRVertNum{ uploadSphereVertexData("A:/Models/obj/sphere.obj", sphereTestPBRdata, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
 	BufferMapped perInstPBRTestSSBO{ baseHostBuffer };
 	int sphereInstCount{ 25 };
 	Pipeline sphereTestPBRPipeline{ createSphereTestPBRPipeline(assembler, viewprojDataUB, perInstPBRTestSSBO, cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance, universalSampler, brdfLUT, sphereInstCount) };*/
+
+	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_LINE_POLYGONS, 1.4f, VK_CULL_MODE_NONE);
+	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
+	Pipeline pointBVPipeline{ createPointBVPipeline(assembler, viewprojDataUB, clusterer.getPointIndicesUB(), clusterer.getSortedLightsUB())};
+	Pipeline spotBVPipeline{ createSpotBVPipeline(assembler, viewprojDataUB, clusterer.getSpotIndicesUB(), clusterer.getSortedLightsUB())};
 
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
 	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_SKYBOX);
@@ -323,33 +324,25 @@ int main()
 
 	
 	VkSemaphore swapchainSemaphore{};
-	VkSemaphore readyToPresentSemaphore{};
 	VkSemaphore preprocessingDoneSemaphore{};
+	VkSemaphore drawingCompleteSemaphore{};
+	VkSemaphore readyToPresentSemaphore{};
 	VkSemaphoreCreateInfo semCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	vkCreateSemaphore(device, &semCI, nullptr, &swapchainSemaphore);
-	vkCreateSemaphore(device, &semCI, nullptr, &readyToPresentSemaphore);
 	vkCreateSemaphore(device, &semCI, nullptr, &preprocessingDoneSemaphore);
+	vkCreateSemaphore(device, &semCI, nullptr, &drawingCompleteSemaphore);
+	vkCreateSemaphore(device, &semCI, nullptr, &readyToPresentSemaphore);
 	
 	uint32_t swapchainIndex{};
 	VkRenderingAttachmentInfo colorAttachmentInfo{};
 	colorAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	colorAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachmentInfo.clearValue = VkClearValue{ .color{.float32{0.4f, 1.0f, 0.8f}} };
 	VkRenderingAttachmentInfo depthAttachmentInfo{};
 	depthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	depthAttachmentInfo.imageView = depthBuffer.getImageView();
 	depthAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-	depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	depthAttachmentInfo.clearValue = { .depthStencil = {.depth = 1.0f, .stencil = 0} };
-	std::array<VkClearAttachment, 2> attachmentClears{
-		VkClearAttachment{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .colorAttachment = 0, .clearValue = {.color{.float32{0.4f, 1.0f, 0.8f}}} }, 
-			VkClearAttachment{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .clearValue = {.depthStencil = {.depth = 0.0f, .stencil = 0}}}};
-	std::array<VkClearRect, 2> attachmentClearRects{
-		VkClearRect{.rect = {.offset = {.x = 0, .y = 0}, .extent = {.width = window.getWidth(), .height = window.getHeight()}}, .baseArrayLayer = 0, .layerCount = 1},
-			VkClearRect{.rect = {.offset = {.x = 0, .y = 0}, .extent = {.width = window.getWidth(), .height = window.getHeight()}}, .baseArrayLayer = 0, .layerCount = 1}};
+	depthAttachmentInfo.clearValue = { .depthStencil = {.depth = 0.0f, .stencil = 0} };
 
 	VkFence renderCompleteFence{};
 	VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT };
@@ -377,6 +370,29 @@ int main()
 		TIME_MEASURE_START(100, 0);
 		//
 
+		double timeModif{ glfwGetTime() };
+		oneapi::tbb::parallel_for(0, pointLightsY,
+			[&points, timeModif, pointLightsX](int i)
+			{
+				float yPos{ 0.3f + 1.4f * i };
+
+				for (int j{ 0 }; j < pointLightsX; ++j)
+				{
+					float xPos{ static_cast<float>(std::sqrt(j + 1.0f) * 1.7f) };
+					float cosA{ std::cos(static_cast<float>(timeModif) + j * 1.82f + i * 0.52f) };
+					float sinA{ std::sin(static_cast<float>(timeModif) + j * 1.82f + i * 0.52f) };
+					points[pointLightsX * i + j].changePosition(glm::vec3{sinA * xPos, yPos, cosA * xPos});
+				}
+			});
+		for (int i{ 0 }; i < 4; ++i)
+		{
+			float xPos{ 3.0f * i - 12.0f / 2.0f };
+			float spotLightAngle{ glm::radians(30.0) };
+
+			spots[2 * i + 0].changeDirection(glm::rotate(spotsLeftDir, static_cast<float>(timeModif), spotsLeftRotDir));
+			spots[2 * i + 1].changeDirection(glm::rotate(spotsRightDir, static_cast<float>(timeModif), spotsRightRotDir));
+		}
+
 		WorldState::refreshFrameTime();
 
 		vpMatrices[0] = glm::lookAt(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{0.0, 1.0, 0.0});
@@ -395,11 +411,10 @@ int main()
 			swapChains[0] = vulkanObjectHandler->getSwapchain();
 		}
 		swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
-		colorAttachmentInfo.imageView = std::get<1>(swapchainImageData);
-		VkRenderingAttachmentInfo colorAttachments[]{ colorAttachmentInfo };
-		renderInfo.pColorAttachments = colorAttachments;
+		colorAttachmentInfo.imageView = framebufferImage.getImageView();
+		renderInfo.pColorAttachments = &colorAttachmentInfo;
 
-		//Begin recording
+
 		VkCommandBuffer cbPreprocessing{ cmdBufferSet.beginTransientRecording() };
 			
 			hbao.cmdPassCalcHBAO(cbPreprocessing, descriptorManager, vertexData, indexData, indirectCmdBuffer, drawCount);
@@ -410,22 +425,18 @@ int main()
 		VkCommandBuffer cbDraw{ cmdBufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
 			
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
-				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
-					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					0,
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
-					std::get<0>(swapchainImageData),
+					framebufferImage.getImageHandle(),
 					{
 					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 					.baseMipLevel = 0,
 					.levelCount = 1,
 					.baseArrayLayer = 0,
 					.layerCount = 1}),
-				BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-					VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-					0,
-					VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+					0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 					depthBuffer.getImageHandle(),
 					{
@@ -436,13 +447,13 @@ int main()
 					.layerCount = 1})}   
 				});
 
+			colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			vkCmdBeginRendering(cbDraw, &renderInfo);
 
-				//Add clear synchronization
-				vkCmdClearAttachments(cbDraw, attachmentClears.size(), attachmentClears.data(), attachmentClearRects.size(), attachmentClearRects.data());
-				//
-
-				//clusterer.cmdDrawBVs(cbDraw, descriptorManager, pointBVPipeline, spotBVPipeline, renderInfo);
+				clusterer.cmdDrawBVs(cbDraw, descriptorManager, pointBVPipeline, spotBVPipeline);
 
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS,
 					forwardClusteredPipeline.getResourceSets(), forwardClusteredPipeline.getResourceSetsInUse(), forwardClusteredPipeline.getPipelineLayoutHandle());
@@ -455,7 +466,7 @@ int main()
 				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{window.getWidth(), window.getHeight()}, clusterer.getWidthInTiles()};
 				vkCmdPushConstants(cbDraw, forwardClusteredPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstData), &pushConstData);
 				vkCmdDrawIndexedIndirect(cbDraw, indirectCmdBuffer.getBufferHandle(), indirectCmdBuffer.getOffset(), drawCount, sizeof(VkDrawIndexedIndirectCommand));
-
+				
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline.getResourceSets(), skyboxPipeline.getResourceSetsInUse(), skyboxPipeline.getPipelineLayoutHandle());
 				VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
 				VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
@@ -484,6 +495,10 @@ int main()
 					VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)}
 			});
 
+			colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			vkCmdBeginRendering(cbDraw, &renderInfo);
 
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, spaceLinesPipeline.getResourceSets(), spaceLinesPipeline.getResourceSetsInUse(), spaceLinesPipeline.getPipelineLayoutHandle());
@@ -498,12 +513,10 @@ int main()
 			//
 
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
-				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-					0,
-					VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-					std::get<0>(swapchainImageData),
+				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+					VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					framebufferImage.getImageHandle(),
 					{
 					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 					.baseMipLevel = 0,
@@ -513,11 +526,42 @@ int main()
 			});
 
 		cmdBufferSet.endRecording(cbDraw);
-		//End recording
+
+		VkCommandBuffer cbPostprocessing{ cmdBufferSet.beginTransientRecording() };
+			
+			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
+				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					std::get<0>(swapchainImageData),
+					{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1 })}
+			});
+
+			fxaa.cmdPassFXAA(cbPostprocessing, descriptorManager, std::get<1>(swapchainImageData));
+
+			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
+				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+					std::get<0>(swapchainImageData),
+					{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1 })}
+			});
+
+		cmdBufferSet.endRecording(cbPostprocessing);
 
 		vkResetFences(device, 1, &renderCompleteFence);
 		VkPipelineStageFlags stagesToWaitOn[]{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-		VkSubmitInfo submitInfos[2]{};
+		VkSubmitInfo submitInfos[3]{};
 		submitInfos[0] = VkSubmitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 			.waitSemaphoreCount = 1, .pWaitSemaphores = &swapchainSemaphore, .pWaitDstStageMask = stagesToWaitOn + 0,
 			.commandBufferCount = 1, .pCommandBuffers = &cbPreprocessing,
@@ -525,17 +569,21 @@ int main()
 		submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 			.waitSemaphoreCount = 1, .pWaitSemaphores = &preprocessingDoneSemaphore, .pWaitDstStageMask = stagesToWaitOn + 0,
 			.commandBufferCount = 1, .pCommandBuffers = &cbDraw,
-			.signalSemaphoreCount =1, .pSignalSemaphores = &readyToPresentSemaphore };
+			.signalSemaphoreCount =1, .pSignalSemaphores = &drawingCompleteSemaphore };
+		submitInfos[2] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.waitSemaphoreCount = 1, .pWaitSemaphores = &drawingCompleteSemaphore, .pWaitDstStageMask = stagesToWaitOn + 0,
+			.commandBufferCount = 1, .pCommandBuffers = &cbPostprocessing,
+			.signalSemaphoreCount = 1, .pSignalSemaphores = &readyToPresentSemaphore };
+
 		clusterer.waitClusteringProcess();
 
-		vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 2, submitInfos, renderCompleteFence);
+		vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 3, submitInfos, renderCompleteFence);
 		
 		presentInfo.pImageIndices = &std::get<2>(swapchainImageData);
 
 		if (!vulkanObjectHandler->checkSwapchain(vkQueuePresentKHR(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), &presentInfo)))
-		{
 			swapChains[0] = vulkanObjectHandler->getSwapchain();
-		}
+
 		vkWaitForFences(device, 1, &renderCompleteFence, true, UINT64_MAX);
 		cmdBufferSet.resetBuffers();
 
@@ -550,9 +598,10 @@ int main()
 	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
 	vkDestroySampler(device, universalSampler, nullptr);
 	vkDestroyFence(device, renderCompleteFence, nullptr);
-	vkDestroySemaphore(device, readyToPresentSemaphore, nullptr);
 	vkDestroySemaphore(device, swapchainSemaphore, nullptr);
 	vkDestroySemaphore(device, preprocessingDoneSemaphore, nullptr);
+	vkDestroySemaphore(device, drawingCompleteSemaphore, nullptr);
+	vkDestroySemaphore(device, readyToPresentSemaphore, nullptr);
 	glfwTerminate();
 	return 0;
 }
@@ -566,10 +615,10 @@ std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window)
 
 glm::mat4 getProjection(float FOV, float aspect, float zNear, float zFar)
 {
-	float h = 1.0 / std::tan((FOV * 0.5));
-	float w = h / aspect;
-	float a = -zNear / (zFar - zNear);
-	float b = (zNear * zFar) / (zFar - zNear);
+	float h{ static_cast<float>(1.0 / std::tan((FOV * 0.5))) };
+	float w{ h / aspect };
+	float a{ -zNear / (zFar - zNear) };
+	float b{ (zNear * zFar) / (zFar - zNear) };
 
 	glm::mat4 mat{
 		glm::vec4(  w, 0.0, 0.0, 0.0),
@@ -752,29 +801,29 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 	VkDevice device{ assembler.getDevice() };
 	resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{viewprojBinding},  {},
-			{{{.pUniformBuffer = &viewprojAddressInfo}}} });
+			{{{.pUniformBuffer = &viewprojAddressInfo}}}, false });
 	resourceSets.push_back({ device, 1, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{imageListsBinding, modelTransformBinding}, {{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, {}},
-			{imageListsDescData, {{.pStorageBuffer = &modelTransformAddressInfo}}} });
+			{imageListsDescData, {{.pStorageBuffer = &modelTransformAddressInfo}}}, true });
 	resourceSets.push_back({ device, 2, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{uniformDrawIndicesBinding}, {},
-			{{{.pStorageBuffer = &uniformDrawIndicesAddressInfo}}} });
+			{{{.pStorageBuffer = &uniformDrawIndicesAddressInfo}}}, false });
 	resourceSets.push_back({ device, 3, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{sortedLightsBinding, typesBinding, tileDataBinding, zBinDataBinding},  {},
 			{{{.pUniformBuffer = &sortedLightsAddressInfo}}, 
 			{{.pUniformBuffer = &typesAddressInfo}}, 
 			{{.pStorageBuffer = &tileDataAddressInfo}}, 
-			{{.pUniformBuffer = &zBinDataAddressInfo}}} });
+			{{.pUniformBuffer = &zBinDataAddressInfo}}}, false });
 	resourceSets.push_back({ device, 4, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{skyboxBinding, radianceBinding, irradianceBinding, lutBinding, aoBinding}, {},
 			{{{.pCombinedImageSampler = &skyboxImageInfo}}, 
 			{{.pCombinedImageSampler = &radianceImageInfo}}, 
 			{{.pCombinedImageSampler = &irradianceImageInfo}},
 			{{.pCombinedImageSampler = &lutImageInfo}}, 
-			{{.pCombinedImageSampler = &aoImageInfo}}} });
+			{{.pCombinedImageSampler = &aoImageInfo}}}, true });
 	resourceSets.push_back({ device, 5, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{directionalLightBinding}, {},
-			{{{.pUniformBuffer = &directionalLightAddressInfo}}} });
+			{{{.pUniformBuffer = &directionalLightAddressInfo}}}, false });
 
 	return	Pipeline{ assembler,
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_vert.spv"},
@@ -793,7 +842,9 @@ Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ImageCubeMap& 
 	VkDescriptorSetLayoutBinding cubeTextureBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
 	VkDescriptorImageInfo cubeTextureAddressInfo{ .sampler = cubemapImages.getSampler(), .imageView = cubemapImages.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
-	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1, {uniformViewTranslateBinding, cubeTextureBinding},  {}, {{{.pUniformBuffer = &uniformViewTranslateAddressinfo}}, {{.pCombinedImageSampler = &cubeTextureAddressInfo}}} });
+	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
+		{uniformViewTranslateBinding, cubeTextureBinding},  {},
+		{{{.pUniformBuffer = &uniformViewTranslateAddressinfo}}, {{.pCombinedImageSampler = &cubeTextureAddressInfo}}}, true });
 	return Pipeline{ assembler,
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_skybox_vert.spv"}, 
 		ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shader_skybox_frag.spv"}}},
@@ -866,7 +917,7 @@ Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, BufferMapped& vi
 	std::vector<ResourceSet> resourceSets{};
 	VkDescriptorSetLayoutBinding uniformViewProjBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT uniformViewProjAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = sizeof(glm::mat4) * 2};
-	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1, {uniformViewProjBinding},  {}, {{{.pUniformBuffer = &uniformViewProjAddressinfo}}}});
+	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1, {uniformViewProjBinding},  {}, {{{.pUniformBuffer = &uniformViewProjAddressinfo}}}, false});
 	return Pipeline{ assembler, 
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_space_lines_vert.spv"}, 
 		ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shader_space_lines_frag.spv"}}},
@@ -926,7 +977,7 @@ Pipeline createPointBVPipeline(PipelineAssembler& assembler, BufferMapped& viewp
 	{viewprojBinding, pointLightIndicesBinding, lightDataBinding},  {},
 		{{{.pUniformBuffer = &viewprojAddressInfo}},
 		{{.pStorageBuffer = &pointLightIndicesAddressInfo}},
-		{{.pStorageBuffer = &lightDataAddressInfo}}} });
+		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
 
 	return Pipeline{ assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_BV_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/BV_frag.spv"} } },
@@ -956,7 +1007,7 @@ Pipeline createSpotBVPipeline(PipelineAssembler& assembler, BufferMapped& viewpr
 	{viewprojBinding, spotLightIndicesBinding, lightDataBinding},  {},
 		{{{.pUniformBuffer = &viewprojAddressInfo}},
 		{{.pStorageBuffer = &spotLightIndicesAddressInfo}},
-		{{.pStorageBuffer = &lightDataAddressInfo}}} });
+		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
 
 	return Pipeline{ assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_BV_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/BV_frag.spv"} } },
@@ -1000,7 +1051,7 @@ Pipeline createSphereTestPBRPipeline(PipelineAssembler& assembler, BufferMapped&
 				{{.pCombinedImageSampler = &skyboxAddressInfo}},
 					{{.pCombinedImageSampler = &radianceAddressInfo}},
 						{{.pCombinedImageSampler = &irradianceAddressInfo}},
-							{{.pCombinedImageSampler = &lutAddressInfo}}} });
+							{{.pCombinedImageSampler = &lutAddressInfo}}}, true });
 
 	return Pipeline{ assembler,
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/pbr_spheres_test_vert.spv"},
@@ -1141,7 +1192,7 @@ void fillPBRSphereTestInstanceData(const BufferMapped& perInstPBRTestSSBO, int s
 		glm::vec3 sphereHorDistance{ 4.0, 0.0, 0.0 };
 		glm::vec3 sphereVerDistance{ 0.0, 4.0, 0.0 };
 
-		glm::vec3 color{ 1.0f, 1.0f, 1.0f };
+		glm::vec3 color{ 1.0f };
 		float metalness{ 0.25f * row };
 
 		glm::vec3 position{ -8.0, -8.0, 0.0 };
@@ -1225,7 +1276,7 @@ VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy)
 			.compareOp = VK_COMPARE_OP_ALWAYS,
 			.minLod = 0.0f,
 			.maxLod = 128.0f,
-			.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
 			.unnormalizedCoordinates = VK_FALSE };
 	VkSampler sampler{};
 	vkCreateSampler(device, &samplerCI, nullptr, &sampler);

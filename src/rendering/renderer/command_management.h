@@ -7,7 +7,7 @@
 #include <stack>
 #include <utility>
 
-#include "vulkan/vulkan.h"
+#include <vulkan/vulkan.h>
 
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/tools/asserter.h"

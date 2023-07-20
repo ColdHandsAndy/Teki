@@ -3,8 +3,8 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros">
     <VULKAN_SDK>D:\Soft\VulkanSDK</VULKAN_SDK>
-    <SHADER_OUTPUT_DIR>D:\Projects\Engine\shaders\cmpld</SHADER_OUTPUT_DIR>
-    <SHADER_INPUT_DIR>D:\Projects\Engine\shaders\not cmpld</SHADER_INPUT_DIR>
+    <SHADER_OUTPUT_DIR>shaders\cmpld</SHADER_OUTPUT_DIR>
+    <SHADER_INPUT_DIR>shaders\not cmpld</SHADER_INPUT_DIR>
   </PropertyGroup>
   <PropertyGroup />
   <ItemDefinitionGroup />

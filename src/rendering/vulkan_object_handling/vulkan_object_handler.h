@@ -33,13 +33,13 @@ private:
 	VkQueue m_computeQueue{};
 	VkQueue m_transferQueue{};
 
-	VkSwapchainKHR m_swapchain;
-	VkFormat m_preferredFormat;
-	VkColorSpaceKHR m_preferredColorspace;
-	VkPresentModeKHR m_prefferedPresentMode;
-	VkExtent2D m_swapchainExtent;
-	std::vector<VkImage> m_swapchainImages;
-	std::vector<VkImageView> m_swapchainImageViews;
+	VkSwapchainKHR m_swapchain{};
+	VkFormat m_swapchainFormat{};
+	VkColorSpaceKHR m_preferredColorspace{};
+	VkPresentModeKHR m_prefferedPresentMode{};
+	VkExtent2D m_swapchainExtent{};
+	std::vector<VkImage> m_swapchainImages{};
+	std::vector<VkImageView> m_swapchainImageViews{};
 
 	GLFWwindow* m_window{};
 
@@ -68,6 +68,7 @@ public:
 	//Temp solution
 	const std::tuple<VkImage, VkImageView, uint32_t> getSwapchainImageData(uint32_t index) const;
 	const VkSwapchainKHR getSwapchain() const { return m_swapchain; };
+	const VkFormat getSwapchainFormat() const { return m_swapchainFormat; };
 
 	bool checkSwapchain(VkResult swapchainOpRes)
 	{

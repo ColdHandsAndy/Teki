@@ -4,7 +4,7 @@
 #include <string>
 #include <filesystem>
 
-#include "vulkan/vulkan.h"
+#include <vulkan/vulkan.h>
 
 #include "src/rendering/renderer/descriptor_management.h"
 

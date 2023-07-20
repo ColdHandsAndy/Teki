@@ -1,9 +1,16 @@
 { 
 	"models" : 
-		[{"path" : "A:/Models/gltf/sponza/scene.gltf", "model index" : 0}],
+		[
+			{"path" : "A:/Models/gltf/villa/scene.gltf", "model index" : 2}
+		],
 
-	"environment" : "A:/materials/distant_probes_cubemaps/beach",
+	"environment" : "A:/materials/distant_probes_cubemaps/green",
 
 	"model matrices" : 
-		[[1.01, 0.0, 0.0, 0.0,  0.0, 1.01, 0.0, 0.0,  0.0, 0.0, 1.01, 0.0,  0.0, 0.0, 0.0, 1.0]]
+		[
+			[1.0,  0.0,  0.0,  0.0,   0.0,  1.0,  0.0,  0.0,   0.0,  0.0,  1.0,  0.0,   0.0,  0.0,  0.0,  1.0],
+			[0.0,  0.0,  2.5,  0.0,   0.0,  2.5,  0.0,  0.0,  -2.5,  0.0,  0.0,  0.0,   0.0,  0.0,  0.0,  1.0],
+			[11.0,  0.0,  0.0,  0.0,   0.0,  11.0,  0.0,  0.0,   0.0,  0.0,  11.0,  0.0,   0.0,  0.0,  7.0,  1.0],
+			[0.0,  0.0,  0.03,  0.0,   0.0,  0.03,  0.0,  0.0,  -0.03,  0.0,  0.0,  0.0,   0.0,  3.07,  0.0,  1.0]
+		]
 }

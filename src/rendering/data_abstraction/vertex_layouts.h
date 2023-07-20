@@ -3,8 +3,8 @@
 
 #include <array>
 
-#include "vulkan/vulkan.h"
-#include "glm/glm.hpp"
+#include <vulkan/vulkan.h>
+#include <glm/glm.hpp>
 
 typedef uint32_t packed4x8int;
 typedef uint32_t packed2x16float;

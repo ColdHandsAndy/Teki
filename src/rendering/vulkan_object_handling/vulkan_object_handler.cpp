@@ -49,7 +49,7 @@ VulkanObjectHandler::VulkanObjectHandler(const VulkanCreateInfo& vulkanCreateInf
 
 	loadFunctions();
 
-	m_preferredFormat = vulkanCreateInfo.swapchainPreferredFormat;
+	m_swapchainFormat = vulkanCreateInfo.swapchainPreferredFormat;
 	m_preferredColorspace = vulkanCreateInfo.swapchainPreferredColorspace;
 	m_prefferedPresentMode = vulkanCreateInfo.swapchainPreferredPresentMode;
 
@@ -254,7 +254,7 @@ VkPresentModeKHR getPresentMode(VkPhysicalDevice device, VkSurfaceKHR surface, V
 VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* window);
 void VulkanObjectHandler::createSwapchain()
 {
-	VkSurfaceFormatKHR surfaceFormat{ getSurfaceFormat(m_physicalDevice, m_surface, m_preferredFormat, m_preferredColorspace) };
+	VkSurfaceFormatKHR surfaceFormat{ getSurfaceFormat(m_physicalDevice, m_surface, m_swapchainFormat, m_preferredColorspace) };
 
 	VkPresentModeKHR presentMode{ getPresentMode(m_physicalDevice, m_surface, m_prefferedPresentMode) };
 
@@ -312,7 +312,7 @@ void VulkanObjectHandler::retrieveSwapchainImagesAndViews()
 	VkImageViewCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	createInfo.format = m_preferredFormat;
+	createInfo.format = m_swapchainFormat;
 	createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 	createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;

@@ -146,6 +146,9 @@
     <ClInclude Include="src\rendering\data_abstraction\BB.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\renderer\FXAA.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -177,5 +180,6 @@
     <CustomBuild Include="shaders\not cmpld\lin_depth_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\lin_depth_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\hbao_blur_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\fxaa_frag.frag" />
   </ItemGroup>
 </Project>

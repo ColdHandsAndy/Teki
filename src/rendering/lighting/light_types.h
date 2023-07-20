@@ -11,188 +11,6 @@
 
 namespace LightTypes
 {
-//	//General light types. Could be used in the future
-//	static class LightBase
-//	{
-//	protected:
-//		glm::vec3 m_lightColor{};
-//		float m_lightPower{};
-//
-//		LightBase() = default;
-//		LightBase(glm::vec3 lightColor, float lightPower) : m_lightColor{ lightColor }, m_lightPower{ lightPower } {}
-//
-//	public:
-//		const glm::vec3& getColor() const
-//		{
-//			return m_lightColor;
-//		}
-//		float getLightPower() const
-//		{
-//			return m_lightPower;
-//		}
-//
-//		virtual void changeColor(const glm::vec3& lightColor)
-//		{
-//			m_lightColor = lightColor;
-//		}
-//		virtual void changePower(float lightPower)
-//		{
-//			m_lightPower = lightPower;
-//		}
-//
-//	};
-//
-//	class DirectionalLight : public LightBase
-//	{
-//	private:
-//		glm::vec3 m_lightDir{};
-//
-//		struct DirectionalLightData
-//		{
-//			alignas(16) glm::vec3 spectrum{};
-//			alignas(16) glm::vec3 lightDir{};
-//		};
-//
-//	public:
-//		DirectionalLight(glm::vec3 lightColor, float lightPower, glm::vec3 lightDir) : LightBase{ lightColor, lightPower }, m_lightDir{ glm::normalize(lightDir)} {}
-//
-//		static uint32_t getDataByteSize()
-//		{
-//			return sizeof(DirectionalLightData);
-//		}
-//		void plantData(void* dataPtr) const
-//		{
-//			DirectionalLightData dataToPass{ m_lightColor * m_lightPower, m_lightDir };
-//			std::memcpy(dataPtr, &dataToPass, sizeof(dataToPass));
-//		}
-//
-//		void changeDirection(const glm::vec3& lightDir)
-//		{
-//			m_lightDir = lightDir;
-//		}
-//
-//	};
-//
-//	class PointLight : public LightBase
-//	{
-//	private:
-//		glm::vec3 m_worldPos{};
-//		float m_radius{};
-//		
-//		/*struct PointLightData
-//		{
-//			alignas(16) glm::vec4 position_length{};
-//			alignas(16) glm::vec3 spectrum{};
-//		};*/
-//	public:
-//		PointLight(glm::vec3 worldPos, glm::vec3 lightColor, float lightPower, float radius) : LightBase{ lightColor, lightPower }, m_worldPos{ worldPos }, m_radius{ radius } {}
-//
-//		const glm::vec3& getPosition() const
-//		{
-//			return m_worldPos;
-//		}
-//		float getRadius() const
-//		{
-//			return m_radius;
-//		}
-//		static uint32_t getDataByteSize()
-//		{
-//			return sizeof(PointLightData);
-//		}
-//		void plantData(void* dataPtr) const
-//		{
-//			PointLightData dataToPass{ glm::vec4(m_worldPos, m_radius), m_lightColor * m_lightPower };
-//			std::memcpy(dataPtr, &dataToPass, sizeof(dataToPass));
-//		}
-//
-//		void changePos(const glm::vec3& newPos)
-//		{
-//			m_worldPos = newPos;
-//		}
-//		void changeColor(const glm::vec3& lightColor) override
-//		{
-//			m_lightColor = lightColor;
-//		}
-//		void changePower(float lightPower) override
-//		{
-//			m_lightPower = lightPower;
-//		}
-//
-//	};
-//
-//	class SpotLight : public LightBase
-//	{
-//	private:
-//		glm::vec3 m_worldPos{};
-//		glm::vec3 m_lightDirection{};
-//		float m_lightLength{};
-//		float m_startCutoffCos{};
-//		float m_endCutoffCos{};
-//		float m_angle{};
-//
-//		/*struct SpotLightData
-//		{
-//			alignas(16) glm::vec4 position_radius{};
-//			alignas(16) glm::vec4 spectrum_startCutoffCos{};
-//			alignas(16) glm::vec4 lightDir_endCutoffCos{};
-//		};*/
-//
-//	public:
-//		SpotLight(glm::vec3 worldPos, glm::vec3 lightColor, float lightPower, float length, glm::vec3 lightDir, float cutoffStartAngle, float cutoffEndAngle) 
-//			: LightBase{ lightColor, lightPower }, m_worldPos{ worldPos }, m_lightDirection{ glm::normalize(lightDir) }, m_lightLength{ length }, m_angle{ cutoffEndAngle }
-//		{
-//			m_endCutoffCos = std::cos(std::min(cutoffEndAngle, static_cast<float>(M_PI_2)));
-//			m_startCutoffCos = std::cos(std::min(std::min(cutoffStartAngle, cutoffEndAngle), static_cast<float>(M_PI_2)));
-//		}
-//
-//		const glm::vec3& getDirection() const
-//		{
-//			return m_lightDirection;
-//		}
-//		float getLength() const
-//		{
-//			return m_lightLength;
-//		}
-//		const glm::vec3& getPosition() const
-//		{
-//			return m_worldPos;
-//		}
-//		float getAngle() const
-//		{
-//			return m_angle;
-//		}
-//		float getCos() const
-//		{
-//			return m_endCutoffCos;
-//		}
-//		static uint32_t getDataByteSize()
-//		{
-//			return sizeof(SpotLightData);
-//		}
-//		void plantData(void* dataPtr) const
-//		{
-//			SpotLightData dataToPass{ glm::vec4(m_worldPos, m_lightLength), glm::vec4{ m_lightColor * m_lightPower, m_startCutoffCos }, glm::vec4{ m_lightDirection, m_endCutoffCos } };
-//			std::memcpy(dataPtr, &dataToPass, sizeof(dataToPass));
-//		}
-//		void changeDirection(const glm::vec3& lightDir)
-//		{
-//			m_lightDirection = lightDir;
-//		}
-//
-//		void changePos(const glm::vec3& newPos)
-//		{
-//			m_worldPos = newPos;
-//		}
-//		void changeColor(const glm::vec3& lightColor) override
-//		{
-//			m_lightColor = lightColor;
-//		}
-//		void changePower(float lightPower) override
-//		{
-//			m_lightPower = lightPower;
-//		}
-//
-//	};
 
 	class DirectionalLight
 	{
@@ -264,7 +82,7 @@ namespace LightTypes
 		PointLight(glm::vec3 worldPos, glm::vec3 lightColor, float lightPower, float radius) : LightBase{ lightColor, lightPower }
 		{
 			EASSERT(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
-			m_clusterer->getNewLight(m_data, m_boundingSphere, Clusterer::LightFormat::TYPE_POINT);
+			m_clusterer->getNewLight(&m_data, &m_boundingSphere, Clusterer::LightFormat::TYPE_POINT);
 			m_data->position = worldPos;
 			m_data->length = radius;
 			m_data->spectrum = lightColor * lightPower;
@@ -298,7 +116,7 @@ namespace LightTypes
 			: LightBase{ lightColor, lightPower }
 		{
 			EASSERT(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
-			m_clusterer->getNewLight(m_data, m_boundingSphere, Clusterer::LightFormat::TYPE_SPOT);
+			m_clusterer->getNewLight(&m_data, &m_boundingSphere, Clusterer::LightFormat::TYPE_SPOT);
 			m_data->position = worldPos;
 			m_data->spectrum = lightColor * lightPower;
 			m_data->cutoffCos = std::cos(std::min(cutoffEndAngle, static_cast<float>(M_PI_2)));

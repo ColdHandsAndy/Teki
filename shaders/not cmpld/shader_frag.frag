@@ -310,7 +310,7 @@ vec3 calculateLightContribution(vec3 V, vec3 N, float NdotV, MaterialData data)
 	wordMax = min(mergedMax / 32, wordMax);
 	
 	//
-	//float modif = 1.0 / 10;
+	//float modif = 1.0 / 15;
 	//result = vec3(0.0, 1.0, 0.0);
 	//
 	for (uint wordIndex = wordMin; wordIndex <= wordMax; ++wordIndex)
@@ -333,7 +333,6 @@ vec3 calculateLightContribution(vec3 V, vec3 N, float NdotV, MaterialData data)
 			//result += vec3(modif, -modif, 0.0);
 		}
 	}
-	
     return result;
 }
 
@@ -365,15 +364,15 @@ void main()
 	data.alpha2 = data.alpha * data.alpha;
 	data.diffAO = mrData.r != 1.0 ? max(mrData.r, texture(AO, gl_FragCoord.xy / pushConstants.resolutionAO).x) : texture(AO, gl_FragCoord.xy / pushConstants.resolutionAO).x;
 	data.specAO = computeSpecOcclusion(NdotV, data.diffAO, data.alpha);
-
+	
 	vec3 DFG = texture(brdfLUT, vec2(NdotV, data.roughness)).xyz;
 	
 	vec3 IBLcontrib = evaluateIBL(N, V, R, NdotV, data.alpha, data.roughness, data.F0, DFG, data.albedo, data.specAO, data.diffAO);
 	vec3 lightsContrib = calculateLightContribution(V, N, NdotV, data);
-
-	vec3 emission = texture(imageListArray[dataIndices.emIndexList], vec3(inTexC, dataIndices.emIndexLayer + 0.1)).xyz;
-
-	vec3 result = lightsContrib + IBLcontrib + emission;
 	
+	vec3 emission = texture(imageListArray[dataIndices.emIndexList], vec3(inTexC, dataIndices.emIndexLayer + 0.1)).xyz;
+	
+	vec3 result = lightsContrib + IBLcontrib + emission;
+
     outputColor = vec4(result, 1.0);
 }

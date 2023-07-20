@@ -80,7 +80,7 @@ HBAO::HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight)
 	m_hbaoInfo.resolution = glm::vec2{ m_aoRenderWidth, m_aoRenderHeight };
 
 	m_hbaoInfo.radius = 3.0;
-	m_hbaoInfo.aoExponent = 1.15;
+	m_hbaoInfo.aoExponent = 1.34;
 	m_hbaoInfo.angleBias = 0.18;
 	m_hbaoInfo.negInvR2 = -1.0 / (m_hbaoInfo.radius * m_hbaoInfo.radius);
 
@@ -295,7 +295,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-	this->cmdCalculateLinearDepth(cb, descriptorManager, vertexData, indexData, indirectCmdBuffer, drawCount);
+		this->cmdCalculateLinearDepth(cb, descriptorManager, vertexData, indexData, indirectCmdBuffer, drawCount);
 
 	vkCmdEndRendering(cb);
 
@@ -315,7 +315,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-	this->cmdCalculateHBAO(cb, descriptorManager);
+		this->cmdCalculateHBAO(cb, descriptorManager);
 
 	vkCmdEndRendering(cb);
 
@@ -335,7 +335,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-	this->cmdBlurHBAO(cb, descriptorManager);
+		this->cmdBlurHBAO(cb, descriptorManager);
 
 	vkCmdEndRendering(cb);
 

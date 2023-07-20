@@ -18,7 +18,7 @@
 class HBAO
 {
 private:
-	VkDevice m_device;
+	VkDevice m_device{};
 
 	uint32_t m_aoRenderWidth{};
 	uint32_t m_aoRenderHeight{};

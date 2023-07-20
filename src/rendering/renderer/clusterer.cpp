@@ -228,7 +228,7 @@ void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& de
 		
 	vkCmdEndRendering(cb);
 }
-void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager, Pipeline& pointLPipeline, Pipeline& spotLPipeline, VkRenderingInfo& renderInfo)
+void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager, Pipeline& pointLPipeline, Pipeline& spotLPipeline)
 {
 	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		pointLPipeline.getResourceSets(), pointLPipeline.getResourceSetsInUse(), pointLPipeline.getPipelineLayoutHandle());
@@ -242,13 +242,6 @@ void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorMana
 		spotLPipeline.getResourceSets(), spotLPipeline.getResourceSetsInUse(), spotLPipeline.getPipelineLayoutHandle());
 	spotLPipeline.cmdBind(cb);
 	vkCmdDraw(cb, SPOT_LIGHT_BV_VERTEX_COUNT, m_nonculledSpotLightCount, 0, 0);
-
-	/*LightFormat::Types* sortedTypeDataPtr{ reinterpret_cast<LightFormat::Types*>(m_sortedTypeData.getData()) };
-	for (int i{ 0 }; i < m_nonculledLightsCount; ++i)
-	{
-		std::cout << uint32_t(sortedTypeDataPtr[m_nonculledLightsData[i].index]) << ' ';
-	}
-	std::cout << '\n';*/
 }
 
 
@@ -413,12 +406,12 @@ void Clusterer::uploadBuffersData(FrameCommandBufferSet& cmdBufferSet, VkQueue q
 	vkQueueWaitIdle(queue);
 
 }
-void Clusterer::getNewLight(LightFormat* lightData, glm::vec4* boundingSphere, LightFormat::Types type)
+void Clusterer::getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type)
 {
 	uint32_t newIndex = m_lightData.size();
 	EASSERT(newIndex < MAX_LIGHTS, "App", "Number of lights exceeds the maximum.");
-	lightData = &m_lightData.emplace_back();
-	boundingSphere = &m_boundingSpheres[newIndex];
+	*lightData = &m_lightData.emplace_back();
+	*boundingSphere = &m_boundingSpheres.emplace_back();
 
 	m_typeData.push_back(type);
 }

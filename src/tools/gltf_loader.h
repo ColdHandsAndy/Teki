@@ -118,7 +118,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	oneapi::tbb::task_group taskGroup{};
 
 	BufferBaseHostAccessible resourceStaging{ vulkanObjects->getLogicalDevice(),
-		2147483648ll, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
+		3221225472ll, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
 	uint32_t stagingBufferAlignment{ static_cast<uint32_t>(resourceStaging.getAlignment()) };
 	uint64_t stagingCurrentSize{ 0 };
 	uint8_t* const stagingDataPtr{ reinterpret_cast<uint8_t*>(resourceStaging.getData()) };
