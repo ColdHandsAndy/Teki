@@ -8,7 +8,7 @@ Teki is my Vulkan-based toy-renderer. It is my primary environment for experimen
 * [Forward+ rendering](docs/clustering.md)  
 * [PBR rendering](docs/pbr.md)  
 * [HBAO](docs/hbao.md)  
-* [Frustum culling](docs/frustum_culling.md)  
+* Frustum culling
 * FXAA
 * Bindless textures  
 * Reverse-Z  
