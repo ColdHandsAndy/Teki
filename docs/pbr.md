@@ -7,4 +7,8 @@ PBR in Teki is mostly based on the [2014 Frostbite paper](https://seblagarde.fil
 
 ![](images/pbr_spheres.png)  
 ![](images/pbr_knight.png)  
+###### Credit: [Andy Woodhead](https://sketchfab.com/Andywoodhead)
 ![](images/villa.png)  
+###### Credit: [Andy Woodhead](https://sketchfab.com/Andywoodhead)  
+
+###### Cubemaps are made from HDRIs from [Poly Haven](https://polyhaven.com/hdris)
