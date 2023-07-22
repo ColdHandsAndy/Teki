@@ -79,6 +79,14 @@ struct CamInfo
 	double sensetivity{ 1.9 };
 	glm::vec2 lastCursorP{};
 } camInfo;
+bool drawBVs{ false };
+bool drawSpaceLines{ false };
+struct InputAccessedData
+{
+	CamInfo* cameraInfo{ &camInfo };
+	bool* drawBVstate{ &drawBVs };
+	bool* drawSpaceLinesState{ &drawSpaceLines };
+} inputAccessedData;
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
 
@@ -128,6 +136,7 @@ void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform);
 void fillPBRSphereTestInstanceData(const BufferMapped& perInstPBRTestSSBO, int sphereInstCount);
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos);
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy);
 
@@ -137,11 +146,12 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window{ "Engine" };
-	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Engine" };
+	Window window{ "Teki" };
+	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki" };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
-	glfwSetWindowUserPointer(window, &camInfo);
 	glfwSetCursorPosCallback(window, mouseCallback);
+	glfwSetKeyCallback(window, keyCallback);
+	glfwSetWindowUserPointer(window, &inputAccessedData);
 
 	std::shared_ptr<VulkanObjectHandler> vulkanObjectHandler{ initializeVulkan(window) };
 
@@ -232,7 +242,7 @@ int main()
 
 
 
-	std::random_device dev{};
+	/*std::random_device dev{};
 	std::mt19937 rng(dev());
 	std::uniform_real_distribution<float> dist{};
 
@@ -251,9 +261,10 @@ int main()
 	glm::vec3 spotsRightRotDir{0.0, -std::cos(spotLightAngle * 0.5), -std::sin(spotLightAngle * 0.5)};
 	for (int i{ 0 }; i < 4; ++i)
 	{
-		spots.emplace_back(glm::vec3{3.0f * i - 3.0f * i / 2.0f, 8.0, -3.0}, glm::vec3{ dist(rng), dist(rng), dist(rng) }, 900.0, 10.0, spotsLeftDir, glm::radians(4.0), glm::radians(14.0));
-		spots.emplace_back(glm::vec3{3.0f * i - 3.0f * i / 2.0f, 8.0,  3.0}, glm::vec3{ dist(rng), dist(rng), dist(rng) }, 900.0, 10.0, spotsRightDir, glm::radians(4.0), glm::radians(14.0));
-	}
+		spots.emplace_back(glm::vec3{8.0f * i - 8.0f * i / 2.0f, 8.0, -4.0}, glm::vec3{ dist(rng), dist(rng), dist(rng) }, 900.0, 10.0, spotsLeftDir, glm::radians(9.0), glm::radians(19.0));
+		spots.emplace_back(glm::vec3{8.0f * i - 8.0f * i / 2.0f, 8.0, -10.0}, glm::vec3{ dist(rng), dist(rng), dist(rng) }, 900.0, 10.0, spotsRightDir, glm::radians(9.0), glm::radians(19.0));
+	}*/
+	clusterer.submitPointLight(glm::vec3{0.5f, 3.2f, -2.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 80.0f, 6.0f);
 
 
 
@@ -266,7 +277,7 @@ int main()
 	assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT);
 	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
-	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
+	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 	BufferMapped modelTransformDataUB{ baseHostBuffer, sizeof(glm::mat4) * modelMatrices.size() };
 	BufferMapped perDrawDataIndicesSSBO{ baseHostBuffer, sizeof(uint8_t) * 12 * drawCount };
@@ -290,6 +301,7 @@ int main()
 	int sphereInstCount{ 25 };
 	Pipeline sphereTestPBRPipeline{ createSphereTestPBRPipeline(assembler, viewprojDataUB, perInstPBRTestSSBO, cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance, universalSampler, brdfLUT, sphereInstCount) };*/
 
+	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_LINE_POLYGONS, 1.4f, VK_CULL_MODE_NONE);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 	Pipeline pointBVPipeline{ createPointBVPipeline(assembler, viewprojDataUB, clusterer.getPointIndicesUB(), clusterer.getSortedLightsUB())};
@@ -370,7 +382,7 @@ int main()
 		TIME_MEASURE_START(100, 0);
 		//
 
-		double timeModif{ glfwGetTime() };
+		/*double timeModif{ glfwGetTime() };
 		oneapi::tbb::parallel_for(0, pointLightsY,
 			[&points, timeModif, pointLightsX](int i)
 			{
@@ -378,7 +390,7 @@ int main()
 
 				for (int j{ 0 }; j < pointLightsX; ++j)
 				{
-					float xPos{ static_cast<float>(std::sqrt(j + 1.0f) * 1.7f) };
+					float xPos{ static_cast<float>(std::sqrt(j + 1.0f) * 2.4f) };
 					float cosA{ std::cos(static_cast<float>(timeModif) + j * 1.82f + i * 0.52f) };
 					float sinA{ std::sin(static_cast<float>(timeModif) + j * 1.82f + i * 0.52f) };
 					points[pointLightsX * i + j].changePosition(glm::vec3{sinA * xPos, yPos, cosA * xPos});
@@ -391,7 +403,7 @@ int main()
 
 			spots[2 * i + 0].changeDirection(glm::rotate(spotsLeftDir, static_cast<float>(timeModif), spotsLeftRotDir));
 			spots[2 * i + 1].changeDirection(glm::rotate(spotsRightDir, static_cast<float>(timeModif), spotsRightRotDir));
-		}
+		}*/
 
 		WorldState::refreshFrameTime();
 
@@ -453,7 +465,15 @@ int main()
 			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			vkCmdBeginRendering(cbDraw, &renderInfo);
 
-				clusterer.cmdDrawBVs(cbDraw, descriptorManager, pointBVPipeline, spotBVPipeline);
+				if (drawBVs)
+					clusterer.cmdDrawBVs(cbDraw, descriptorManager, pointBVPipeline, spotBVPipeline);
+
+				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline.getResourceSets(), skyboxPipeline.getResourceSetsInUse(), skyboxPipeline.getPipelineLayoutHandle());
+				VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
+				VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
+				vkCmdBindVertexBuffers(cbDraw, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
+				skyboxPipeline.cmdBind(cbDraw);
+				vkCmdDraw(cbDraw, 36, 1, 0, 0);
 
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS,
 					forwardClusteredPipeline.getResourceSets(), forwardClusteredPipeline.getResourceSetsInUse(), forwardClusteredPipeline.getPipelineLayoutHandle());
@@ -467,13 +487,6 @@ int main()
 				vkCmdPushConstants(cbDraw, forwardClusteredPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstData), &pushConstData);
 				vkCmdDrawIndexedIndirect(cbDraw, indirectCmdBuffer.getBufferHandle(), indirectCmdBuffer.getOffset(), drawCount, sizeof(VkDrawIndexedIndirectCommand));
 				
-				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline.getResourceSets(), skyboxPipeline.getResourceSetsInUse(), skyboxPipeline.getPipelineLayoutHandle());
-				VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
-				VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
-				vkCmdBindVertexBuffers(cbDraw, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
-				skyboxPipeline.cmdBind(cbDraw);
-				vkCmdDraw(cbDraw, 36, 1, 0, 0);
-
 
 				//PBR sphere test
 				/*descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, sphereTestPBRPipeline.getResourceSets(), sphereTestPBRPipeline.getResourceSetsInUse(), sphereTestPBRPipeline.getPipelineLayoutHandle());
@@ -488,18 +501,19 @@ int main()
 
 			vkCmdEndRendering(cbDraw);
 
-			//Space lines
-			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
-				{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-					VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)}
-			});
+			if (drawSpaceLines)
+			{
+				BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
+					{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+						VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+						VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)}
+				});
 
-			colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-			colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			vkCmdBeginRendering(cbDraw, &renderInfo);
+				colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+				colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+				depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				vkCmdBeginRendering(cbDraw, &renderInfo);
 
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, spaceLinesPipeline.getResourceSets(), spaceLinesPipeline.getResourceSetsInUse(), spaceLinesPipeline.getPipelineLayoutHandle());
 				VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
@@ -509,8 +523,8 @@ int main()
 				vkCmdPushConstants(cbDraw, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
 				vkCmdDraw(cbDraw, lineVertNum, 1, 0, 0);
 
-			vkCmdEndRendering(cbDraw);
-			//
+				vkCmdEndRendering(cbDraw);
+			}
 
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -689,7 +703,7 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 {
-	CamInfo* camInfo{ reinterpret_cast<CamInfo*>(glfwGetWindowUserPointer(window)) };
+	CamInfo* camInfo{ reinterpret_cast<InputAccessedData*>(glfwGetWindowUserPointer(window))->cameraInfo };
 
 	double xOffs{};
 	double yOffs{};
@@ -737,7 +751,14 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 
 	camInfo->lastCursorP = {xpos, ypos};
 }
-
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	InputAccessedData* data{ reinterpret_cast<InputAccessedData*>(glfwGetWindowUserPointer(window)) };
+	if (key == GLFW_KEY_1 && action == GLFW_PRESS)
+		*(data->drawSpaceLinesState) = !(*(data->drawSpaceLinesState));
+	if (key == GLFW_KEY_2 && action == GLFW_PRESS)
+		*(data->drawBVstate) = !(*(data->drawBVstate));
+}
 
 
 Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,

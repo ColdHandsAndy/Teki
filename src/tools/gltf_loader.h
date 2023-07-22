@@ -297,21 +297,30 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 					return;
 				}
 
-				VkFormat format{};
-				uint32_t width{ 0 };
-				uint32_t height{ 0 };
 
 				auto imageIndex{ images.size() };
 				images.push_back(OIIO::ImageInput::open(path));
+				VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
+				uint32_t width = images.back()->spec().width;
+				uint32_t height = images.back()->spec().height;
 
+				if (images.back()->spec().nchannels == 3)
+				{
+					taskGroup.run([width, height, stagingDataPtr, stagingCurrentSize]()
+						{
+							uint64_t offset{ stagingCurrentSize + 3 };
+							for (uint64_t i{ 0 }; i < width * height; ++i)
+							{
+								*(stagingDataPtr + offset) = static_cast<uint8_t>(255);
+								offset += 4;
+							}
+						});
+				}
 				taskGroup.run([&images, imageIndex, stagingDataPtr, stagingCurrentSize]()
 					{
 						EASSERT(images[imageIndex]->read_image(0, -1, OIIO::TypeDesc::UINT8, stagingDataPtr + stagingCurrentSize, sizeof(uint8_t) * 4) == true, "OIIO", "Could not load image.");
 					});
 
-				width = images.back()->spec().width;
-				height = images.back()->spec().height;
-				format = VK_FORMAT_R8G8B8A8_UNORM;
 
 				ImageListContainer::ImageListContainerIndices indices{ loadedTextures.getNewImage(width, height, format) };
 				texDataTransfersData.emplace_back();

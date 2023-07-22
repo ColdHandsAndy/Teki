@@ -35,6 +35,7 @@ private:
 
 	static constexpr float expansionScale{ 1.1 };
 	float m_frustumFar{};
+	float m_frustumFOV{};
 	struct
 	{
 		glm::vec4 uvTransformData;
@@ -77,6 +78,24 @@ public:
 	const VkImageView getLinearDepthImageView()
 	{
 		return m_linearDepthImage.getImageView();
+	}
+
+	void setRadius(float radius)
+	{
+		m_hbaoInfo.negInvR2 = -1.0 / (radius * radius);
+		m_hbaoInfo.radius = radius * 0.5f * (float(m_aoRenderHeight) / (std::tan(m_frustumFOV) * 2.0f));
+	}
+	void setExponent(float exponent)
+	{
+		m_hbaoInfo.aoExponent = exponent;
+	}
+	void setAngleBias(float bias)
+	{
+		m_hbaoInfo.angleBias = bias;
+	}
+	void setBlurSharpness(float sharpness)
+	{
+		m_blurSharpness = sharpness;
 	}
 
 	void setHBAOsettings(float radius, float aoExponent, float angleBias, float sharpness);

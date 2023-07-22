@@ -16,9 +16,7 @@ layout(depth_unchanged) out float gl_FragDepth;
 #define ONE_OVER_TWO_PI (1.0 / TWO_PI)
 
 //PBR
-#define BRDF_LUT_TEXTURE_SIZE 512
 #define RAD_MIP_COUNT 7
-#define SAMPLE_COUNT 256
 
 //Clustering
 #define MAX_LIGHTS 1024
@@ -356,8 +354,15 @@ void main()
 	
 	vec3 mrData = texture(imageListArray[dataIndices.mrIndexList], vec3(inTexC, dataIndices.mrIndexLayer + 0.1)).xyz;
 	
+	vec4 bcData = texture(imageListArray[dataIndices.bcIndexList], vec3(inTexC, dataIndices.bcIndexLayer + 0.1));
+
+	float opacity = bcData.w;
+
+	if (opacity < 0.01)
+		discard;
+
 	MaterialData data;
-	data.albedo = texture(imageListArray[dataIndices.bcIndexList], vec3(inTexC, dataIndices.bcIndexLayer + 0.1)).xyz;
+	data.albedo = bcData.xyz;
 	data.F0 = mix(vec3(0.04), data.albedo, mrData.b);
 	data.roughness = mrData.g;
 	data.alpha = mrData.g * mrData.g + 0.001;
@@ -374,5 +379,5 @@ void main()
 	
 	vec3 result = lightsContrib + IBLcontrib + emission;
 
-    outputColor = vec4(result, 1.0);
+    outputColor = vec4(result, opacity);
 }

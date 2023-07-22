@@ -4,7 +4,7 @@
 			{"path" : "A:/Models/gltf/villa/scene.gltf", "model index" : 2}
 		],
 
-	"environment" : "A:/materials/distant_probes_cubemaps/green",
+	"environment" : "A:/materials/distant_probes_cubemaps/beach",
 
 	"model matrices" : 
 		[

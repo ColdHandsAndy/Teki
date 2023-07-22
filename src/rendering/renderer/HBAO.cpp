@@ -79,7 +79,7 @@ HBAO::HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight)
 	m_hbaoInfo.invResolution = glm::vec2{ 1.0 / m_aoRenderWidth, 1.0 / m_aoRenderHeight };
 	m_hbaoInfo.resolution = glm::vec2{ m_aoRenderWidth, m_aoRenderHeight };
 
-	m_hbaoInfo.radius = 3.0;
+	m_hbaoInfo.radius = 4.5;
 	m_hbaoInfo.aoExponent = 1.34;
 	m_hbaoInfo.angleBias = 0.18;
 	m_hbaoInfo.negInvR2 = -1.0 / (m_hbaoInfo.radius * m_hbaoInfo.radius);
@@ -224,6 +224,7 @@ void HBAO::submitFrustum(double near, double far, double aspect, double FOV)
 	m_hbaoInfo.radius = m_hbaoInfo.radius * 0.5f * (float(m_aoRenderHeight) / (std::tan(FOV) * 2.0f));
 	m_hbaoInfo.uvTransformData = glm::vec4{ 2.0 / w, -2.0 / hModif, -1.0 / w, 1.0 / hModif };
 	m_frustumFar = far;
+	m_frustumFOV = FOV;
 }
 void HBAO::submitViewMatrix(const glm::mat4& viewMat)
 {
