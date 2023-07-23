@@ -49,6 +49,7 @@
 #include "src/rendering/renderer/HBAO.h"
 #include "src/rendering/renderer/FXAA.h"
 #include "src/rendering/data_abstraction/BB.h"
+#include "src/rendering/UI/UI.h"
 
 #include "src/window/window.h"
 #include "src/world_state/world_state.h"
@@ -79,13 +80,10 @@ struct CamInfo
 	double sensetivity{ 1.9 };
 	glm::vec2 lastCursorP{};
 } camInfo;
-bool drawBVs{ false };
-bool drawSpaceLines{ false };
+
 struct InputAccessedData
 {
 	CamInfo* cameraInfo{ &camInfo };
-	bool* drawBVstate{ &drawBVs };
-	bool* drawSpaceLinesState{ &drawSpaceLines };
 } inputAccessedData;
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
@@ -146,8 +144,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window{ "Teki" };
-	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki" };
+	//Window window{ "Teki" };
+	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki" };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetCursorPosCallback(window, mouseCallback);
 	glfwSetKeyCallback(window, keyCallback);
@@ -161,6 +159,8 @@ int main()
 	
 	FrameCommandPoolSet cmdPoolSet{ *vulkanObjectHandler };
 	FrameCommandBufferSet cmdBufferSet{ cmdPoolSet };
+
+	UI ui{ window, *vulkanObjectHandler, cmdBufferSet };
 	
 	DescriptorManager descriptorManager{ *vulkanObjectHandler };
 	ResourceSetSharedData::initializeResourceManagement(*vulkanObjectHandler, descriptorManager);
@@ -240,7 +240,11 @@ int main()
 
 	cmdBufferSet.resetBuffers();
 
-
+	struct
+	{
+		bool drawBVs{ false };
+		bool drawSpaceLines{ false };
+	} renderingSettings;
 
 	/*std::random_device dev{};
 	std::mt19937 rng(dev());
@@ -465,7 +469,7 @@ int main()
 			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			vkCmdBeginRendering(cbDraw, &renderInfo);
 
-				if (drawBVs)
+				if (renderingSettings.drawBVs)
 					clusterer.cmdDrawBVs(cbDraw, descriptorManager, pointBVPipeline, spotBVPipeline);
 
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline.getResourceSets(), skyboxPipeline.getResourceSetsInUse(), skyboxPipeline.getPipelineLayoutHandle());
@@ -501,7 +505,7 @@ int main()
 
 			vkCmdEndRendering(cbDraw);
 
-			if (drawSpaceLines)
+			if (renderingSettings.drawSpaceLines)
 			{
 				BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
 					{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
@@ -557,6 +561,13 @@ int main()
 			});
 
 			fxaa.cmdPassFXAA(cbPostprocessing, descriptorManager, std::get<1>(swapchainImageData));
+
+			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
+				ImGui::Begin("Settings");
+				ImGui::Checkbox("Space lines", &renderingSettings.drawSpaceLines);
+				ImGui::Checkbox("Light bounding volumes", &renderingSettings.drawBVs);
+				ImGui::End();
+			ui.endUIPass(cbPostprocessing);
 
 			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -703,6 +714,13 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 {
+	static bool mouseWasCaptured{ false };
+	if (ImGui::GetIO().WantCaptureMouse == true)
+	{
+		mouseWasCaptured = true;
+		return;
+	}
+
 	CamInfo* camInfo{ reinterpret_cast<InputAccessedData*>(glfwGetWindowUserPointer(window))->cameraInfo };
 
 	double xOffs{};
@@ -729,7 +747,7 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 	glm::vec3 upRelVec{ glm::normalize(glm::cross(camInfo->camFront, sideVec)) };
 
 	int stateL = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-	if (stateL == GLFW_PRESS)
+	if (stateL == GLFW_PRESS && mouseWasCaptured != true)
 	{
 		camInfo->camFront = glm::rotate(camInfo->camFront, static_cast<float>(xOffs * camInfo->sensetivity), upWVec);
 		glm::vec3 newFront{ glm::rotate(camInfo->camFront, static_cast<float>(yOffs* camInfo->sensetivity), sideVec) };
@@ -738,26 +756,23 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 	}
 
 	int stateR = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
-	if (stateR == GLFW_PRESS)
+	if (stateR == GLFW_PRESS && mouseWasCaptured != true)
 	{
 		camInfo->camPos += static_cast<float>(-xOffs * camInfo->speed) * sideVec + static_cast<float>(yOffs * camInfo->speed) * upRelVec;
 	}
 
 	int stateM = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
-	if (stateM == GLFW_PRESS)
+	if (stateM == GLFW_PRESS && mouseWasCaptured != true)
 	{
 		camInfo->camPos += static_cast<float>(-yOffs * camInfo->speed) * camInfo->camFront;
 	}
 
 	camInfo->lastCursorP = {xpos, ypos};
+
+	mouseWasCaptured = false;
 }
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-	InputAccessedData* data{ reinterpret_cast<InputAccessedData*>(glfwGetWindowUserPointer(window)) };
-	if (key == GLFW_KEY_1 && action == GLFW_PRESS)
-		*(data->drawSpaceLinesState) = !(*(data->drawSpaceLinesState));
-	if (key == GLFW_KEY_2 && action == GLFW_PRESS)
-		*(data->drawBVstate) = !(*(data->drawBVstate));
 }
 
 

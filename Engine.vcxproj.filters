@@ -60,6 +60,9 @@
     <ClCompile Include="src\rendering\renderer\HBAO.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="dependencies\lib\imgui_impl_vulkan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\rendering\data_management\image_classes.h">
@@ -147,6 +150,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\renderer\FXAA.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\rendering\UI\UI.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
