@@ -1,0 +1,47 @@
+#version 460
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConsts 
+{
+	uint widthW;
+	uint heightW;
+	float invWidthW;
+	float invHeightW;
+} pushConstants;
+
+layout(set = 0, binding = 0) uniform sampler2D imgInput;
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D imgOutput;
+
+void main() 
+{
+	uint width = gl_GlobalInvocationID.x;
+	uint height = gl_GlobalInvocationID.y;
+	
+	if (width >= pushConstants.widthW || height >= pushConstants.heightW)
+		return;
+	
+	float sampleX = pushConstants.invWidthW * (float(width) + 0.5);
+	float sampleY = pushConstants.invHeightW * (float(height) + 0.5);
+	
+	float result = texture(imgInput, vec2(sampleX, sampleY)).x;
+	
+	if ((pushConstants.widthW & 1) != 0)
+	{
+		if (width == pushConstants.widthW - 1)
+		{
+			float addSampleX = pushConstants.invWidthW * (float(width) + 1.5);
+			result = min(result, texture(imgInput, vec2(addSampleX, sampleY)).x);
+		}
+	}
+	if ((pushConstants.heightW & 1) != 0)
+	{
+		if (height == pushConstants.heightW - 1)
+		{
+			float addSampleY = pushConstants.invHeightW * (float(height) + 1.5);
+			result = min(result, texture(imgInput, vec2(sampleX, addSampleY)).x);
+		}
+	}
+	
+	imageStore(imgOutput, ivec2(width, height), vec4(result));
+}

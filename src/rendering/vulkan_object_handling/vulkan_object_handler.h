@@ -175,10 +175,12 @@ public:
 		.shaderInt8 = VK_TRUE,
 		.descriptorBindingPartiallyBound = VK_TRUE, 
 		.runtimeDescriptorArray = VK_TRUE,
+		.samplerFilterMinmax = VK_TRUE,
 		.bufferDeviceAddress = VK_TRUE} };
 	VkPhysicalDeviceVulkan13Features* vulkan13Features{ new VkPhysicalDeviceVulkan13Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, 
 		.synchronization2 = VK_TRUE, 
-		.dynamicRendering = VK_TRUE} };
+		.dynamicRendering = VK_TRUE,
+		.maintenance4 = VK_TRUE} };
 	VkPhysicalDeviceDescriptorBufferFeaturesEXT* dbFeatures{ new VkPhysicalDeviceDescriptorBufferFeaturesEXT{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT, .descriptorBuffer = VK_TRUE} };
 	
 	VkFormat swapchainPreferredFormat{ VK_FORMAT_B8G8R8A8_UNORM };

@@ -110,7 +110,6 @@ VkDeviceSize BufferBase::getSize() const
 }
 VkDeviceAddress BufferBase::getDeviceAddress() const
 {
-	LOG_IF_WARNING(m_bufferMemoryAddress == UINT64_MAX, "Buffer was not created with \"VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO\"")
 	return m_bufferMemoryAddress;
 }
 VkDeviceSize BufferBase::getAlignment() const

@@ -195,6 +195,7 @@
     <ClCompile Include="src\rendering\renderer\barrier_operations.cpp" />
     <ClCompile Include="src\rendering\renderer\clusterer.cpp" />
     <ClCompile Include="src\rendering\renderer\command_management.cpp" />
+    <ClCompile Include="src\rendering\renderer\depth_buffer.h" />
     <ClCompile Include="src\rendering\renderer\descriptor_management.cpp" />
     <ClCompile Include="src\rendering\renderer\HBAO.cpp" />
     <ClCompile Include="src\rendering\renderer\pipeline_management.cpp" />
@@ -331,6 +332,9 @@
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\fxaa_frag.frag">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\calc_hi_z_comp.comp">
       <FileType>Document</FileType>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />

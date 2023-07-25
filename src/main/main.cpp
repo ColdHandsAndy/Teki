@@ -46,6 +46,7 @@
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/data_abstraction/mesh.h"
 #include "src/rendering/data_abstraction/runit.h"
+#include "src/rendering/renderer/depth_buffer.h"
 #include "src/rendering/renderer/HBAO.h"
 #include "src/rendering/renderer/FXAA.h"
 #include "src/rendering/data_abstraction/BB.h"
@@ -236,7 +237,7 @@ int main()
 											 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
 											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
 
-	Image depthBuffer{ device, VK_FORMAT_D32_SFLOAT, window.getWidth(), window.getHeight(), VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT };
+	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
 
 	cmdBufferSet.resetBuffers();
 
@@ -244,6 +245,7 @@ int main()
 	{
 		bool drawBVs{ false };
 		bool drawSpaceLines{ false };
+		int hiZmipLevel{ 0 };
 	} renderingSettings;
 
 	/*std::random_device dev{};
@@ -519,16 +521,18 @@ int main()
 				depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 				vkCmdBeginRendering(cbDraw, &renderInfo);
 
-				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, spaceLinesPipeline.getResourceSets(), spaceLinesPipeline.getResourceSetsInUse(), spaceLinesPipeline.getPipelineLayoutHandle());
-				VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
-				VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
-				vkCmdBindVertexBuffers(cbDraw, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
-				spaceLinesPipeline.cmdBind(cbDraw);
-				vkCmdPushConstants(cbDraw, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
-				vkCmdDraw(cbDraw, lineVertNum, 1, 0, 0);
+					descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, spaceLinesPipeline.getResourceSets(), spaceLinesPipeline.getResourceSetsInUse(), spaceLinesPipeline.getPipelineLayoutHandle());
+					VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
+					VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
+					vkCmdBindVertexBuffers(cbDraw, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
+					spaceLinesPipeline.cmdBind(cbDraw);
+					vkCmdPushConstants(cbDraw, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
+					vkCmdDraw(cbDraw, lineVertNum, 1, 0, 0);
 
 				vkCmdEndRendering(cbDraw);
 			}
+
+			depthBuffer.cmdCalcHiZ(cbDraw, descriptorManager);
 
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -562,12 +566,24 @@ int main()
 
 			fxaa.cmdPassFXAA(cbPostprocessing, descriptorManager, std::get<1>(swapchainImageData));
 
+			static bool hiZvis{ false };
+			if (hiZvis)
+			{
+				depthBuffer.cmdVisualizeHiZ(cbPostprocessing, descriptorManager, std::get<0>(swapchainImageData), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, renderingSettings.hiZmipLevel);
+			}
+
 			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
 				ImGui::Begin("Settings");
+				ImGui::Checkbox("Enable Hi-Z visualiztion", &hiZvis);
+				if (hiZvis)
+				{
+					ImGui::SliderInt("Mip-chain level", &renderingSettings.hiZmipLevel, 0, depthBuffer.getMipLevelCountHiZ() - 1);
+				}
 				ImGui::Checkbox("Space lines", &renderingSettings.drawSpaceLines);
 				ImGui::Checkbox("Light bounding volumes", &renderingSettings.drawBVs);
 				ImGui::End();
 			ui.endUIPass(cbPostprocessing);
+
 
 			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,

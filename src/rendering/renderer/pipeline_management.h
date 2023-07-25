@@ -116,7 +116,7 @@ public:
 		std::span<const VkVertexInputBindingDescription> bindings = {}, 
 		std::span<const VkVertexInputAttributeDescription> attributes = {},
 		std::span<const VkPushConstantRange> pushConstantsRanges = {});
-	Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<ResourceSet>& resourceSets);
+	Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges = {});
 	Pipeline(Pipeline&& srcPipeline) noexcept;
 	~Pipeline();
 
@@ -134,6 +134,8 @@ public:
 		std::span<const VkVertexInputBindingDescription> bindings = {},
 		std::span<const VkVertexInputAttributeDescription> attributes = {},
 		std::span<const VkPushConstantRange> pushConstantsRanges = {});
+
+	void initializaCompute(VkDevice device, const fs::path& computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges = {});
 
 private:
 	Pipeline(Pipeline&) = delete;

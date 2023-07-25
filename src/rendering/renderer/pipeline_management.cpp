@@ -330,34 +330,9 @@ Pipeline::Pipeline(const PipelineAssembler& assembler, std::span<const ShaderSta
 	initializeGraphics(assembler, shaders, resourceSets, bindings, attributes, pushConstantsRanges);
 }
 
-Pipeline::Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<ResourceSet>& resourceSets) : m_device{ device }, m_bindPoint{ VK_PIPELINE_BIND_POINT_COMPUTE }, m_invalid{ false }
+Pipeline::Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges)
 {
-	VkPipelineLayoutCreateInfo pipelineLayoutCI{};
-	pipelineLayoutCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	std::vector<VkDescriptorSetLayout> setLayouts(resourceSets.size());
-	for (uint32_t i{ 0 }; i < resourceSets.size(); ++i)
-	{
-		setLayouts[i] = resourceSets[i].getSetLayout();
-	}
-	pipelineLayoutCI.setLayoutCount = setLayouts.size();
-	pipelineLayoutCI.pSetLayouts = setLayouts.data();
-	EASSERT(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
-	m_resourceSets = std::move(resourceSets);
-	m_setsInUse = std::vector<uint32_t>(m_resourceSets.size(), 0u);
-	
-	VkPipelineShaderStageCreateInfo shaderStage{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-	shaderStage.module = ShaderOperations::createModule(device, ShaderOperations::getShaderCode(computeShaderFilepath));
-	shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-	shaderStage.pName = "main";
-
-	VkComputePipelineCreateInfo compPipelineCI{ .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
-	compPipelineCI.layout = m_pipelineLayoutHandle;
-	compPipelineCI.stage = shaderStage;
-	compPipelineCI.flags = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
-	
-	EASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compPipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Compute pipeline creation failed.");
-
-	vkDestroyShaderModule(device, shaderStage.module, nullptr);
+	initializaCompute(device, computeShaderFilepath, resourceSets, pushConstantsRanges);
 }
 
 Pipeline::Pipeline(Pipeline&& srcPipeline) noexcept
@@ -493,4 +468,43 @@ void Pipeline::initializeGraphics(const PipelineAssembler& assembler,
 	delete[] shaderStages;
 
 	m_invalid = false;
+}
+
+void Pipeline::initializaCompute(VkDevice device, const fs::path& computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges)
+{
+	m_device = device; 
+	m_bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
+	m_invalid = false;
+
+	VkPipelineLayoutCreateInfo pipelineLayoutCI{};
+	pipelineLayoutCI.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	std::vector<VkDescriptorSetLayout> setLayouts(resourceSets.size());
+	for (uint32_t i{ 0 }; i < resourceSets.size(); ++i)
+	{
+		setLayouts[i] = resourceSets[i].getSetLayout();
+	}
+	pipelineLayoutCI.setLayoutCount = setLayouts.size();
+	pipelineLayoutCI.pSetLayouts = setLayouts.data();
+	if (!pushConstantsRanges.empty())
+	{
+		pipelineLayoutCI.pushConstantRangeCount = pushConstantsRanges.size();
+		pipelineLayoutCI.pPushConstantRanges = pushConstantsRanges.data();
+	}
+	EASSERT(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
+	m_resourceSets = std::move(resourceSets);
+	m_setsInUse = std::vector<uint32_t>(m_resourceSets.size(), 0u);
+
+	VkPipelineShaderStageCreateInfo shaderStage{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+	shaderStage.module = ShaderOperations::createModule(device, ShaderOperations::getShaderCode(computeShaderFilepath));
+	shaderStage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	shaderStage.pName = "main";
+
+	VkComputePipelineCreateInfo compPipelineCI{ .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+	compPipelineCI.layout = m_pipelineLayoutHandle;
+	compPipelineCI.stage = shaderStage;
+	compPipelineCI.flags = VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+
+	EASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compPipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Compute pipeline creation failed.");
+
+	vkDestroyShaderModule(device, shaderStage.module, nullptr);
 }
