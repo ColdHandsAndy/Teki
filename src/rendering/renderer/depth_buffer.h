@@ -7,6 +7,7 @@
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/renderer/barrier_operations.h"
 #include "src/rendering/data_management/image_classes.h"
+#include "src/tools/comp_s.h"
 
 class DepthBuffer
 {
@@ -91,7 +92,7 @@ public:
 		std::vector<ResourceSet> resourceSets{};
 		resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, operationNum,
 			bindings,  {},
-			descData });
+			descData, true });
 		m_calcHiZ.initializaCompute(device, 
 			"shaders/cmpld/calc_hi_z_comp.spv",
 			resourceSets, 
@@ -109,8 +110,6 @@ public:
 
 	void cmdCalcHiZ(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 	{
-#define DISPATCH_SIZE(groupSize, elementsCount) ((elementsCount + groupSize - 1) / groupSize)
-
 		BarrierOperations::cmdExecuteBarrier(cb, { 
 			{BarrierOperations::constructImageBarrier(
 					VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -140,7 +139,7 @@ public:
 		pushC.invWidth = 1.0f / width;
 		pushC.invHeight = 1.0f / height;
 		vkCmdPushConstants(cb, m_calcHiZ.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushC), &pushC);
-		vkCmdDispatch(cb, DISPATCH_SIZE(groupsizeX, width), DISPATCH_SIZE(groupsizeY, height), 1);
+		vkCmdDispatch(cb, DISPATCH_SIZE(width, groupsizeX), DISPATCH_SIZE(height, groupsizeY), 1);
 
 		VkImageMemoryBarrier2 barrier{ 
 			BarrierOperations::constructImageBarrier(
@@ -163,7 +162,7 @@ public:
 			pushC.invWidth = 1.0f / width;
 			pushC.invHeight = 1.0f / height;
 			vkCmdPushConstants(cb, m_calcHiZ.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushC), &pushC);
-			vkCmdDispatch(cb, DISPATCH_SIZE(groupsizeX, width), DISPATCH_SIZE(groupsizeY, height), 1);
+			vkCmdDispatch(cb, DISPATCH_SIZE(width, groupsizeX), DISPATCH_SIZE(height, groupsizeY), 1);
 		
 			barrier.subresourceRange.baseMipLevel = i;
 		
@@ -177,32 +176,34 @@ public:
 					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 					m_depthImage.getImageHandle(),
 					{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }) } });
-
-#undef DISPATCH_SIZE
 	}
 
-	uint32_t getMipLevelCountHiZ()
+	uint32_t getMipLevelCountHiZ() const
 	{
 		return m_hiZopCount;
 	}
 
-	VkImage getImageHandle()
+	VkImage getImageHandle() const
 	{
 		return m_depthImage.getImageHandle();
 	}
-	VkImageView getImageView()
+	VkImageView getImageView() const
 	{
 		return m_depthImage.getImageView();
 	}
-	VkImage getImageHandleHiZ()
+	VkImage getImageHandleHiZ() const
 	{
 		return m_hierarchicalZ.getImageHandle();
 	}
-	VkImageView getImageViewHiZ()
+	VkImageView getImageViewHiZ() const
 	{
 		return m_hierarchicalZ.getImageView();
 	}
 
+	VkSampler getReductionSampler() const
+	{
+		return m_samplerHiZ;
+	}
 
 	void cmdVisualizeHiZ(VkCommandBuffer cb, DescriptorManager& descriptorManager, VkImage outImage, VkImageLayout outImageLayout, uint32_t mipLevel)
 	{

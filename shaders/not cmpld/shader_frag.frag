@@ -51,7 +51,7 @@ layout(set = 0, binding = 0) uniform ViewProjMatrices
 
 layout (set = 1, binding = 0) uniform sampler2DArray imageListArray[64];
 
-struct DrawDataIndicesLayout
+struct DrawData
 {
     uint8_t modelIndex;
     uint8_t index1;
@@ -66,10 +66,10 @@ struct DrawDataIndicesLayout
     uint8_t emIndexList;
     uint8_t emIndexLayer;
 };
-layout(set = 2, binding = 0) buffer DrawDataIndices 
+layout(set = 2, binding = 0) buffer DrawDataBuffer 
 {
-    DrawDataIndicesLayout indices[];
-} drawDataIndices;
+    DrawData data[];
+} drawData;
 
 struct UnifiedLightData
 {
@@ -119,6 +119,8 @@ layout(std140, set = 5, binding = 0) uniform DirectionalLight
 {
     DirectionalLightLayout light;
 } dirLight;
+
+
 
 
 vec3 F_Schlick(vec3 F0, float F90, float NdotX)
@@ -340,21 +342,21 @@ layout(location = 0) out vec4 outputColor;
 
 void main() 
 {
-	DrawDataIndicesLayout dataIndices = drawDataIndices.indices[drawID];
+	DrawData drawData = drawData.data[drawID];
 	
 	vec3 N = normalize(inNorm);
 	vec3 T = normalize(inTang.xyz);
 	vec3 B = cross(inTang.xyz, inNorm) * inTang.w;
 	mat3 TBN = mat3(T, B, N);
-	N = TBN * normalize((texture(imageListArray[dataIndices.nmIndexList], vec3(inTexC, dataIndices.nmIndexLayer + 0.1)).xyz) * 2.0 - 1.0);
+	N = TBN * normalize((texture(imageListArray[drawData.nmIndexList], vec3(inTexC, drawData.nmIndexLayer + 0.1)).xyz) * 2.0 - 1.0);
 	vec3 V = normalize(pushConstants.camPos - inPos);
 	vec3 R = reflect(-V, N);
 	
 	float NdotV = abs(dot(N, V)) + 0.0001;
 	
-	vec3 mrData = texture(imageListArray[dataIndices.mrIndexList], vec3(inTexC, dataIndices.mrIndexLayer + 0.1)).xyz;
+	vec3 mrData = texture(imageListArray[drawData.mrIndexList], vec3(inTexC, drawData.mrIndexLayer + 0.1)).xyz;
 	
-	vec4 bcData = texture(imageListArray[dataIndices.bcIndexList], vec3(inTexC, dataIndices.bcIndexLayer + 0.1));
+	vec4 bcData = texture(imageListArray[drawData.bcIndexList], vec3(inTexC, drawData.bcIndexLayer + 0.1));
 
 	float opacity = bcData.w;
 
@@ -375,7 +377,7 @@ void main()
 	vec3 IBLcontrib = evaluateIBL(N, V, R, NdotV, data.alpha, data.roughness, data.F0, DFG, data.albedo, data.specAO, data.diffAO);
 	vec3 lightsContrib = calculateLightContribution(V, N, NdotV, data);
 	
-	vec3 emission = texture(imageListArray[dataIndices.emIndexList], vec3(inTexC, dataIndices.emIndexLayer + 0.1)).xyz;
+	vec3 emission = texture(imageListArray[drawData.emIndexList], vec3(inTexC, drawData.emIndexLayer + 0.1)).xyz;
 	
 	vec3 result = lightsContrib + IBLcontrib + emission;
 

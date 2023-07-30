@@ -170,6 +170,7 @@ public:
 		.uniformAndStorageBuffer16BitAccess = VK_TRUE,
 		.shaderDrawParameters = VK_TRUE} };
 	VkPhysicalDeviceVulkan12Features* vulkan12Features{ new VkPhysicalDeviceVulkan12Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, 
+		.drawIndirectCount = VK_TRUE,
 		.storageBuffer8BitAccess = VK_TRUE,
 		.uniformAndStorageBuffer8BitAccess = VK_TRUE,
 		.shaderInt8 = VK_TRUE,

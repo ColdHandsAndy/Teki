@@ -14,6 +14,7 @@
 #include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/culling.h"
 
 class HBAO
 {
@@ -106,10 +107,10 @@ public:
 	void submitFrustum(double near, double far, double aspect, double FOV);
 	void submitViewMatrix(const glm::mat4& viewMat);
 
-	void cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, const Buffer& vertexData, const Buffer& indexData, const BufferMapped& indirectCmdBuffer, uint32_t drawCount);
+	void cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
 
 private:
-	void cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, const Buffer& vertexData, const Buffer& indexData, const BufferMapped& indirectCmdBuffer, uint32_t drawCount);
+	void cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
 	void cmdCalculateHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 	void cmdBlurHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 };

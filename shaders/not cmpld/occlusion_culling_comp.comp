@@ -1,0 +1,124 @@
+#version 460
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct IndirectCommand 
+{
+    uint    indexCount;
+    uint    instanceCount;
+    uint    firstIndex;
+    int     vertexOffset;
+    uint    firstInstance;
+};
+struct DrawCallData
+{
+	uint    indexCount;
+    uint    instanceCount;
+    uint    firstIndex;
+    int     vertexOffset;
+    uint    firstInstance;
+
+	float   boundingSpherePosX;
+	float   boundingSpherePosY;
+	float   boundingSpherePosZ;
+	float   boundingSphereRad;
+};
+layout(binding = 0) buffer readonly Indices
+{
+	uint indices[];
+};
+layout(binding = 1, std430) buffer readonly DrawCallDataBuffer
+{
+	DrawCallData drawCallData[];
+};
+layout(binding = 2) buffer writeonly targetDrawCommands
+{
+	IndirectCommand cmds[];
+};
+layout(binding = 3) buffer TargetDrawCount
+{
+	uint targetDrawCount;
+};
+layout(binding = 4) uniform sampler2D hierarchicalZ;
+layout(binding = 5) buffer DrawDataIndices
+{
+	uint drawDataIndices[];
+};
+layout(binding = 6) uniform ViewProj
+{
+    mat4 view;
+    mat4 proj;
+} viewproj;
+
+layout(push_constant) uniform PushConstants
+{
+	uint commandCount;
+	uint mipMax;
+	float zNear;
+} pushConstants;
+
+
+void projectSphere(vec3 p, float r, float proj00, float proj11, out float bvWidth, out float bvHeight, out vec2 bvCenter)
+{
+    vec3 cr = p * r;
+    float czr2 = p.z * p.z - r * r;
+
+    float vx = sqrt(p.x * p.x + czr2);
+    float minX = (vx * p.x - cr.z) / (vx * p.z + cr.x);
+    float maxX = (vx * p.x + cr.z) / (vx * p.z - cr.x);
+
+    float vy = sqrt(p.y * p.y + czr2);
+    float minY = (vy * p.y - cr.z) / (vy * p.z + cr.y);
+    float maxY = (vy * p.y + cr.z) / (vy * p.z - cr.y);
+
+	float projMinX = minX * proj00 * 0.5 + 0.5;
+	float projMaxX = maxX * proj00 * 0.5 + 0.5;
+	float projMinY = minY * proj11 * 0.5 + 0.5;
+	float projMaxY = maxY * proj11 * 0.5 + 0.5;
+	
+	bvWidth  = abs(projMaxX - projMinX);
+	bvHeight = abs(projMaxY - projMinY);
+	bvCenter = vec2(clamp(projMinX + bvWidth / 2.0, 0.0, 1.0), clamp(projMinY + bvHeight / 2.0, 0.0, 1.0));
+}
+
+bool testOcclusion(vec3 pos, float rad)
+{
+	vec3 viewPos = vec3(viewproj.view * vec4(pos, 1.0));
+	float depth = viewproj.proj[2].z + viewproj.proj[3].z / (viewPos.z - rad);
+	
+	if (viewPos.z < rad + pushConstants.zNear)
+		return false;
+		
+	float bvWidth;
+	float bvHeight;
+	vec2 sampleDepth;
+	projectSphere(viewPos, rad, viewproj.proj[0].x, viewproj.proj[1].y, bvWidth, bvHeight, sampleDepth);
+	
+	uint n = clamp(uint(log2(1.0 / (max(bvWidth, bvHeight)))), 0, pushConstants.mipMax);
+	
+	uint levelHiZ = pushConstants.mipMax - n;
+	
+	return textureLod(hierarchicalZ, vec2(1.0), pushConstants.mipMax).x > depth;
+	//return sampleDepth.x < 0.0 || sampleDepth.y < 0.0 || sampleDepth.x > 1.0 || sampleDepth.y > 1.0;
+}
+
+void main()
+{
+	if (gl_GlobalInvocationID.x >= pushConstants.commandCount)
+		return;
+		
+	uint drawIndex = indices[gl_GlobalInvocationID.x];
+
+	DrawCallData data = drawCallData[drawIndex];
+	
+	bool occluded = testOcclusion(vec3(data.boundingSpherePosX, data.boundingSpherePosY, data.boundingSpherePosZ), data.boundingSphereRad);
+
+	if (true)
+	{
+		uint i = atomicAdd(targetDrawCount, 1);
+
+		IndirectCommand cmd = IndirectCommand(data.indexCount, data.instanceCount, data.firstIndex, data.vertexOffset, data.firstInstance);
+		cmds[i] = cmd;
+		drawDataIndices[i] = drawIndex;
+	}
+}

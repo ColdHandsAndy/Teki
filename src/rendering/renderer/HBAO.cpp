@@ -232,7 +232,7 @@ void HBAO::submitViewMatrix(const glm::mat4& viewMat)
 	*(reinterpret_cast<glm::mat4*>(m_viewprojexpDataUB.getData()) + viewMatOffsetInMat4) = viewMat;
 }
 
-void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, const Buffer& vertexData, const Buffer& indexData, const BufferMapped& indirectCmdBuffer, uint32_t drawCount)
+void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
 {
 	VkRenderingAttachmentInfo linearDepthAttachmentInfo{};
 	linearDepthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -296,7 +296,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdCalculateLinearDepth(cb, descriptorManager, vertexData, indexData, indirectCmdBuffer, drawCount);
+		this->cmdCalculateLinearDepth(cb, descriptorManager, culling, vertexData, indexData);
 
 	vkCmdEndRendering(cb);
 
@@ -349,7 +349,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 }
 
 
-void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, const Buffer& vertexData, const Buffer& indexData, const BufferMapped& indirectCmdBuffer, uint32_t drawCount)
+void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
 {
 	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_linearExpandedFOVDepthPass.getResourceSets(), m_linearExpandedFOVDepthPass.getResourceSetsInUse(), m_linearExpandedFOVDepthPass.getPipelineLayoutHandle());
@@ -358,7 +358,7 @@ void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descri
 	vkCmdBindVertexBuffers(cb, 0, 1, vertexBindings, vertexBindingOffsets);
 	vkCmdBindIndexBuffer(cb, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 	m_linearExpandedFOVDepthPass.cmdBind(cb);
-	vkCmdDrawIndexedIndirect(cb, indirectCmdBuffer.getBufferHandle(), indirectCmdBuffer.getOffset(), drawCount, sizeof(VkDrawIndexedIndirectCommand));
+	vkCmdDrawIndexedIndirectCount(cb, culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(), culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(), UINT16_MAX, culling.getDrawCommandBufferStride());
 }
 void HBAO::cmdCalculateHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 {

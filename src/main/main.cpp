@@ -42,6 +42,7 @@
 #include "src/rendering/renderer/barrier_operations.h"
 #include "src/rendering/lighting/light_types.h"
 #include "src/rendering/renderer/clusterer.h"
+#include "src/rendering/renderer/culling.h"
 #include "src/rendering/scene/parse_scene.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/data_abstraction/mesh.h"
@@ -63,21 +64,18 @@
 #include "src/tools/time_measurement.h"
 
 #define GENERAL_BUFFER_DEFAULT_SIZE 134217728ll
-#define STAGING_BUFFER_DEFAULT_SIZE 8388608ll
+#define SHARED_BUFFER_DEFAULT_SIZE 8388608ll
 #define DEVICE_BUFFER_DEFAULT_SIZE  268435456ll
 
 namespace fs = std::filesystem;
 
-struct FrustumInfo
-{
-	glm::vec4 planes[6]{};
-	glm::vec3 points[8]{};
-} frustumInfo;
 struct CamInfo
 {
-	glm::vec3 camPos{ 9.305, 3.871, 0.228 };
+	//glm::vec3 camPos{ 9.305, 3.871, 0.228 };
+	//glm::vec3 camFront{ -0.997, -0.077, 0.02 };
+	glm::vec3 camPos{ 0.0, 0.0, -10.0 };
+	glm::vec3 camFront{ 0.0, 0.0, 1.0 };
 	double speed{ 10.0 };
-	glm::vec3 camFront{ -0.997, -0.077, 0.02 };
 	double sensetivity{ 1.9 };
 	glm::vec2 lastCursorP{};
 } camInfo;
@@ -94,13 +92,14 @@ glm::mat4 getProjection(float FOV, float aspect, float zNear, float zFar);
 Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 	const BufferMapped& viewprojDataUB,
 	const BufferMapped& modelTransformDataUB,
-	const BufferMapped& perDrawDataIndicesSSBO,
+	const BufferMapped& drawDataSSBO,
+	const Buffer& drawDataIndicesSSBO,
 	const ImageListContainer& imageLists,
 	const ImageCubeMap& skybox,
 	const ImageCubeMap& radiance,
 	const ImageCubeMap& irradiance,
-	const Image& imageAO,
 	const Image& brdfLUT,
+	const Image& imageAO,
 	VkSampler univSampler,
 	const BufferMapped& directionalLightUB,
 	const BufferMapped& sortedLightsDataUB,
@@ -127,8 +126,9 @@ uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, Buf
 
 void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
 void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices);
+void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBoxes);
 
-void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao);
+void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo);
 void fillModelMatrices(const BufferMapped& modelTransformDataUB, const std::vector<glm::mat4>& modelMatrices);
 void fillDrawDataIndices(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
 void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform);
@@ -138,8 +138,6 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos);
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy);
-
-int cullMeshes(const OBBs& boundingBoxes, VkDrawIndexedIndirectCommand* drawCommands, const glm::mat4& viewMat);
 
 int main()
 {
@@ -169,11 +167,13 @@ int main()
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
 	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, 
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+		VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 	BufferBaseHostAccessible baseHostCachedBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
-		VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
+	BufferBaseHostAccessible baseSharedBuffer{ device, 8388608ll,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::NULL_FLAG, true };
 
 	BufferMapped viewprojDataUB{ baseHostBuffer, sizeof(glm::mat4) * 2 };
 
@@ -207,23 +207,28 @@ int main()
 
 	Buffer vertexData{ baseDeviceBuffer };
 	Buffer indexData{ baseDeviceBuffer };
-	BufferMapped indirectCmdBuffer{ baseHostCachedBuffer };
+	BufferMapped indirectDataBuffer{ baseHostCachedBuffer };
 	
 	std::vector<fs::path> modelPaths{};
 	std::vector<glm::mat4> modelMatrices{};
 	fs::path envPath{};
 	Scene::parseSceneData("internal/scene_info.json", modelPaths, modelMatrices, envPath);
 
-	OBBs rUnitOBBs{ 256 };
+	FrustumInfo frustumInfo{};
 
-	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, indirectCmdBuffer, rUnitOBBs,
+	OBBs rUnitOBBs{ 256 };
+	uint32_t drawCount{};
+
+	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, 
+		indirectDataBuffer, drawCount,
+		rUnitOBBs,
 		materialTextures, 
 		modelPaths,
 		vulkanObjectHandler, descriptorManager, cmdBufferSet)
 	};
-	uint32_t drawCount{ static_cast<uint32_t>(indirectCmdBuffer.getSize() / sizeof(VkDrawIndexedIndirectCommand)) };
 
 	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
+	getBoundingSpheres(indirectDataBuffer, rUnitOBBs);
 
 	cmdBufferSet.resetBuffers();
 
@@ -238,6 +243,8 @@ int main()
 											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
 
 	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
+
+	Culling culling{ device, drawCount, 0.01, baseHostBuffer, baseSharedBuffer, baseDeviceBuffer, viewprojDataUB, indirectDataBuffer, depthBuffer };
 
 	cmdBufferSet.resetBuffers();
 
@@ -286,7 +293,7 @@ int main()
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 	BufferMapped modelTransformDataUB{ baseHostBuffer, sizeof(glm::mat4) * modelMatrices.size() };
-	BufferMapped perDrawDataIndicesSSBO{ baseHostBuffer, sizeof(uint8_t) * 12 * drawCount };
+	BufferMapped drawDataSSBO{ baseHostBuffer, sizeof(uint8_t) * 12 * drawCount };
 	
 	BufferMapped directionalLightUB{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
 	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
@@ -294,7 +301,7 @@ int main()
 
 	Pipeline forwardClusteredPipeline( 
 		createForwardClusteredPipeline(assembler, 
-			viewprojDataUB, modelTransformDataUB, perDrawDataIndicesSSBO,
+			viewprojDataUB, modelTransformDataUB, drawDataSSBO, culling.getDrawDataIndexBuffer(),
 			materialTextures,
 			cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance, brdfLUT, hbao.getAO(), universalSampler,
 			directionalLightUB,
@@ -327,15 +334,15 @@ int main()
 	uint32_t lineVertNum{ uploadLineVertices("internal/spaceLinesMesh/space_lines_vertices.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
 	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, viewprojDataUB) };
 
-	hbao.acquireDepthPassData(modelTransformDataUB, perDrawDataIndicesSSBO);
+	hbao.acquireDepthPassData(modelTransformDataUB, drawDataSSBO);
 	hbao.fiilRandomRotationImage(cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 
 	//Resource filling 
 	glm::mat4* vpMatrices{ reinterpret_cast<glm::mat4*>(viewprojDataUB.getData()) };
 	glm::mat4* skyboxTransform{ reinterpret_cast<glm::mat4*>(skyboxTransformUB.getData()) };
-	fillFrustumData(vpMatrices, window, clusterer, hbao);
+	fillFrustumData(vpMatrices, window, clusterer, hbao, frustumInfo);
 	fillModelMatrices(modelTransformDataUB, modelMatrices);
-	fillDrawDataIndices(perDrawDataIndicesSSBO, staticMeshes, drawCount);
+	fillDrawDataIndices(drawDataSSBO, staticMeshes, drawCount);
 	fillSkyboxTransformData(vpMatrices, skyboxTransform);
 	//fillPBRSphereTestInstanceData(perInstPBRTestSSBO, sphereInstCount);
 	//end   
@@ -381,6 +388,9 @@ int main()
 	presentInfo.pWaitSemaphores = &readyToPresentSemaphore;
 	std::tuple<VkImage, VkImageView, uint32_t> swapchainImageData{};
 	WorldState::initialize();
+	//
+	BufferMapped debBufer{ baseHostBuffer, drawCount * sizeof(VkDrawIndexedIndirectCommand) + sizeof(uint32_t)};
+	//
 	vkDeviceWaitIdle(device);
 	while (!glfwWindowShouldClose(window))
 	{
@@ -421,7 +431,7 @@ int main()
 		clusterer.submitViewMatrix(vpMatrices[0]);
 		clusterer.startClusteringProcess();
 
-		cullMeshes(rUnitOBBs, reinterpret_cast<VkDrawIndexedIndirectCommand*>(indirectCmdBuffer.getData()), vpMatrices[0]);
+		culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, vpMatrices[0]);
 
 		if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
 		{
@@ -432,10 +442,46 @@ int main()
 		colorAttachmentInfo.imageView = framebufferImage.getImageView();
 		renderInfo.pColorAttachments = &colorAttachmentInfo;
 
+		//
+		VkCommandBuffer cbCompute{ cmdBufferSet.beginRecording(FrameCommandBufferSet::ASYNC_COMPUTE_CB) };
+		
+			culling.cmdCullOccluded(cbCompute, descriptorManager);
+		
+			/*BarrierOperations::cmdExecuteBarrier(cbCompute, { {BarrierOperations::constructMemoryBarrier(
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_ACCESS_SHADER_WRITE_BIT,
+				VK_ACCESS_TRANSFER_READ_BIT)}
+				});
+
+			VkBufferCopy reg1{ .srcOffset = culling.getDrawCommandBufferOffset(), .dstOffset = debBufer.getOffset(), .size = drawCount * sizeof(VkDrawIndexedIndirectCommand) };
+			VkBufferCopy reg2{ .srcOffset = culling.getDrawCountBufferOffset(), .dstOffset = reg1.dstOffset + reg1.size, .size = sizeof(uint32_t)};
+			BufferTools::cmdBufferCopy(cbCompute, culling.getDrawCommandBufferHandle(), debBufer.getBufferHandle(), 1, &reg1);
+			BufferTools::cmdBufferCopy(cbCompute, culling.getDrawCountBufferHandle(), debBufer.getBufferHandle(), 1, &reg2);*/
+
+		cmdBufferSet.endRecording(cbCompute);
+
+		VkSubmitInfo compSubmitInfo = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.waitSemaphoreCount = 0, .pWaitSemaphores = nullptr, .pWaitDstStageMask = nullptr,
+			.commandBufferCount = 1, .pCommandBuffers = &cbCompute,
+			.signalSemaphoreCount = 0, .pSignalSemaphores = nullptr };
+		vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::COMPUTE_QUEUE_TYPE), 1, &compSubmitInfo, VK_NULL_HANDLE);
+		vkDeviceWaitIdle(device);
+		/*VkDrawIndexedIndirectCommand* cmds{ reinterpret_cast<VkDrawIndexedIndirectCommand*>(debBufer.getData())};
+		for (int i{ 0 }; i < drawCount; ++i)
+		{
+			std::cout << "indexCount - " << cmds->indexCount << '\n' <<
+				"instanceCount - " << cmds->instanceCount << '\n' <<
+				"firstIndex - " << cmds->firstIndex << '\n' <<
+				"vertexOffset - " << cmds->vertexOffset << '\n' <<
+				"firstInstance - " << cmds->firstInstance << '\n' << std::endl;
+			++cmds;
+		}
+		std::cout << *reinterpret_cast<uint32_t*>(cmds) << " - draw count";*/
+		//
 
 		VkCommandBuffer cbPreprocessing{ cmdBufferSet.beginTransientRecording() };
-			
-			hbao.cmdPassCalcHBAO(cbPreprocessing, descriptorManager, vertexData, indexData, indirectCmdBuffer, drawCount);
+
+			hbao.cmdPassCalcHBAO(cbPreprocessing, descriptorManager, culling, vertexData, indexData);
 			clusterer.cmdPassConductTileTest(cbPreprocessing, descriptorManager);
 
 		cmdBufferSet.endRecording(cbPreprocessing);
@@ -470,7 +516,7 @@ int main()
 			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			vkCmdBeginRendering(cbDraw, &renderInfo);
-
+				
 				if (renderingSettings.drawBVs)
 					clusterer.cmdDrawBVs(cbDraw, descriptorManager, pointBVPipeline, spotBVPipeline);
 
@@ -491,8 +537,11 @@ int main()
 				struct { glm::vec3 camInfo{}; float binWidth{}; glm::vec2 resolutionAO{}; uint32_t widthTiles{}; } pushConstData;
 				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{window.getWidth(), window.getHeight()}, clusterer.getWidthInTiles()};
 				vkCmdPushConstants(cbDraw, forwardClusteredPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstData), &pushConstData);
-				vkCmdDrawIndexedIndirect(cbDraw, indirectCmdBuffer.getBufferHandle(), indirectCmdBuffer.getOffset(), drawCount, sizeof(VkDrawIndexedIndirectCommand));
-				
+				vkCmdDrawIndexedIndirectCount(cbDraw, 
+					culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(),
+					culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(),
+					UINT16_MAX, culling.getDrawCommandBufferStride());
+
 
 				//PBR sphere test
 				/*descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, sphereTestPBRPipeline.getResourceSets(), sphereTestPBRPipeline.getResourceSetsInUse(), sphereTestPBRPipeline.getPipelineLayoutHandle());
@@ -635,7 +684,6 @@ int main()
 		//
 	}
 
-
 	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
 	vkDestroySampler(device, universalSampler, nullptr);
 	vkDestroyFence(device, renderCompleteFence, nullptr);
@@ -662,10 +710,10 @@ glm::mat4 getProjection(float FOV, float aspect, float zNear, float zFar)
 	float b{ (zNear * zFar) / (zFar - zNear) };
 
 	glm::mat4 mat{
-		glm::vec4(  w, 0.0, 0.0, 0.0),
-		glm::vec4(0.0,  -h, 0.0, 0.0),
-		glm::vec4(0.0, 0.0,   a, 1.0),
-		glm::vec4(0.0, 0.0,   b, 0.0 )
+		glm::vec4(w,   0.0,	0.0, 0.0),
+		glm::vec4(0.0,	-h, 0.0, 0.0),
+		glm::vec4(0.0, 0.0,	  a, 1.0),
+		glm::vec4(0.0, 0.0,	  b, 0.0 )
 	};
 	return mat;
 }
@@ -795,7 +843,8 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 	const BufferMapped& viewprojDataUB,
 	const BufferMapped& modelTransformDataUB,
-	const BufferMapped& perDrawDataIndicesSSBO,
+	const BufferMapped& drawDataSSBO,
+	const Buffer& drawDataIndicesSSBO,
 	const ImageListContainer& imageLists,
 	const ImageCubeMap& skybox,
 	const ImageCubeMap& radiance,
@@ -823,8 +872,10 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 	VkDescriptorSetLayoutBinding modelTransformBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT modelTransformAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = modelTransformDataUB.getDeviceAddress(), .range = modelTransformDataUB.getSize() };
 
-	VkDescriptorSetLayoutBinding uniformDrawIndicesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT uniformDrawIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = perDrawDataIndicesSSBO.getDeviceAddress(), .range = perDrawDataIndicesSSBO.getSize() };
+	VkDescriptorSetLayoutBinding drawDataBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT drawDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawDataSSBO.getDeviceAddress(), .range = drawDataSSBO.getSize() };
+	VkDescriptorSetLayoutBinding drawDataIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT drawDataIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawDataIndicesSSBO.getDeviceAddress(), .range = drawDataIndicesSSBO.getSize() };
 
 	VkDescriptorSetLayoutBinding sortedLightsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
 	VkDescriptorAddressInfoEXT sortedLightsAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = sortedLightsDataUB.getDeviceAddress(), .range = sortedLightsDataUB.getSize() };
@@ -851,21 +902,27 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 
 	std::vector<ResourceSet> resourceSets{};
 	VkDevice device{ assembler.getDevice() };
+
+
 	resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{viewprojBinding},  {},
 			{{{.pUniformBuffer = &viewprojAddressInfo}}}, false });
+
 	resourceSets.push_back({ device, 1, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{imageListsBinding, modelTransformBinding}, {{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, {}},
 			{imageListsDescData, {{.pStorageBuffer = &modelTransformAddressInfo}}}, true });
+
 	resourceSets.push_back({ device, 2, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{uniformDrawIndicesBinding}, {},
-			{{{.pStorageBuffer = &uniformDrawIndicesAddressInfo}}}, false });
+		{drawDataBinding, drawDataIndicesBinding}, {},
+			{{{.pStorageBuffer = &drawDataAddressInfo}}, {{.pStorageBuffer = &drawDataIndicesAddressInfo}}}, false });
+
 	resourceSets.push_back({ device, 3, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{sortedLightsBinding, typesBinding, tileDataBinding, zBinDataBinding},  {},
 			{{{.pUniformBuffer = &sortedLightsAddressInfo}}, 
 			{{.pUniformBuffer = &typesAddressInfo}}, 
 			{{.pStorageBuffer = &tileDataAddressInfo}}, 
 			{{.pUniformBuffer = &zBinDataAddressInfo}}}, false });
+
 	resourceSets.push_back({ device, 4, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{skyboxBinding, radianceBinding, irradianceBinding, lutBinding, aoBinding}, {},
 			{{{.pCombinedImageSampler = &skyboxImageInfo}}, 
@@ -873,9 +930,11 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 			{{.pCombinedImageSampler = &irradianceImageInfo}},
 			{{.pCombinedImageSampler = &lutImageInfo}}, 
 			{{.pCombinedImageSampler = &aoImageInfo}}}, true });
+
 	resourceSets.push_back({ device, 5, VkDescriptorSetLayoutCreateFlags{}, 1,
 		{directionalLightBinding}, {},
 			{{{.pUniformBuffer = &directionalLightAddressInfo}}}, false });
+
 
 	return	Pipeline{ assembler,
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_vert.spv"},
@@ -1149,19 +1208,28 @@ void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, i
 		boundingBoxes.transformOBB(i, modelMatrices[transMatIndex]);
 	}
 }
-
-void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao)
+void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBoxes)
 {
-	float nearPlane{ 0.01 };
-	float farPlane{ 10000.0 };
+	IndirectData* data{ reinterpret_cast<IndirectData*>(indirectDataBuffer.getData()) };
+
+	for (uint32_t i{ 0 }; i < boundingBoxes.getBBCount(); ++i)
+	{
+		boundingBoxes.getBoundingSphere(i, data[i].bsPos, &(data[i].bsRad));
+	}
+}
+
+void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo)
+{
+	float nearPlane{ 0.1 };
+	float farPlane{ 100.0 };
 	float aspect{ static_cast<float>(static_cast<double>(window.getWidth()) / window.getHeight()) };
-	float FOV{ glm::radians(60.0) };
+	float FOV{ glm::radians(80.0) };
 
 	vpMatrices[1] = getProjection(FOV, aspect, nearPlane, farPlane);
 	clusterer.submitFrustum(nearPlane, farPlane, aspect, FOV);
 	hbao.submitFrustum(nearPlane, farPlane, aspect, FOV);
 
-	double FOV_X{ glm::atan(glm::tan(FOV / 2) * aspect) * 2 }; //FOV provided to glm::perspective defines vertical frustum angle in radians
+	double FOV_X{ glm::atan(glm::tan(FOV / 2) * aspect) * 2 };
 	frustumInfo.planes[0] = { 0.0f, 0.0f, -1.0f, nearPlane }; //near plane
 	frustumInfo.planes[1] = glm::vec4{ glm::rotate(glm::dvec3{-1.0, 0.0, 0.0}, FOV_X / 2.0, glm::dvec3{0.0, -1.0, 0.0}), 0.0 }; //left plane
 	frustumInfo.planes[2] = glm::vec4{ glm::rotate(glm::dvec3{1.0, 0.0, 0.0}, FOV_X / 2.0, glm::dvec3{0.0, 1.0, 0.0}), 0.0 }; //right plane
@@ -1255,60 +1323,6 @@ void fillPBRSphereTestInstanceData(const BufferMapped& perInstPBRTestSSBO, int s
 		*wPos_roughnessData = glm::vec4{ position, roughness };
 		perInstDataPtr += sizeof(glm::vec4) * 2;
 	}
-}
-
-int cullMeshes(const OBBs& boundingBoxes, VkDrawIndexedIndirectCommand* drawCommands, const glm::mat4& viewMat)
-{
-	glm::mat4 viewInv{ glm::inverse(viewMat) };
-
-	__m128 planes[6]{};
-	auto transformPlanes{ [&planes](const FrustumInfo& frustum, const glm::mat4& viewMatr)
-		{
-			for (int i{ 0 }; i < 6; ++i)
-			{
-				glm::vec3 newNormal{ glm::mat3{viewMatr} *glm::vec3{frustum.planes[i]} };
-				float dot{ glm::dot(glm::vec3{viewMatr[3][0], viewMatr[3][1], viewMatr[3][2]}, newNormal) };
-				float newDist{ -(dot - frustum.planes[i].w) };
-				planes[i] = _mm_set_ps(newNormal.x, newNormal.y, newNormal.z, newDist);
-			}
-		} };
-	transformPlanes(frustumInfo, viewInv);
-
-	int meshesCulled{ 0 };
-	for (int i{ 0 }; i < boundingBoxes.getBBCount(); ++i)
-	{
-		float* xs{};
-		float* ys{};
-		float* zs{};
-		boundingBoxes.getOBB(i, &xs, &ys, &zs);
-		__m128 points[8]{};
-		for (int j{ 0 }; j < 8; ++j)
-		{
-			points[j] = _mm_set_ps(xs[j], ys[j], zs[j], 1.0);
-		}
-		for (int j{ 0 }; j < 6; ++j)
-		{
-			int out = 0;
-			out += ((_mm_dp_ps(planes[j], points[0], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-			out += ((_mm_dp_ps(planes[j], points[1], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-			out += ((_mm_dp_ps(planes[j], points[2], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-			out += ((_mm_dp_ps(planes[j], points[3], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-			out += ((_mm_dp_ps(planes[j], points[4], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-			out += ((_mm_dp_ps(planes[j], points[5], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-			out += ((_mm_dp_ps(planes[j], points[6], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-			out += ((_mm_dp_ps(planes[j], points[7], 0xF1).m128_f32[0] > 0.0f) ? 1 : 0);
-
-			if (out == 8)
-				goto next;
-		}
-
-		drawCommands[i].instanceCount = 1;
-		continue;
-	next:
-		drawCommands[i].instanceCount = 0;
-		++meshesCulled;
-	}
-	return meshesCulled;
 }
 
 VkSampler createUniversalSampler(VkDevice device, float maxAnisotropy)

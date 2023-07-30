@@ -22,6 +22,7 @@
 #include "src/rendering/renderer/pipeline_management.h"
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/renderer/descriptor_management.h"
+#include "src/rendering/renderer/culling.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_classes.h"
@@ -100,7 +101,8 @@ inline void formIndexChunk(cgltf_data* model,
 inline std::vector<StaticMesh> loadStaticMeshes(
 								Buffer& vertexBuffer,
 								Buffer& indexBuffer,
-								BufferMapped& indirectCmdBuffer,
+								BufferMapped& indirectDataBuffer,
+								uint32_t& drawCount,
 								OBBs& rUnitOBBs,
 								ImageListContainer& loadedTextures,
 								std::vector<fs::path> filepaths,
@@ -167,16 +169,16 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	indicesByteSize = ALIGNED_SIZE(indicesByteSize, indexBuffer.getAlignment());
 	vertexBuffer.initialize(verticesByteSize);
 	indexBuffer.initialize(indicesByteSize);
-	VkDeviceSize rUnitCount{ 0 };
 	for (auto& mesh : meshes)
 	{
-		rUnitCount += mesh.getRUnits().size();
+		drawCount += mesh.getRUnits().size();
 	};
-	indirectCmdBuffer.initialize(rUnitCount * sizeof(VkDrawIndexedIndirectCommand));
+	indirectDataBuffer.initialize(drawCount * sizeof(IndirectData));
 
 	std::vector<VkBufferCopy> copyRegionsVertexBuf{};
 	std::vector<VkBufferCopy> copyRegionsIndexBuf{};
-	VkDrawIndexedIndirectCommand* indirectCmdData{ reinterpret_cast<VkDrawIndexedIndirectCommand*>(indirectCmdBuffer.getData()) };
+
+	IndirectData* indirectCmdData{ reinterpret_cast<IndirectData*>(indirectDataBuffer.getData()) };
 
 	uint64_t offsetIntoVertexData{ 0 };
 	uint64_t offsetIntoIndexData{ indexBuffer.getOffset() };
@@ -185,28 +187,29 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	int32_t firstVertex{ 0 };
 	uint32_t firstIndex{ 0 };
 
-	for (auto& mesh : meshes)
+	for (uint32_t i{ 0 }; i < meshes.size(); ++i)
 	{
-		std::vector<RUnit>& renderUnits{ mesh.getRUnits() };
-		for (uint32_t i{ 0 }; i < renderUnits.size(); ++i)
+		std::vector<RUnit>& renderUnits{ meshes[i].getRUnits() };
+		for (uint32_t j{ 0 }; j < renderUnits.size(); ++j)
 		{
-			uint64_t vertBufSize{ renderUnits[i].getVertBufByteSize() };
-			uint64_t indexBufSize{ renderUnits[i].getIndexBufByteSize() };
-			uint32_t indexCount{ static_cast<uint32_t>(indexBufSize / renderUnits[i].getIndexSize()) };
+			uint64_t vertBufSize{ renderUnits[j].getVertBufByteSize() };
+			uint64_t indexBufSize{ renderUnits[j].getIndexBufByteSize() };
+			uint32_t indexCount{ static_cast<uint32_t>(indexBufSize / renderUnits[j].getIndexSize()) };
 
-			*(indirectCmdData++) = VkDrawIndexedIndirectCommand{
+			(indirectCmdData++)->cmd = VkDrawIndexedIndirectCommand{
 				.indexCount = indexCount,
 				.instanceCount = 1,
 				.firstIndex = firstIndex,
 				.vertexOffset = firstVertex,
 				.firstInstance = 0 };
+
 			firstIndex += indexCount;
-			firstVertex += static_cast<int32_t>(vertBufSize / renderUnits[i].getVertexSize());
-			copyRegionsVertexBuf.push_back(VkBufferCopy{ .srcOffset = renderUnits[i].getOffsetVertex(), .dstOffset = offsetIntoVertexData, .size = vertBufSize });
-			copyRegionsIndexBuf.push_back(VkBufferCopy{ .srcOffset = renderUnits[i].getOffsetIndex(), .dstOffset = offsetIntoIndexData, .size = indexBufSize });
-			renderUnits[i].setVertBufOffset(offsetIntoVertexData);
-			renderUnits[i].setIndexBufOffset(offsetIntoIndexData);
-			renderUnits[i].setDrawCmdBufferOffset(offsetIntoCmdBuffer++);
+			firstVertex += static_cast<int32_t>(vertBufSize / renderUnits[j].getVertexSize());
+			copyRegionsVertexBuf.push_back(VkBufferCopy{ .srcOffset = renderUnits[j].getOffsetVertex(), .dstOffset = offsetIntoVertexData, .size = vertBufSize });
+			copyRegionsIndexBuf.push_back(VkBufferCopy{ .srcOffset = renderUnits[j].getOffsetIndex(), .dstOffset = offsetIntoIndexData, .size = indexBufSize });
+			renderUnits[j].setVertBufOffset(offsetIntoVertexData);
+			renderUnits[j].setIndexBufOffset(offsetIntoIndexData);
+			renderUnits[j].setDrawCmdBufferOffset(offsetIntoCmdBuffer++);
 			offsetIntoVertexData += vertBufSize;
 			offsetIntoIndexData += indexBufSize;
 		}

@@ -26,7 +26,7 @@ layout(set = 1, binding = 1) buffer ModelMatrices
     mat4 modelMatrices[];
 } modelMatrices;
 
-struct DrawDataIndices
+struct DrawData
 {
     uint8_t modelIndex;
     uint8_t index1;
@@ -41,21 +41,26 @@ struct DrawDataIndices
     uint8_t emIndexList;
     uint8_t emIndexLayer;
 };
-layout(set = 2, binding = 0) buffer DrawDataIndicesBuffer 
+layout(set = 2, binding = 0) buffer DrawDataBuffer 
 {
-    DrawDataIndices indices[];
+    DrawData data[];
+} drawData;
+layout(set = 2, binding = 1) buffer DrawDataIndexBuffer 
+{
+    uint data[];
 } drawDataIndices;
 
 
 void main() 
 {
-    drawID = gl_DrawID;
+    drawID = drawDataIndices.data[gl_DrawID];
 	
-    mat4 modelmat = modelMatrices.modelMatrices[drawDataIndices.indices[gl_DrawID].modelIndex];
+    mat4 modelmat = modelMatrices.modelMatrices[drawData.data[drawID].modelIndex];
     vec4 worldPos = modelmat * vec4(position, 1.0);
-    gl_Position = viewproj.proj * viewproj.view * worldPos;
+    vec4 viewPos = viewproj.view * worldPos;
+    gl_Position = viewproj.proj * viewPos;
 
-    outViewDepth = (viewproj.view * worldPos).z;
+    outViewDepth = viewPos.z;
 
 
     vec3 norm = vec3(unpackSnorm4x8(packedNormals4x8));

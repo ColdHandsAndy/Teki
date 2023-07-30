@@ -158,6 +158,12 @@
     <ClInclude Include="src\rendering\UI\UI.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\renderer\culling.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\tools\comp_s.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -191,5 +197,6 @@
     <CustomBuild Include="shaders\not cmpld\hbao_blur_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\fxaa_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\calc_hi_z_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\occlusion_culling_comp.comp" />
   </ItemGroup>
 </Project>

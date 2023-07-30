@@ -51,6 +51,27 @@ public:
 		*zs = m_data + 2 * boxVertexCount * m_maxCount + boxVertexCount * index;
 	}
 
+	void getBoundingSphere(int index, float* pos, float* rad) const
+	{
+		EASSERT(index < m_count, "App", "Undefined data accessed.");
+
+		float xMin = *(m_data + 0 * boxVertexCount * m_maxCount + boxVertexCount * index + BBR);
+		float yMin = *(m_data + 1 * boxVertexCount * m_maxCount + boxVertexCount * index + BBR);
+		float zMin = *(m_data + 2 * boxVertexCount * m_maxCount + boxVertexCount * index + BBR);
+
+		float xMax = *(m_data + 0 * boxVertexCount * m_maxCount + boxVertexCount * index + TFL);
+		float yMax = *(m_data + 1 * boxVertexCount * m_maxCount + boxVertexCount * index + TFL);
+		float zMax = *(m_data + 2 * boxVertexCount * m_maxCount + boxVertexCount * index + TFL);
+
+		pos[0] = (xMin + xMax) / 2.0;
+		pos[1] = (yMin + yMax) / 2.0;
+		pos[2] = (zMin + zMax) / 2.0;
+		float xDif = xMax - xMin;
+		float yDif = yMax - yMin;
+		float zDif = zMax - zMin;
+		*rad = std::sqrt(xDif * xDif + yDif * yDif + zDif * zDif);
+	}
+
 	void transformOBB(int index, const glm::mat4& transformMatrix)
 	{
 		float* xs = m_data + 0 * boxVertexCount * m_maxCount + boxVertexCount * index;
