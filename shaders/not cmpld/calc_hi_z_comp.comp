@@ -6,8 +6,10 @@ layout(push_constant) uniform PushConsts
 {
 	uint widthW;
 	uint heightW;
-	float invWidthW;
-	float invHeightW;
+	float invPrevWidthW;
+	float invPrevHeightW;
+	uint prevWidthW;
+	uint prevHeightW;
 } pushConstants;
 
 layout(set = 0, binding = 0) uniform sampler2D imgInput;
@@ -21,24 +23,24 @@ void main()
 	if (width >= pushConstants.widthW || height >= pushConstants.heightW)
 		return;
 	
-	float sampleX = pushConstants.invWidthW * (float(width) + 0.5);
-	float sampleY = pushConstants.invHeightW * (float(height) + 0.5);
-	
+	float sampleX = pushConstants.invPrevWidthW * 2 * float(width) + pushConstants.invPrevWidthW;
+	float sampleY = pushConstants.invPrevHeightW * 2 * float(height) + pushConstants.invPrevHeightW;
+
 	float result = texture(imgInput, vec2(sampleX, sampleY)).x;
-	
-	if ((pushConstants.widthW & 1) != 0)
+
+	if ((pushConstants.prevWidthW & 1) != 0)
 	{
 		if (width == pushConstants.widthW - 1)
 		{
-			float addSampleX = pushConstants.invWidthW * (float(width) + 1.5);
+			float addSampleX = sampleX + pushConstants.invPrevWidthW;
 			result = min(result, texture(imgInput, vec2(addSampleX, sampleY)).x);
 		}
 	}
-	if ((pushConstants.heightW & 1) != 0)
+	if ((pushConstants.prevHeightW & 1) != 0)
 	{
 		if (height == pushConstants.heightW - 1)
 		{
-			float addSampleY = pushConstants.invHeightW * (float(height) + 1.5);
+			float addSampleY = sampleY + pushConstants.invPrevHeightW;
 			result = min(result, texture(imgInput, vec2(sampleX, addSampleY)).x);
 		}
 	}

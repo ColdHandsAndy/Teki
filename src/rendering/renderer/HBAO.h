@@ -102,15 +102,15 @@ public:
 	void setHBAOsettings(float radius, float aoExponent, float angleBias, float sharpness);
 
 	void acquireDepthPassData(const BufferMapped& modelTransformDataUB, const BufferMapped& perDrawDataIndicesSSBO);
-	void fiilRandomRotationImage(FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
+	void fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue);
 
 	void submitFrustum(double near, double far, double aspect, double FOV);
 	void submitViewMatrix(const glm::mat4& viewMat);
 
-	void cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
+	void cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData, uint32_t maxDrawCount);
 
 private:
-	void cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
+	void cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData, uint32_t maxDrawCount);
 	void cmdCalculateHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 	void cmdBlurHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 };

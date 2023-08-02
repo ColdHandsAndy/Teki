@@ -177,6 +177,7 @@ public:
 		.descriptorBindingPartiallyBound = VK_TRUE, 
 		.runtimeDescriptorArray = VK_TRUE,
 		.samplerFilterMinmax = VK_TRUE,
+		.timelineSemaphore = VK_TRUE,
 		.bufferDeviceAddress = VK_TRUE} };
 	VkPhysicalDeviceVulkan13Features* vulkan13Features{ new VkPhysicalDeviceVulkan13Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, 
 		.synchronization2 = VK_TRUE, 

@@ -137,7 +137,7 @@ void HBAO::acquireDepthPassData(const BufferMapped& modelTransformDataUB, const 
 		{ {StaticVertex::getBindingDescription()} },
 		{ StaticVertex::getAttributeDescriptions() });
 }
-void HBAO::fiilRandomRotationImage(FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+void HBAO::fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue)
 {
 	VkCommandBuffer cb{ cmdBufferSet.beginTransientRecording() };
 
@@ -232,7 +232,7 @@ void HBAO::submitViewMatrix(const glm::mat4& viewMat)
 	*(reinterpret_cast<glm::mat4*>(m_viewprojexpDataUB.getData()) + viewMatOffsetInMat4) = viewMat;
 }
 
-void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
+void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData, uint32_t maxDrawCount)
 {
 	VkRenderingAttachmentInfo linearDepthAttachmentInfo{};
 	linearDepthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -276,7 +276,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 	renderInfo.pColorAttachments = attachments + 0;
 
 	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 			m_linearDepthImage.getImageHandle(), m_linearDepthImage.getSubresourceRange()),
@@ -296,12 +296,12 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdCalculateLinearDepth(cb, descriptorManager, culling, vertexData, indexData);
+		this->cmdCalculateLinearDepth(cb, descriptorManager, culling, vertexData, indexData, maxDrawCount);
 
 	vkCmdEndRendering(cb);
 
 	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			m_linearDepthImage.getImageHandle(), m_linearDepthImage.getSubresourceRange()),
@@ -349,7 +349,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 }
 
 
-void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
+void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData, uint32_t maxDrawCount)
 {
 	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_linearExpandedFOVDepthPass.getResourceSets(), m_linearExpandedFOVDepthPass.getResourceSetsInUse(), m_linearExpandedFOVDepthPass.getPipelineLayoutHandle());
@@ -358,7 +358,7 @@ void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descri
 	vkCmdBindVertexBuffers(cb, 0, 1, vertexBindings, vertexBindingOffsets);
 	vkCmdBindIndexBuffer(cb, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 	m_linearExpandedFOVDepthPass.cmdBind(cb);
-	vkCmdDrawIndexedIndirectCount(cb, culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(), culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(), UINT16_MAX, culling.getDrawCommandBufferStride());
+	vkCmdDrawIndexedIndirectCount(cb, culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(), culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(), maxDrawCount, culling.getDrawCommandBufferStride());
 }
 void HBAO::cmdCalculateHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 {

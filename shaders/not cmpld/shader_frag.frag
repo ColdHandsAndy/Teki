@@ -310,7 +310,7 @@ vec3 calculateLightContribution(vec3 V, vec3 N, float NdotV, MaterialData data)
 	wordMax = min(mergedMax / 32, wordMax);
 	
 	//
-	//float modif = 1.0 / 15;
+	//float modif = 1.0 / 10;
 	//result = vec3(0.0, 1.0, 0.0);
 	//
 	for (uint wordIndex = wordMin; wordIndex <= wordMax; ++wordIndex)

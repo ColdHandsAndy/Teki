@@ -40,6 +40,7 @@
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/timeline_semaphore.h"
 #include "src/rendering/lighting/light_types.h"
 #include "src/rendering/renderer/clusterer.h"
 #include "src/rendering/renderer/culling.h"
@@ -56,12 +57,7 @@
 #include "src/window/window.h"
 #include "src/world_state/world_state.h"
 
-#include "src/tools/asserter.h"
-#include "src/tools/alignment.h"
-#include "src/tools/texture_loader.h"
-#include "src/tools/gltf_loader.h"
-#include "src/tools/obj_loader.h"
-#include "src/tools/time_measurement.h"
+#include "src/tools/tools.h"
 
 #define GENERAL_BUFFER_DEFAULT_SIZE 134217728ll
 #define SHARED_BUFFER_DEFAULT_SIZE 8388608ll
@@ -120,11 +116,11 @@ Pipeline createSphereTestPBRPipeline(PipelineAssembler& assembler,
 	const Image& brdfLUT,
 	int instCount);
 
-uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
-void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
-uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
+uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
+void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
+uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 
-void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
+void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices);
 void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBoxes);
 
@@ -143,8 +139,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	//Window window{ "Teki" };
-	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki" };
+	Window window{ "Teki" };
+	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki" };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetCursorPosCallback(window, mouseCallback);
 	glfwSetKeyCallback(window, keyCallback);
@@ -156,8 +152,7 @@ int main()
 	BufferBase::assignGlobalMemoryManager(memManager);
 	ImageBase::assignGlobalMemoryManager(memManager);
 	
-	FrameCommandPoolSet cmdPoolSet{ *vulkanObjectHandler };
-	FrameCommandBufferSet cmdBufferSet{ cmdPoolSet };
+	CommandBufferSet cmdBufferSet{ *vulkanObjectHandler };
 
 	UI ui{ window, *vulkanObjectHandler, cmdBufferSet };
 	
@@ -167,9 +162,9 @@ int main()
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
 	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, 
-		VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+		VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
-		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 	BufferBaseHostAccessible baseHostCachedBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
 	BufferBaseHostAccessible baseSharedBuffer{ device, 8388608ll,
@@ -230,7 +225,7 @@ int main()
 	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
 	getBoundingSpheres(indirectDataBuffer, rUnitOBBs);
 
-	cmdBufferSet.resetBuffers();
+	cmdBufferSet.resetPool(CommandBufferSet::TRANSIENT_POOL);
 
 	VkSampler universalSampler{ createUniversalSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
 	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
@@ -244,16 +239,19 @@ int main()
 
 	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
 
-	Culling culling{ device, drawCount, 0.01, baseHostBuffer, baseSharedBuffer, baseDeviceBuffer, viewprojDataUB, indirectDataBuffer, depthBuffer };
+	Culling culling{ device, drawCount, 0.01, viewprojDataUB, indirectDataBuffer, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex() };
 
-	cmdBufferSet.resetBuffers();
+	cmdBufferSet.resetPool(CommandBufferSet::TRANSIENT_POOL);
 
 	struct
 	{
 		bool drawBVs{ false };
 		bool drawSpaceLines{ false };
 		int hiZmipLevel{ 0 };
-	} renderingSettings;
+		uint32_t frustumCulledCount{ 0 };
+		BufferMapped finalDrawCount;
+	} renderingData;
+	renderingData.finalDrawCount.initialize(baseHostBuffer, sizeof(uint32_t));
 
 	/*std::random_device dev{};
 	std::mt19937 rng(dev());
@@ -347,15 +345,12 @@ int main()
 	//fillPBRSphereTestInstanceData(perInstPBRTestSSBO, sphereInstCount);
 	//end   
 
-	
+	TimelineSemaphore semaphore{ device };
+	TimelineSemaphore semaphoreHiZ{ device };
 	VkSemaphore swapchainSemaphore{};
-	VkSemaphore preprocessingDoneSemaphore{};
-	VkSemaphore drawingCompleteSemaphore{};
 	VkSemaphore readyToPresentSemaphore{};
 	VkSemaphoreCreateInfo semCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 	vkCreateSemaphore(device, &semCI, nullptr, &swapchainSemaphore);
-	vkCreateSemaphore(device, &semCI, nullptr, &preprocessingDoneSemaphore);
-	vkCreateSemaphore(device, &semCI, nullptr, &drawingCompleteSemaphore);
 	vkCreateSemaphore(device, &semCI, nullptr, &readyToPresentSemaphore);
 	
 	uint32_t swapchainIndex{};
@@ -368,10 +363,6 @@ int main()
 	depthAttachmentInfo.imageView = depthBuffer.getImageView();
 	depthAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 	depthAttachmentInfo.clearValue = { .depthStencil = {.depth = 0.0f, .stencil = 0} };
-
-	VkFence renderCompleteFence{};
-	VkFenceCreateInfo fenceCI{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT };
-	vkCreateFence(device, &fenceCI, nullptr, &renderCompleteFence);
 
 	VkRenderingInfo renderInfo{};
 	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -387,10 +378,10 @@ int main()
 	presentInfo.waitSemaphoreCount = 1;
 	presentInfo.pWaitSemaphores = &readyToPresentSemaphore;
 	std::tuple<VkImage, VkImageView, uint32_t> swapchainImageData{};
+
+	uint32_t cbSetIndex{ cmdBufferSet.createInterchangeableSet(2, CommandBufferSet::ASYNC_COMPUTE_CB) };
+
 	WorldState::initialize();
-	//
-	BufferMapped debBufer{ baseHostBuffer, drawCount * sizeof(VkDrawIndexedIndirectCommand) + sizeof(uint32_t)};
-	//
 	vkDeviceWaitIdle(device);
 	while (!glfwWindowShouldClose(window))
 	{
@@ -429,9 +420,9 @@ int main()
 
 		hbao.submitViewMatrix(vpMatrices[0]);
 		clusterer.submitViewMatrix(vpMatrices[0]);
-		clusterer.startClusteringProcess();
 
-		culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, vpMatrices[0]);
+		clusterer.startClusteringProcess();
+		renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, vpMatrices[0]);
 
 		if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
 		{
@@ -442,91 +433,65 @@ int main()
 		colorAttachmentInfo.imageView = framebufferImage.getImageView();
 		renderInfo.pColorAttachments = &colorAttachmentInfo;
 
-		//
-		VkCommandBuffer cbCompute{ cmdBufferSet.beginRecording(FrameCommandBufferSet::ASYNC_COMPUTE_CB) };
-		
-			culling.cmdCullOccluded(cbCompute, descriptorManager);
-		
-			/*BarrierOperations::cmdExecuteBarrier(cbCompute, { {BarrierOperations::constructMemoryBarrier(
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-				VK_ACCESS_SHADER_WRITE_BIT,
-				VK_ACCESS_TRANSFER_READ_BIT)}
-				});
-
-			VkBufferCopy reg1{ .srcOffset = culling.getDrawCommandBufferOffset(), .dstOffset = debBufer.getOffset(), .size = drawCount * sizeof(VkDrawIndexedIndirectCommand) };
-			VkBufferCopy reg2{ .srcOffset = culling.getDrawCountBufferOffset(), .dstOffset = reg1.dstOffset + reg1.size, .size = sizeof(uint32_t)};
-			BufferTools::cmdBufferCopy(cbCompute, culling.getDrawCommandBufferHandle(), debBufer.getBufferHandle(), 1, &reg1);
-			BufferTools::cmdBufferCopy(cbCompute, culling.getDrawCountBufferHandle(), debBufer.getBufferHandle(), 1, &reg2);*/
-
-		cmdBufferSet.endRecording(cbCompute);
-
-		VkSubmitInfo compSubmitInfo = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			.waitSemaphoreCount = 0, .pWaitSemaphores = nullptr, .pWaitDstStageMask = nullptr,
-			.commandBufferCount = 1, .pCommandBuffers = &cbCompute,
-			.signalSemaphoreCount = 0, .pSignalSemaphores = nullptr };
-		vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::COMPUTE_QUEUE_TYPE), 1, &compSubmitInfo, VK_NULL_HANDLE);
-		vkDeviceWaitIdle(device);
-		/*VkDrawIndexedIndirectCommand* cmds{ reinterpret_cast<VkDrawIndexedIndirectCommand*>(debBufer.getData())};
-		for (int i{ 0 }; i < drawCount; ++i)
-		{
-			std::cout << "indexCount - " << cmds->indexCount << '\n' <<
-				"instanceCount - " << cmds->instanceCount << '\n' <<
-				"firstIndex - " << cmds->firstIndex << '\n' <<
-				"vertexOffset - " << cmds->vertexOffset << '\n' <<
-				"firstInstance - " << cmds->firstInstance << '\n' << std::endl;
-			++cmds;
-		}
-		std::cout << *reinterpret_cast<uint32_t*>(cmds) << " - draw count";*/
-		//
-
 		VkCommandBuffer cbPreprocessing{ cmdBufferSet.beginTransientRecording() };
 
-			hbao.cmdPassCalcHBAO(cbPreprocessing, descriptorManager, culling, vertexData, indexData);
+			culling.cmdCullOccluded(cbPreprocessing, descriptorManager);
 			clusterer.cmdPassConductTileTest(cbPreprocessing, descriptorManager);
 
 		cmdBufferSet.endRecording(cbPreprocessing);
 
-		VkCommandBuffer cbDraw{ cmdBufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
+		VkCommandBuffer cbDraw{ cmdBufferSet.beginRecording(CommandBufferSet::MAIN_CB) };
 			
+			{
+				VkBufferCopy copy{ .srcOffset = culling.getDrawCountBufferOffset(), .dstOffset = renderingData.finalDrawCount.getOffset(), .size = renderingData.finalDrawCount.getSize() };
+				BufferTools::cmdBufferCopy(cbDraw, culling.getDrawCountBufferHandle(), renderingData.finalDrawCount.getBufferHandle(), 1, &copy);
+			}
+
+			hbao.cmdPassCalcHBAO(cbDraw, descriptorManager, culling, vertexData, indexData, culling.getMaxDrawCount());
+
+			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
+				{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
+					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT)}
+			});
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					framebufferImage.getImageHandle(),
 					{
 					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 					.baseMipLevel = 0,
 					.levelCount = 1,
 					.baseArrayLayer = 0,
-					.layerCount = 1}),
+					.layerCount = 1 }),
 				BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-					0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-					depthBuffer.getImageHandle(),
+				0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+				depthBuffer.getImageHandle(),
 					{
 					.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
 					.baseMipLevel = 0,
 					.levelCount = 1,
 					.baseArrayLayer = 0,
-					.layerCount = 1})}   
-				});
-
+					.layerCount = 1 })}
+			});
+			
 			colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			vkCmdBeginRendering(cbDraw, &renderInfo);
-				
-				if (renderingSettings.drawBVs)
+			
+				if (renderingData.drawBVs)
 					clusterer.cmdDrawBVs(cbDraw, descriptorManager, pointBVPipeline, spotBVPipeline);
-
+				
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline.getResourceSets(), skyboxPipeline.getResourceSetsInUse(), skyboxPipeline.getPipelineLayoutHandle());
 				VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
 				VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
 				vkCmdBindVertexBuffers(cbDraw, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
 				skyboxPipeline.cmdBind(cbDraw);
 				vkCmdDraw(cbDraw, 36, 1, 0, 0);
-
+				
 				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS,
 					forwardClusteredPipeline.getResourceSets(), forwardClusteredPipeline.getResourceSetsInUse(), forwardClusteredPipeline.getPipelineLayoutHandle());
 				VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
@@ -535,14 +500,14 @@ int main()
 				vkCmdBindIndexBuffer(cbDraw, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 				forwardClusteredPipeline.cmdBind(cbDraw);
 				struct { glm::vec3 camInfo{}; float binWidth{}; glm::vec2 resolutionAO{}; uint32_t widthTiles{}; } pushConstData;
-				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{window.getWidth(), window.getHeight()}, clusterer.getWidthInTiles()};
+				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{window.getWidth(), window.getHeight()}, clusterer.getWidthInTiles() };
 				vkCmdPushConstants(cbDraw, forwardClusteredPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstData), &pushConstData);
-				vkCmdDrawIndexedIndirectCount(cbDraw, 
+				vkCmdDrawIndexedIndirectCount(cbDraw,
 					culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(),
 					culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(),
-					UINT16_MAX, culling.getDrawCommandBufferStride());
-
-
+					culling.getMaxDrawCount(), culling.getDrawCommandBufferStride());
+				
+				
 				//PBR sphere test
 				/*descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, sphereTestPBRPipeline.getResourceSets(), sphereTestPBRPipeline.getResourceSetsInUse(), sphereTestPBRPipeline.getPipelineLayoutHandle());
 				VkBuffer sphereTestPBRVertexBinding[1]{ sphereTestPBRdata.getBufferHandle() };
@@ -552,24 +517,24 @@ int main()
 				vkCmdPushConstants(cbDraw, sphereTestPBRPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
 				vkCmdDraw(cbDraw, sphereTestPBRVertNum, sphereInstCount, 0, 0);*/
 				//
-
-
+			
+			
 			vkCmdEndRendering(cbDraw);
-
-			if (renderingSettings.drawSpaceLines)
+			
+			if (renderingData.drawSpaceLines)
 			{
 				BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
 					{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
 						VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 						VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)}
 				});
-
+			
 				colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 				colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 				depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 				depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 				vkCmdBeginRendering(cbDraw, &renderInfo);
-
+			
 					descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, spaceLinesPipeline.getResourceSets(), spaceLinesPipeline.getResourceSetsInUse(), spaceLinesPipeline.getPipelineLayoutHandle());
 					VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
 					VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
@@ -577,12 +542,10 @@ int main()
 					spaceLinesPipeline.cmdBind(cbDraw);
 					vkCmdPushConstants(cbDraw, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
 					vkCmdDraw(cbDraw, lineVertNum, 1, 0, 0);
-
+			
 				vkCmdEndRendering(cbDraw);
 			}
-
-			depthBuffer.cmdCalcHiZ(cbDraw, descriptorManager);
-
+			
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
@@ -599,7 +562,7 @@ int main()
 		cmdBufferSet.endRecording(cbDraw);
 
 		VkCommandBuffer cbPostprocessing{ cmdBufferSet.beginTransientRecording() };
-			
+
 			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
@@ -612,28 +575,34 @@ int main()
 					.baseArrayLayer = 0,
 					.layerCount = 1 })}
 			});
-
+			
 			fxaa.cmdPassFXAA(cbPostprocessing, descriptorManager, std::get<1>(swapchainImageData));
-
+			
 			static bool hiZvis{ false };
 			if (hiZvis)
 			{
-				depthBuffer.cmdVisualizeHiZ(cbPostprocessing, descriptorManager, std::get<0>(swapchainImageData), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, renderingSettings.hiZmipLevel);
+				depthBuffer.cmdVisualizeHiZ(cbPostprocessing, descriptorManager, std::get<0>(swapchainImageData), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, renderingData.hiZmipLevel);
 			}
-
+			
 			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
-				ImGui::Begin("Settings");
-				ImGui::Checkbox("Enable Hi-Z visualiztion", &hiZvis);
-				if (hiZvis)
-				{
-					ImGui::SliderInt("Mip-chain level", &renderingSettings.hiZmipLevel, 0, depthBuffer.getMipLevelCountHiZ() - 1);
-				}
-				ImGui::Checkbox("Space lines", &renderingSettings.drawSpaceLines);
-				ImGui::Checkbox("Light bounding volumes", &renderingSettings.drawBVs);
-				ImGui::End();
+			ImGui::Begin("Settings");
+			if (ImGui::TreeNode("Stats"))
+			{
+				ImGui::Text("Frustum culled meshes - %u", renderingData.frustumCulledCount);
+				ImGui::Text("Occlusion culled meshes - %u", drawCount - *reinterpret_cast<uint32_t*>(renderingData.finalDrawCount.getData()) - renderingData.frustumCulledCount);
+				ImGui::TreePop();
+			}
+			ImGui::Checkbox("Enable Hi-Z visualiztion", &hiZvis);
+			if (hiZvis)
+			{
+				ImGui::SliderInt("Mip-chain level", &renderingData.hiZmipLevel, 0, depthBuffer.getMipLevelCountHiZ() - 1);
+			}
+			ImGui::Checkbox("Space lines", &renderingData.drawSpaceLines);
+			ImGui::Checkbox("Light bounding volumes", &renderingData.drawBVs);
+			ImGui::End();
 			ui.endUIPass(cbPostprocessing);
-
-
+			
+			
 			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
 				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
@@ -646,36 +615,86 @@ int main()
 					.baseArrayLayer = 0,
 					.layerCount = 1 })}
 			});
-
+			
 		cmdBufferSet.endRecording(cbPostprocessing);
 
-		vkResetFences(device, 1, &renderCompleteFence);
-		VkPipelineStageFlags stagesToWaitOn[]{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-		VkSubmitInfo submitInfos[3]{};
-		submitInfos[0] = VkSubmitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			.waitSemaphoreCount = 1, .pWaitSemaphores = &swapchainSemaphore, .pWaitDstStageMask = stagesToWaitOn + 0,
-			.commandBufferCount = 1, .pCommandBuffers = &cbPreprocessing,
-			.signalSemaphoreCount = 1, .pSignalSemaphores = &preprocessingDoneSemaphore };
-		submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			.waitSemaphoreCount = 1, .pWaitSemaphores = &preprocessingDoneSemaphore, .pWaitDstStageMask = stagesToWaitOn + 0,
-			.commandBufferCount = 1, .pCommandBuffers = &cbDraw,
-			.signalSemaphoreCount =1, .pSignalSemaphores = &drawingCompleteSemaphore };
-		submitInfos[2] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			.waitSemaphoreCount = 1, .pWaitSemaphores = &drawingCompleteSemaphore, .pWaitDstStageMask = stagesToWaitOn + 0,
-			.commandBufferCount = 1, .pCommandBuffers = &cbPostprocessing,
-			.signalSemaphoreCount = 1, .pSignalSemaphores = &readyToPresentSemaphore };
+		static uint32_t currentCBindex{ 1 };
+		currentCBindex = currentCBindex ? 0 : 1;
+		VkCommandBuffer cbCompute{ cmdBufferSet.beginInterchangeableRecording(cbSetIndex, currentCBindex)};
 
-		clusterer.waitClusteringProcess();
+			depthBuffer.cmdCalcHiZ(cbCompute, descriptorManager);
 
-		vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 3, submitInfos, renderCompleteFence);
-		
-		presentInfo.pImageIndices = &std::get<2>(swapchainImageData);
+		cmdBufferSet.endRecording(cbCompute);
 
-		if (!vulkanObjectHandler->checkSwapchain(vkQueuePresentKHR(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), &presentInfo)))
-			swapChains[0] = vulkanObjectHandler->getSwapchain();
+		{
+			VkSubmitInfo submitInfos[4]{};
+			VkTimelineSemaphoreSubmitInfo semaphoreSubmit[4]{};
+			uint64_t timelineVal{ semaphore.getValue() };
+			uint64_t timelineValHiZ{ semaphoreHiZ.getValue() };
 
-		vkWaitForFences(device, 1, &renderCompleteFence, true, UINT64_MAX);
-		cmdBufferSet.resetBuffers();
+			uint64_t waitValues0[]{ timelineValHiZ };
+			uint64_t signalValues0[]{ ++timelineVal };
+			VkSemaphore waitSemaphores0[]{ semaphoreHiZ.getHandle()};
+			VkSemaphore signalSemaphores0[]{ semaphore.getHandle() };
+			VkPipelineStageFlags stageFlags0[]{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+			semaphoreSubmit[0] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues0), waitValues0, ARRAYSIZE(signalValues0), signalValues0);
+			submitInfos[0] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit,
+				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores0), .pWaitSemaphores = waitSemaphores0, .pWaitDstStageMask = stageFlags0,
+				.commandBufferCount = 1, .pCommandBuffers = &cbPreprocessing,
+				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores0), .pSignalSemaphores = signalSemaphores0 };
+			static bool firstIt{ true }; if (firstIt) { firstIt = false; submitInfos[0].waitSemaphoreCount = 0; }
+
+			uint64_t waitValues1[]{ timelineVal };
+			uint64_t signalValues1[]{ ++timelineVal };
+			VkSemaphore waitSemaphores1[]{ semaphore.getHandle() };
+			VkSemaphore signalSemaphores1[]{ semaphore.getHandle() };
+			VkPipelineStageFlags stageFlags1[]{ VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
+			semaphoreSubmit[1] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues1), waitValues1, ARRAYSIZE(signalValues1), signalValues1);
+			submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 1,
+				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores1), .pWaitSemaphores = waitSemaphores1, .pWaitDstStageMask = stageFlags1,
+				.commandBufferCount = 1, .pCommandBuffers = &cbDraw,
+				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores1), .pSignalSemaphores = signalSemaphores1 };
+
+			uint64_t waitValues2[]{ timelineVal, 0 };
+			uint64_t signalValues2[]{ ++timelineVal, 0 };
+			VkSemaphore waitSemaphores2[]{ semaphore.getHandle(), swapchainSemaphore };
+			VkSemaphore signalSemaphores2[]{ semaphore.getHandle(), readyToPresentSemaphore };
+			VkPipelineStageFlags stageFlags2[]{ VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
+			semaphoreSubmit[2] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues2), waitValues2, ARRAYSIZE(signalValues2), signalValues2);
+			submitInfos[2] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 2,
+				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores2), .pWaitSemaphores = waitSemaphores2, .pWaitDstStageMask = stageFlags2,
+				.commandBufferCount = 1, .pCommandBuffers = &cbPostprocessing,
+				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores2), .pSignalSemaphores = signalSemaphores2 };
+
+
+			uint64_t waitValues3[]{ waitValues1[0]};
+			uint64_t signalValues3[]{ ++timelineValHiZ };
+			VkSemaphore waitSemaphores3[]{ semaphore.getHandle() };
+			VkSemaphore signalSemaphores3[]{ semaphoreHiZ.getHandle()};
+			VkPipelineStageFlags stageFlags3{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+			semaphoreSubmit[3] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues3), waitValues3, ARRAYSIZE(signalValues3), signalValues3);
+			submitInfos[3] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 3,
+				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores3), .pWaitSemaphores = waitSemaphores3, .pWaitDstStageMask = &stageFlags3,
+				.commandBufferCount = 1, .pCommandBuffers = &cbCompute,
+				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores3), .pSignalSemaphores = signalSemaphores3 };
+
+
+			clusterer.waitClusteringProcess();
+			vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 3, submitInfos, VK_NULL_HANDLE);
+			vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::COMPUTE_QUEUE_TYPE), 1, submitInfos + 3, VK_NULL_HANDLE);
+
+			presentInfo.pImageIndices = &std::get<2>(swapchainImageData);
+
+			if (!vulkanObjectHandler->checkSwapchain(vkQueuePresentKHR(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), &presentInfo)))
+				swapChains[0] = vulkanObjectHandler->getSwapchain();
+
+			semaphore.wait(timelineVal);
+			semaphore.newValue(timelineVal);
+			semaphoreHiZ.newValue(timelineValHiZ);
+		}
+		cmdBufferSet.resetPool(CommandBufferSet::MAIN_POOL);
+		cmdBufferSet.resetPool(CommandBufferSet::TRANSIENT_POOL);
+		cmdBufferSet.resetInterchangeable(cbSetIndex, currentCBindex ? 0 : 1);
 
 		glfwPollEvents();
 
@@ -686,10 +705,7 @@ int main()
 
 	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
 	vkDestroySampler(device, universalSampler, nullptr);
-	vkDestroyFence(device, renderCompleteFence, nullptr);
 	vkDestroySemaphore(device, swapchainSemaphore, nullptr);
-	vkDestroySemaphore(device, preprocessingDoneSemaphore, nullptr);
-	vkDestroySemaphore(device, drawingCompleteSemaphore, nullptr);
 	vkDestroySemaphore(device, readyToPresentSemaphore, nullptr);
 	glfwTerminate();
 	return 0;
@@ -718,7 +734,7 @@ glm::mat4 getProjection(float FOV, float aspect, float zNear, float zFar)
 	return mat;
 }
 
-void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue)
 {
 	uint8_t data[16]
 	{
@@ -838,7 +854,6 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 }
-
 
 Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 	const BufferMapped& viewprojDataUB,
@@ -963,7 +978,7 @@ Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ImageCubeMap& 
 		{{PosOnlyVertex::getBindingDescription()}},
 		{PosOnlyVertex::getAttributeDescriptions()} };
 }
-void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue)
 {
 	float vertices[] =
 	{
@@ -1037,7 +1052,7 @@ Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, BufferMapped& vi
 		{PosColorVertex::getAttributeDescriptions()},
 		{{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(glm::vec3)}}} };
 }
-uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue)
 {
 	std::ifstream istream{ filepath, std::ios::binary };
 	istream.seekg(0, std::ios::beg);
@@ -1172,7 +1187,7 @@ Pipeline createSphereTestPBRPipeline(PipelineAssembler& assembler, BufferMapped&
 		{PosTexVertex::getAttributeDescriptions()},
 		{{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(glm::vec3)}}} };
 }
-uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue)
 {
 	BufferMapped staging{ stagingBase };
 

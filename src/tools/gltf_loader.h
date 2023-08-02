@@ -108,7 +108,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 								std::vector<fs::path> filepaths,
 								std::shared_ptr<VulkanObjectHandler> vulkanObjects,
 								DescriptorManager& descriptorManager,
-								FrameCommandBufferSet& commandBufferSet)
+								CommandBufferSet& commandBufferSet)
 {
 	cgltf_options options{};
 	int modelCount = filepaths.size();
@@ -230,7 +230,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 													.image = loadedTextures.getImageHandle(i),
 													.subresourceRange = loadedTextures.getImageListSubresourceRange(i) });
 	}
-	VkCommandBuffer CB{ commandBufferSet.beginRecording(FrameCommandBufferSet::MAIN_CB) };
+	VkCommandBuffer CB{ commandBufferSet.beginRecording(CommandBufferSet::MAIN_CB) };
 	{
 		BufferTools::cmdBufferCopy(CB, resourceStaging.getBufferHandle(), vertexBuffer.getBufferHandle(), copyRegionsVertexBuf.size(), copyRegionsVertexBuf.data());
 		BufferTools::cmdBufferCopy(CB, resourceStaging.getBufferHandle(), indexBuffer.getBufferHandle(), copyRegionsIndexBuf.size(), copyRegionsIndexBuf.data());
@@ -259,7 +259,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	EASSERT(vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
 	EASSERT(vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
 
-	commandBufferSet.resetBuffers();
+	commandBufferSet.resetPool(CommandBufferSet::MAIN_POOL);
 
 	return meshes;
 }

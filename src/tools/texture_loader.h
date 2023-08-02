@@ -22,7 +22,7 @@ namespace TextureLoaders
 {
 
 	inline ImageCubeMap loadCubemap(std::shared_ptr<VulkanObjectHandler> vulkanObjects,
-									FrameCommandBufferSet & commandBufferSet,
+									CommandBufferSet & commandBufferSet,
 									BufferBaseHostAccessible & stagingBase,
 									fs::path filepath)
 	{
@@ -100,7 +100,7 @@ namespace TextureLoaders
 	}
 
 	inline Image loadImage(std::shared_ptr<VulkanObjectHandler> vulkanObjects,
-						   FrameCommandBufferSet& commandBufferSet,
+						   CommandBufferSet& commandBufferSet,
 						   BufferBaseHostAccessible& stagingBase,
 						   fs::path filepath,
 						   VkImageUsageFlags usageFlags,

@@ -1,6 +1,6 @@
 #include "src/rendering/renderer/clusterer.h"
 
-Clusterer::Clusterer(VkDevice device, FrameCommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const BufferMapped& viewprojDataUB)
+Clusterer::Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const BufferMapped& viewprojDataUB)
 	: m_motherBufferShared{ device, CLUSTERED_BUFFERS_SIZE, 
 		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, BufferBase::DEDICATED_FLAG, true },
 	m_sortedTypeData{ device, MAX_LIGHTS * sizeof(uint8_t), 
@@ -376,7 +376,7 @@ void Clusterer::createTileTestObjects(const BufferMapped& viewprojDataUB)
 		{},
 		{});
 }
-void Clusterer::uploadBuffersData(FrameCommandBufferSet& cmdBufferSet, VkQueue queue)
+void Clusterer::uploadBuffersData(CommandBufferSet& cmdBufferSet, VkQueue queue)
 {
 	BufferBaseHostAccessible staging{ m_device, m_lightBoundingVolumeVertexData.getSize(), VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT };
 

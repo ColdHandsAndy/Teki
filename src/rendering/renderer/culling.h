@@ -35,6 +35,9 @@ class Culling
 private:
 	Pipeline m_occlusionPass{};
 	
+	BufferBaseHostAccessible m_baseShared;
+	BufferBaseHostInaccessible m_baseDevice;
+
 	BufferMapped m_indicesCmds{};
 	Buffer m_drawCount{};
 	Buffer m_targetDrawCommands{};
@@ -42,24 +45,31 @@ private:
 
 	uint32_t m_frustumNonculledCount{};
 	uint32_t m_hiZmipmax{};
+	uint32_t m_maxDrawCount{};
 	float m_zNear{};
 
 public:
 	Culling(VkDevice device,
 		uint32_t drawCommandsMax,
 		float zNearProjPlane,
-		BufferBaseHostAccessible& baseHost, BufferBaseHostAccessible& baseShared, BufferBaseHostInaccessible& baseDevice,
 		const BufferMapped& viewprojUB,
 		const BufferMapped& indirectDataBuffer,
-		const DepthBuffer& depthBuffer)
+		const DepthBuffer& depthBuffer,
+		uint32_t computeQueueIndex,
+		uint32_t graphicsQueueIndex)
+		: m_baseShared{ device, sizeof(uint32_t) * drawCommandsMax + 512, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::NULL_FLAG, true },
+		m_baseDevice{ device, (sizeof(uint32_t) * 2 + sizeof(VkDrawIndexedIndirectCommand)) * drawCommandsMax + 512, 
+			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 
+			{{graphicsQueueIndex, computeQueueIndex}}, BufferBase::NULL_FLAG }
 	{
-		m_hiZmipmax = depthBuffer.getMipLevelCountHiZ() - 1;
+		m_hiZmipmax = depthBuffer.getMipLevelCountHiZ();
 		m_zNear = zNearProjPlane;
+		m_maxDrawCount = drawCommandsMax;
 
-		m_indicesCmds.initialize(baseShared, sizeof(uint32_t) * drawCommandsMax);
-		m_drawCount.initialize(baseDevice, sizeof(uint32_t));
-		m_targetDrawCommands.initialize(baseDevice, sizeof(VkDrawIndexedIndirectCommand) * drawCommandsMax);
-		m_targetDrawDataIndices.initialize(baseDevice, sizeof(uint32_t) * drawCommandsMax);
+		m_indicesCmds.initialize(m_baseShared, sizeof(uint32_t) * drawCommandsMax);
+		m_drawCount.initialize(m_baseDevice, sizeof(uint32_t));
+		m_targetDrawCommands.initialize(m_baseDevice, sizeof(VkDrawIndexedIndirectCommand) * drawCommandsMax);
+		m_targetDrawDataIndices.initialize(m_baseDevice, sizeof(uint32_t) * drawCommandsMax);
 
 		std::vector<ResourceSet> resourceSets{};
 
@@ -82,7 +92,7 @@ public:
 		VkDescriptorAddressInfoEXT viewprojAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojUB.getDeviceAddress(), .range = viewprojUB.getSize() };
 
 		VkDescriptorSetLayoutBinding hiZBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-		VkDescriptorImageInfo hiZImageInfo{ .sampler = depthBuffer.getReductionSampler(), .imageView = depthBuffer.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkDescriptorImageInfo hiZImageInfo{ .sampler = depthBuffer.getReductionSampler(), .imageView = depthBuffer.getImageViewHiZ(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
 		resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
 			{{indicesBinding, cmdAndSpheresBinding, targetCmdsBinding, drawCountBinding, hiZBinding, drawDataIndicesBinding, viewprojBinding}},  {},
@@ -100,7 +110,7 @@ public:
 			{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(uint32_t) * 2 + sizeof(float)}} });
 	}
 
-	void cullAgainstFrustum(const OBBs& boundingBoxes, const FrustumInfo& frustumInfo, const glm::mat4& viewMat)
+	uint32_t cullAgainstFrustum(const OBBs& boundingBoxes, const FrustumInfo& frustumInfo, const glm::mat4& viewMat)
 	{
 		glm::mat4 viewInv{ glm::inverse(viewMat) };
 
@@ -120,6 +130,9 @@ public:
 		m_frustumNonculledCount = 0;
 		uint32_t* indices{ reinterpret_cast<uint32_t*>(m_indicesCmds.getData()) };
 
+		//
+		uint32_t culled{ 0 };
+		//
 		for (int i{ 0 }; i < boundingBoxes.getBBCount(); ++i)
 		{
 			float* xs{};
@@ -152,7 +165,13 @@ public:
 			continue;
 
 		next:;
+			//
+			++culled;
+			//
 		}
+		//
+		return culled;
+		//
 	}
 
 	void cmdCullOccluded(VkCommandBuffer cb, DescriptorManager& descriptorManager)
@@ -203,6 +222,11 @@ public:
 	const Buffer& getDrawDataIndexBuffer()
 	{
 		return m_targetDrawDataIndices;
+	}
+
+	uint32_t getMaxDrawCount()
+	{
+		return m_maxDrawCount;
 	}
 
 };

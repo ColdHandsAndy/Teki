@@ -34,20 +34,20 @@ public:
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 			.magFilter = VK_FILTER_LINEAR,
 			.minFilter = VK_FILTER_LINEAR,
-			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
 			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 			.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 			.minLod = 0.0f,
-			.maxLod = 1.0f,
+			.maxLod = 128.0f,
 			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE };
 		VkSamplerReductionModeCreateInfo samplerReductionCI{ VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT };
 		samplerReductionCI.reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN;
 		samplerCI.pNext = &samplerReductionCI;
 		vkCreateSampler(device, &samplerCI, nullptr, &m_samplerHiZ);
 
-		const uint32_t operationNum = m_hierarchicalZ.getMipLevelCount() - 1;
-		const uint32_t activeMips = m_hierarchicalZ.getMipLevelCount() - 1;
+		const uint32_t operationNum = m_hierarchicalZ.getMipLevelCount();
+		const uint32_t activeMips = m_hierarchicalZ.getMipLevelCount();
 		m_hiZopCount = operationNum;
 
 		m_imageViewsHiZ = { new VkImageView[activeMips] };
@@ -96,7 +96,7 @@ public:
 		m_calcHiZ.initializaCompute(device, 
 			"shaders/cmpld/calc_hi_z_comp.spv",
 			resourceSets, 
-			{{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(uint32_t) * 2 + sizeof(float) * 2}}});
+			{{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(uint32_t) * 4 + sizeof(float) * 2}}});
 	}
 	~DepthBuffer()
 	{
@@ -112,8 +112,8 @@ public:
 	{
 		BarrierOperations::cmdExecuteBarrier(cb, { 
 			{BarrierOperations::constructImageBarrier(
-					VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0, 0,
 					VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 					m_depthImage.getImageHandle(),
 					{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }),
@@ -124,20 +124,25 @@ public:
 					m_hierarchicalZ.getImageHandle(),
 					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = static_cast<uint32_t>(m_hiZopCount), .baseArrayLayer = 0, .layerCount = 1 })} });
 
-		uint32_t width{ m_hierarchicalZ.getWidth() };
-		uint32_t height{ m_hierarchicalZ.getHeight() };
+		uint32_t width{ m_depthImage.getWidth() };
+		uint32_t height{ m_depthImage.getHeight() };
 
-		struct { uint32_t width; uint32_t height; float invWidth; float invHeight; } pushC;
+
+		struct { uint32_t width; uint32_t height; float invPrevWidth; float invPrevHeight; uint32_t widthPrev; uint32_t heightPrev; } pushC;
 		m_calcHiZ.cmdBind(cb);
 
 		m_calcHiZ.setResourceInUse(0, 0);
 		descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_COMPUTE, m_calcHiZ.getResourceSets(), m_calcHiZ.getResourceSetsInUse(), m_calcHiZ.getPipelineLayoutHandle());
 		constexpr uint32_t groupsizeX{ 16 };
 		constexpr uint32_t groupsizeY{ 16 };
+		pushC.widthPrev = width;
+		pushC.heightPrev = height;
+		pushC.invPrevWidth = 1.0f / width;
+		pushC.invPrevHeight = 1.0f / height;
+		width = width / 2;
+		height = height / 2;
 		pushC.width = width;
 		pushC.height = height;
-		pushC.invWidth = 1.0f / width;
-		pushC.invHeight = 1.0f / height;
 		vkCmdPushConstants(cb, m_calcHiZ.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushC), &pushC);
 		vkCmdDispatch(cb, DISPATCH_SIZE(width, groupsizeX), DISPATCH_SIZE(height, groupsizeY), 1);
 
@@ -153,14 +158,16 @@ public:
 		
 		for (int i{ 1 }; i < m_hiZopCount; ++i)
 		{
-			width = width / 2;
-			height = height / 2;
 			m_calcHiZ.setResourceInUse(0, i);
 			descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_COMPUTE, m_calcHiZ.getResourceSets(), m_calcHiZ.getResourceSetsInUse(), m_calcHiZ.getPipelineLayoutHandle());
+			pushC.widthPrev = width;
+			pushC.heightPrev = height;
+			pushC.invPrevWidth = 1.0f / width;
+			pushC.invPrevHeight = 1.0f / height;
+			width = width != 1 ? width / 2 : 1;
+			height = height != 1 ? height / 2 : 1;
 			pushC.width = width;
 			pushC.height = height;
-			pushC.invWidth = 1.0f / width;
-			pushC.invHeight = 1.0f / height;
 			vkCmdPushConstants(cb, m_calcHiZ.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushC), &pushC);
 			vkCmdDispatch(cb, DISPATCH_SIZE(width, groupsizeX), DISPATCH_SIZE(height, groupsizeY), 1);
 		

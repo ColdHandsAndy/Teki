@@ -68,7 +68,7 @@ class BufferBaseHostInaccessible : public BufferBase
 public:
 	BufferBaseHostInaccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags = NULL_FLAG);
 	BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, int allocFlags = NULL_FLAG);
-	BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags = NULL_FLAG);
+	BufferBaseHostInaccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags);
 	BufferBaseHostInaccessible(BufferBaseHostInaccessible&& srcBuffer) = default;
 	~BufferBaseHostInaccessible();
 
@@ -120,7 +120,7 @@ private:
 public:
 	BufferBaseHostAccessible(VkDevice device, const VkBufferCreateInfo& bufferCreateInfo, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
 	BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
-	BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags = NULL_FLAG, bool useSharedMemory = false, bool memoryIsCached = false);
+	BufferBaseHostAccessible(VkDevice device, VkDeviceSize bufferSize, VkBufferUsageFlags usageFlags, std::span<const uint32_t> queueFamilyIndices, int allocFlags, bool useSharedMemory = false, bool memoryIsCached = false);
 	BufferBaseHostAccessible(BufferBaseHostAccessible&& srcBuffer) noexcept;
 	~BufferBaseHostAccessible();
 

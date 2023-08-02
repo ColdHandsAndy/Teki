@@ -78,14 +78,14 @@ void projectSphere(vec3 p, float r, float proj00, float proj11, out float bvWidt
 	
 	bvWidth  = abs(projMaxX - projMinX);
 	bvHeight = abs(projMaxY - projMinY);
-	bvCenter = vec2(clamp(projMinX + bvWidth / 2.0, 0.0, 1.0), clamp(projMinY + bvHeight / 2.0, 0.0, 1.0));
+	bvCenter = clamp(vec2(projMinX + bvWidth * 0.5, projMinY + bvHeight * 0.5), 0.0, 1.0);
 }
 
 bool testOcclusion(vec3 pos, float rad)
 {
 	vec3 viewPos = vec3(viewproj.view * vec4(pos, 1.0));
 	float depth = viewproj.proj[2].z + viewproj.proj[3].z / (viewPos.z - rad);
-	
+
 	if (viewPos.z < rad + pushConstants.zNear)
 		return false;
 		
@@ -94,12 +94,11 @@ bool testOcclusion(vec3 pos, float rad)
 	vec2 sampleDepth;
 	projectSphere(viewPos, rad, viewproj.proj[0].x, viewproj.proj[1].y, bvWidth, bvHeight, sampleDepth);
 	
-	uint n = clamp(uint(log2(1.0 / (max(bvWidth, bvHeight)))), 0, pushConstants.mipMax);
+	uint n = clamp(uint(-log2(max(bvWidth, bvHeight))), 0, pushConstants.mipMax);
 	
 	uint levelHiZ = pushConstants.mipMax - n;
-	
-	return textureLod(hierarchicalZ, vec2(1.0), pushConstants.mipMax).x > depth;
-	//return sampleDepth.x < 0.0 || sampleDepth.y < 0.0 || sampleDepth.x > 1.0 || sampleDepth.y > 1.0;
+
+	return textureLod(hierarchicalZ, sampleDepth, levelHiZ).x > depth;
 }
 
 void main()
@@ -113,7 +112,7 @@ void main()
 	
 	bool occluded = testOcclusion(vec3(data.boundingSpherePosX, data.boundingSpherePosY, data.boundingSpherePosZ), data.boundingSphereRad);
 
-	if (true)
+	if (!occluded)
 	{
 		uint i = atomicAdd(targetDrawCount, 1);
 

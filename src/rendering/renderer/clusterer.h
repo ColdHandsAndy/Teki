@@ -114,7 +114,7 @@ private:
 	std::condition_variable m_cv{};
 
 public:
-	Clusterer(VkDevice device, FrameCommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const BufferMapped& viewprojDataUB);
+	Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const BufferMapped& viewprojDataUB);
 	~Clusterer();
 
 	void submitPointLight(const glm::vec3& position, const glm::vec3& color, float power, float radius);
@@ -185,7 +185,7 @@ private:
 	void computeFrontAndBack(const LightFormat& light, LightFormat::Types type, float& front, float& back);
 
 	void createTileTestObjects(const BufferMapped& viewprojDataUB);
-	void uploadBuffersData(FrameCommandBufferSet& cmdBufferSet, VkQueue queue);
+	void uploadBuffersData(CommandBufferSet& cmdBufferSet, VkQueue queue);
 	void getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type);
 
 

@@ -18,7 +18,7 @@ private:
     GLFWwindow* m_window{};
 
 public:
-	UI(GLFWwindow* window, VulkanObjectHandler& handler, FrameCommandBufferSet& cmdBufferSet)
+	UI(GLFWwindow* window, VulkanObjectHandler& handler, CommandBufferSet& cmdBufferSet)
 	{
         m_device = handler.getLogicalDevice();
         m_window = window;
