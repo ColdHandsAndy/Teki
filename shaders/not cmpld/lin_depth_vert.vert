@@ -1,6 +1,9 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive						:  enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int8    :  enable
+
+#include "misc.h"
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in uint packedNormals4x8;
@@ -21,24 +24,9 @@ layout(set = 0, binding = 1) uniform ModelMatrices
     mat4 modelMatrices[8];
 } modelMatrices;
 
-struct DrawDataIndices
-{
-    uint8_t modelIndex;
-    uint8_t index1;
-    uint8_t index2;
-    uint8_t index3;
-    uint8_t bcIndexList;
-    uint8_t bcIndexLayer;
-    uint8_t nmIndexList;
-    uint8_t nmIndexLayer;
-    uint8_t mrIndexList;
-    uint8_t mrIndexLayer;
-    uint8_t emIndexList;
-    uint8_t emIndexLayer;
-};
 layout(set = 0, binding = 2) buffer DrawDataIndicesBuffer 
 {
-    DrawDataIndices indices[];
+    DrawData indices[];
 } drawDataIndices;
 
 

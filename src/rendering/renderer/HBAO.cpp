@@ -13,10 +13,10 @@ HBAO::HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight)
 	PipelineAssembler assembler{ device };
 	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
 	assembler.setViewportState(PipelineAssembler::VIEWPORT_STATE_DEFAULT, aoRenderWidth, aoRenderHeight);
+	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0, VK_CULL_MODE_NONE);
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_DEFAULT);
 	assembler.setTesselationState(PipelineAssembler::TESSELATION_STATE_DEFAULT);
 	assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
-	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DISABLED);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT, VK_FORMAT_R16_UNORM);

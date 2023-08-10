@@ -1,6 +1,14 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive						:  enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int16    :  enable
+
+#include "lighting.h"
+
+layout(push_constant) uniform PushConstants
+{
+	float sizemod;
+} pushConstants;
 
 layout(set = 0, binding = 0) uniform ViewProjMatrices
 {
@@ -13,15 +21,6 @@ layout(set = 0, binding = 1) buffer IndexBuffer
     uint16_t indices[];
 } indexBuffer;
 
-struct UnifiedLightData
-{
-	vec3 position;
-	float lightLength;
-	vec3 spectrum;
-	float cutoffCos;
-	vec3 direction;
-	float falloffCos;
-};
 layout(set = 0, binding = 2) buffer LightData
 {
     UnifiedLightData lights[];
@@ -88,6 +87,6 @@ void main()
 	gl_Position = 
 	viewproj.proj * viewproj.view 
 	* vec4(spotVertexTransform(light, capPart ? CAP_TRANSFORM : vertexTransformTypes[vert], spotDirections[capPart ? vert * 2 : part * 2 + uint(directionChoice[vert])])
-	* light.lightLength + light.position, 1.0);
+	* light.lightLength * pushConstants.sizemod + light.position, 1.0);
 	outColor = vec3(0.35, 0.56, 0.94);
 }

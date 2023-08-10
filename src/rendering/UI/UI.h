@@ -9,6 +9,17 @@
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/rendering/renderer/command_management.h"
 
+struct UiData
+{
+    bool drawBVs{ false };
+    bool drawLightProxies{ true };
+    bool drawSpaceLines{ false };
+    bool hiZvis{ false };
+    int hiZmipLevel{ 0 };
+    uint32_t frustumCulledCount{ 0 };
+    BufferMapped finalDrawCount;
+};
+
 class UI
 {
 private:
@@ -117,6 +128,109 @@ public:
         ImGui::Render();
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
         vkCmdEndRendering(cb);
+    }
+
+    void begin(std::string name) 
+    {
+        ImGui::Begin(name.c_str());
+    }
+    void end()
+    {
+        ImGui::End();
+    }
+    void stats(UiData& data, uint32_t drawCount)
+    {
+        if (ImGui::TreeNode("Stats"))
+        {
+            ImGui::Text("Frustum culled meshes - %u", data.frustumCulledCount);
+            ImGui::Text("Occlusion culled meshes - %u", drawCount - *reinterpret_cast<uint32_t*>(data.finalDrawCount.getData()) - data.frustumCulledCount);
+            ImGui::TreePop();
+        }
+    }
+    void lightSettings(UiData& data, LightTypes::PointLight& pLight, LightTypes::SpotLight& sLight)
+    {
+        if (ImGui::TreeNode("Light settings"))
+        {
+            ImGui::Checkbox("Light bounding volumes", &data.drawBVs);
+            ImGui::Checkbox("Light proxies", &data.drawLightProxies);
+            if (ImGui::TreeNode("Spot settings"))
+            {
+                {
+                    static glm::vec3 pos{ 0.0f };
+                    bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
+                    static glm::vec2 anglesAB{ 0.0f };
+                    static glm::vec3 dir{ 0.0f, -1.0f, 0.0f };
+                    bool d = ImGui::DragFloat2("Direction", &anglesAB.x, 0.5f, -180.0f, 180.0f);
+                    static float length{ 1.0f };
+                    bool l = ImGui::SliderFloat("Length", &length, 0.0f, 50.0f);
+                    static glm::vec3 color{};
+                    bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
+                    float power{ 1.0f };
+                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 5000.0f);
+                    static float lightSize{ 0.1f };
+                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 5.0f);
+                    static float cutoff{ 22.5f };
+                    bool cf = ImGui::SliderFloat("Cutoff", &cutoff, 0.0f, 90.0f);
+                    static float falloff{ 20.0f };
+                    bool ff = ImGui::SliderFloat("Falloff", &falloff, 0.0f, 90.0f);
+
+                    if (s)
+                        sLight.changeSize(lightSize);
+                    if (c)
+                        sLight.changeColor(color);
+                    if (pw)
+                        sLight.changePower(power);
+                    if (d)
+                        sLight.changeDirection(glm::rotateY(glm::rotateZ(dir, glm::radians(anglesAB.x)), glm::radians(anglesAB.y)));
+                    if (l)
+                        sLight.changeLength(length);
+                    if (p)
+                        sLight.changePosition(pos);
+                    if (cf)
+                        sLight.changeCutoff(glm::radians(cutoff));
+                    if (ff)
+                        sLight.changeFalloff(glm::radians(falloff));
+                }
+                ImGui::TreePop();
+            }
+            if (ImGui::TreeNode("Point settings"))
+            {
+                {
+                    static glm::vec3 pos{};
+                    bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
+                    static float radius{};
+                    bool r = ImGui::SliderFloat("Radius", &radius, 0.0f, 50.0f);
+                    static glm::vec3 color{};
+                    bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
+                    float power{ 1.0f };
+                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 5000.0f);
+                    static float lightSize{};
+                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 5.0f);
+
+                    if (pw)
+                        pLight.changePower(power);
+                    if (p)
+                        pLight.changePosition(pos);
+                    if (s)
+                        pLight.changeSize(lightSize);
+                    if (c)
+                        pLight.changeColor(color);
+                    if (r)
+                        pLight.changeRadius(radius);
+
+                    ImGui::TreePop();
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
+    void misc(UiData& data)
+    {
+        if (ImGui::TreeNode("Miscellanous"))
+        {
+            ImGui::Checkbox("Space lines", &data.drawSpaceLines);
+            ImGui::TreePop();
+        }
     }
 
 private:

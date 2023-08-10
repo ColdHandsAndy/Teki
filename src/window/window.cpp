@@ -1,9 +1,10 @@
 #include "src/window/window.h"
 
-Window::Window(uint32_t width, uint32_t height, std::string windowName) : m_width{ width }, m_height{ height }
+Window::Window(uint32_t width, uint32_t height, std::string windowName, bool borderless) : m_width{ width }, m_height{ height }
 {
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	glfwWindowHint(GLFW_DECORATED, !borderless);
 
 	m_window = glfwCreateWindow(width, height, windowName.c_str(), NULL, NULL);
 }

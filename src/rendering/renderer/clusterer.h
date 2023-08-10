@@ -27,7 +27,7 @@
 #define MAX_LIGHTS 1024u
 #define MAX_WORDS uint32_t(std::ceil(MAX_LIGHTS / 32u))
 #define Z_BIN_COUNT 8096u
-#define CLUSTERED_BUFFERS_SIZE MAX_LIGHTS * 48 + Z_BIN_COUNT * sizeof(uint16_t) * 2 + MAX_LIGHTS * sizeof(uint16_t) + MAX_LIGHTS * sizeof(uint16_t) + 512/*possible alignment correction*/
+#define CLUSTERED_BUFFERS_SIZE MAX_LIGHTS * sizeof(Clusterer::LightFormat) + Z_BIN_COUNT * sizeof(uint16_t) * 2 + MAX_LIGHTS * sizeof(uint16_t) + MAX_LIGHTS * sizeof(uint16_t) + 512/*possible alignment correction*/
 #define TILE_DATA_SIZE  MAX_WORDS * 4
 #define TILE_PIXEL_WIDTH 8
 #define TILE_PIXEL_HEIGHT 8
@@ -48,12 +48,16 @@ class Clusterer
 public:
 	struct LightFormat
 	{
-		alignas(16) glm::vec3 position{};
-		alignas(4)  float length{};
-		alignas(16) glm::vec3 spectrum{};
-		alignas(4)  float cutoffCos{};
-		alignas(16) glm::vec3 lightDir{};
-		alignas(4)  float falloffCos{};
+		glm::vec3 position{};
+		float length{};
+		glm::vec3 spectrum{};
+		float cutoffCos{};
+		glm::vec3 lightDir{};
+		float falloffCos{};
+		int shadowListIndex{};
+		int shadowLayerIndex{};
+		int shadowMatrixIndex{};
+		float lightSize{};
 
 		enum Types : uint8_t
 		{
@@ -62,7 +66,6 @@ public:
 			ALL_TYPES
 		};
 	};
-	static_assert(sizeof(LightFormat) == 48);
 
 private:
 	VkDevice m_device;
@@ -113,6 +116,14 @@ private:
 	std::mutex m_mutex{};
 	std::condition_variable m_cv{};
 
+	struct VisualizationPipelines
+	{
+		Pipeline m_spotBV;
+		Pipeline m_pointBV;
+		Pipeline m_spotProxy;
+		Pipeline m_pointProxy;
+	} *m_visPipelines{ nullptr };
+
 public:
 	Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const BufferMapped& viewprojDataUB);
 	~Clusterer();
@@ -131,8 +142,10 @@ public:
 		m_flowGraph.wait_for_all();
 	}
 
+	void waitLightData();
 	void cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager);
-	void cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager, Pipeline& pointLPipeline, Pipeline& spotLPipeline);
+	void cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager);
+	void cmdDrawProxies(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 
 	const BufferMapped& getSortedLightsUB() const
 	{
@@ -188,6 +201,7 @@ private:
 	void uploadBuffersData(CommandBufferSet& cmdBufferSet, VkQueue queue);
 	void getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type);
 
+	void createVisualizationPipelines(const BufferMapped& viewprojDataUB, uint32_t windowWidth, uint32_t windowHeight);
 
 	Clusterer() = delete;
 	Clusterer(Clusterer&) = delete;
@@ -196,6 +210,7 @@ private:
 	friend class LightTypes::LightBase;
 	friend class LightTypes::PointLight;
 	friend class LightTypes::SpotLight;
+	friend class ShadowCaster;
 };
 
 #endif

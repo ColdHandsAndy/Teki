@@ -173,6 +173,21 @@
     <ClInclude Include="src\tools\arraysize.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\lighting\shadows.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\tools\projection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\not cmpld\include\lighting.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\not cmpld\include\misc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\not cmpld\include\rand.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -193,12 +208,12 @@
     <CustomBuild Include="shaders\not cmpld\shader_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\cone_BV_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\BV_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\cone_light_mesh_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\light_mesh_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\raster_tile_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\raster_tile_point_light_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\raster_tile_spot_light_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\point_BV_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\point_light_mesh_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\fullscreen_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\hbao_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\lin_depth_frag.frag" />
@@ -207,5 +222,12 @@
     <CustomBuild Include="shaders\not cmpld\fxaa_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\calc_hi_z_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\occlusion_culling_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\shadow_pass_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\shadow_pass_frag.frag" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="shaders\not cmpld\include\pbr.h">
+      <Filter>Header Files</Filter>
+    </Text>
   </ItemGroup>
 </Project>

@@ -307,7 +307,7 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 				uint32_t width = images.back()->spec().width;
 				uint32_t height = images.back()->spec().height;
 
-				if (images.back()->spec().nchannels == 3)
+				/*if (images.back()->spec().nchannels == 3)
 				{
 					taskGroup.run([width, height, stagingDataPtr, stagingCurrentSize]()
 						{
@@ -318,7 +318,7 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 								offset += 4;
 							}
 						});
-				}
+				}*/
 				taskGroup.run([&images, imageIndex, stagingDataPtr, stagingCurrentSize]()
 					{
 						EASSERT(images[imageIndex]->read_image(0, -1, OIIO::TypeDesc::UINT8, stagingDataPtr + stagingCurrentSize, sizeof(uint8_t) * 4) == true, "OIIO", "Could not load image.");

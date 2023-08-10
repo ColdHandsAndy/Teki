@@ -59,6 +59,7 @@ Image::Image(Image&& src) noexcept
 	m_width = src.m_width;
 	m_height = src.m_height;
 	m_mipLevelCount = src.m_mipLevelCount;
+	m_aspects = src.m_aspects;
 
 	m_imageAllocIter = src.m_imageAllocIter;
 
@@ -196,6 +197,7 @@ ImageMS::ImageMS(ImageMS&& src) noexcept
 	m_format = src.m_format;
 	m_width = src.m_width;
 	m_height = src.m_height;
+	m_aspects = src.m_aspects;
 
 	m_imageAllocIter = src.m_imageAllocIter;
 
@@ -217,7 +219,7 @@ VkImageSubresourceRange ImageMS::getSubresourceRange() const
 
 
 
-ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usageFlags, bool allocateMips, uint32_t layercount)
+ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usageFlags, bool allocateMips, uint32_t layercount, VkImageAspectFlags aspects)
 {
 	VkImageCreateInfo imageCI{};
 	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -260,13 +262,14 @@ ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat 
 	EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
 	m_imageAllocIter = allocationIter;
 
+	m_aspects = aspects;
 	VkImageViewCreateInfo imageViewCI{};
 	imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	imageViewCI.image = m_imageHandle;
 	imageViewCI.format = m_format;
 	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 	imageViewCI.components = {.r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A};
-	imageViewCI.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
+	imageViewCI.subresourceRange = {.aspectMask = aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
 	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
 
 	for (int i{ static_cast<int>(m_arrayLayerCount - 1) }; i >= 0; --i)
@@ -284,6 +287,7 @@ ImageList::ImageList(ImageList&& src) noexcept
 	m_height = src.m_height;
 	m_mipLevelCount = src.m_mipLevelCount;
 	m_arrayLayerCount = src.m_arrayLayerCount;
+	m_aspects = src.m_aspects;
 
 	m_freeLayers = std::move(src.m_freeLayers);
 
@@ -305,6 +309,7 @@ ImageList& ImageList::operator=(ImageList&& src) noexcept
 	m_height = src.m_height;
 	m_mipLevelCount = src.m_mipLevelCount;
 	m_arrayLayerCount = src.m_arrayLayerCount;
+	m_aspects = src.m_aspects;
 
 	m_freeLayers = std::move(src.m_freeLayers);
 
@@ -334,7 +339,7 @@ uint32_t ImageList::getLayerCount() const
 
 VkImageSubresourceRange ImageList::getSubresourceRange() const
 {
-	return VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
+	return VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
 }
 
 bool ImageList::getLayer(uint16_t& slotIndex)
@@ -358,7 +363,7 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 	for (uint32_t i{ 0 }; i < regionCount; ++i)
 	{
 		VkImageSubresourceLayers imageSubresource{};
-		imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageSubresource.aspectMask = m_aspects;
 		imageSubresource.layerCount = 1;
 		imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
 		imageSubresource.mipLevel = mipLevel == nullptr ? 0 : mipLevel[i];
@@ -382,7 +387,7 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 	for (uint32_t i{ 0 }; i < regionCount; ++i)
 	{
 		VkImageSubresourceLayers imageSubresource{};
-		imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageSubresource.aspectMask = m_aspects;
 		imageSubresource.layerCount = 1;
 		imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
 		imageSubresource.mipLevel = mipLevel == nullptr ? 0 : mipLevel[i];
@@ -397,6 +402,17 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 
 	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
 	delete[] bufferImageCopies;
+}
+
+void ImageList::cmdTransitionLayoutFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout)
+{
+	BarrierOperations::cmdExecuteBarrier(cb,
+		{ {BarrierOperations::constructImageBarrier(
+			srcStageMask, dstStageMask,
+			0, 0,
+			VK_IMAGE_LAYOUT_UNDEFINED, dstLayout,
+			m_imageHandle, this->getSubresourceRange())
+		} });
 }
 
 void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLayout)
@@ -431,14 +447,14 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 				0, VK_ACCESS_TRANSFER_READ_BIT,
 				currentListLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				m_imageHandle,
-				VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount }) },
+				VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount }) },
 		VkImageMemoryBarrier2{
 			BarrierOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_WRITE_BIT,
 				currentListLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				m_imageHandle,
-				VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 1, .levelCount = m_mipLevelCount - 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount }) }
+				VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 1, .levelCount = m_mipLevelCount - 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount }) }
 		};
 
 	VkImageMemoryBarrier2 memBarrier{ 
@@ -447,7 +463,7 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			m_imageHandle,
-			VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount}) };
+			VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount}) };
 
 	BarrierOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
 
@@ -460,10 +476,10 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 			VkImageBlit& blit{ imageBlits[j] };
 			blit.srcOffsets[0] = VkOffset3D{ 0, 0, 0 };
 			blit.srcOffsets[1] = VkOffset3D{ mipWidth, mipHeight, 1 };
-			blit.srcSubresource = VkImageSubresourceLayers{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = i - 1, .baseArrayLayer = static_cast<uint32_t>(busyLayers[j]), .layerCount = 1};
+			blit.srcSubresource = VkImageSubresourceLayers{ .aspectMask = m_aspects, .mipLevel = i - 1, .baseArrayLayer = static_cast<uint32_t>(busyLayers[j]), .layerCount = 1};
 			blit.dstOffsets[0] = VkOffset3D{ 0, 0, 0 };
 			blit.dstOffsets[1] = VkOffset3D{ mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1 };
-			blit.dstSubresource = VkImageSubresourceLayers{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = i, .baseArrayLayer = static_cast<uint32_t>(busyLayers[j]), .layerCount = 1 };
+			blit.dstSubresource = VkImageSubresourceLayers{ .aspectMask = m_aspects, .mipLevel = i, .baseArrayLayer = static_cast<uint32_t>(busyLayers[j]), .layerCount = 1 };
 		}
 		vkCmdBlitImage(cb, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, blitCount, imageBlits, VK_FILTER_LINEAR);
 		mipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
@@ -478,13 +494,13 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 												VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 												VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 												m_imageHandle,
-												VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount})} });
+												VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount})} });
 	delete[] imageBlits;
 }
 
 
 
-ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags, uint32_t mipLevels)
+ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags, int mipLevels, VkImageAspectFlags aspect)
 {
 	VkImageCreateInfo imageCI{};
 	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -494,7 +510,7 @@ ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength
 	m_format = format;
 	imageCI.extent = { .width = sideLength, .height = sideLength, .depth = 1 };
 	m_sideLength = sideLength;
-	if (mipLevels == 0)
+	if (mipLevels == -1)
 		mipLevels = std::floor(std::log2(sideLength)) + 1;
 	m_mipLevelCount = mipLevels;
 	imageCI.mipLevels = mipLevels;
@@ -522,7 +538,8 @@ ImageCubeMap::ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength
 	imageViewCI.format = m_format;
 	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
 	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
-	imageViewCI.subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount };
+	imageViewCI.subresourceRange = { .aspectMask = aspect, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount };
+	m_aspects = aspect;
 	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
 
 	VkSamplerCreateInfo samplerCI{};
@@ -554,6 +571,7 @@ ImageCubeMap::ImageCubeMap(ImageCubeMap&& src) noexcept
 	m_sideLength = src.m_sideLength;
 	m_mipLevelCount = src.m_mipLevelCount;
 	m_arrayLayerCount = src.m_arrayLayerCount;
+	m_aspects = src.m_aspects;
 
 	m_imageAllocIter = src.m_imageAllocIter;
 
@@ -567,6 +585,16 @@ ImageCubeMap::~ImageCubeMap()
 	}
 }
 
+void ImageCubeMap::cmdTransitionLayoutFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout)
+{
+	BarrierOperations::cmdExecuteBarrier(cb,
+		{ {BarrierOperations::constructImageBarrier(
+			srcStageMask, dstStageMask,
+			0, 0,
+			VK_IMAGE_LAYOUT_UNDEFINED, dstLayout,
+			m_imageHandle, this->getSubresourceRange())
+		} });
+}
 void ImageCubeMap::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t sideLength, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel)
 {
 	VkBufferImageCopy* bufferImageCopies{ new VkBufferImageCopy[regionCount] };
@@ -574,7 +602,7 @@ void ImageCubeMap::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer,
 	for (uint32_t i{ 0 }; i < regionCount; ++i)
 	{
 		VkImageSubresourceLayers imageSubresource{};
-		imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageSubresource.aspectMask = m_aspects;
 		imageSubresource.layerCount = 1;
 		imageSubresource.baseArrayLayer = dstImageLayerIndex[i];
 		imageSubresource.mipLevel = mipLevel == nullptr ? 0 : mipLevel[i];
@@ -593,7 +621,7 @@ void ImageCubeMap::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer,
 
 
 
-ImageListContainer::ImageListContainer(VkDevice device, VkImageUsageFlags usageFlags, bool allocateMips, VkSamplerCreateInfo samplerCI) : m_device{ device }, m_listsUsage{ usageFlags }, m_allocateMipmaps{ allocateMips }
+ImageListContainer::ImageListContainer(VkDevice device, VkImageUsageFlags usageFlags, bool allocateMips, VkSamplerCreateInfo samplerCI, uint32_t listLayerCount, VkImageAspectFlags aspects) : m_device{ device }, m_listsUsage{ usageFlags }, m_allocateMipmaps{ allocateMips }, m_listLayerCount{ listLayerCount }, m_aspects{aspects}
 {
 	vkCreateSampler(device, &samplerCI, nullptr, &m_sampler);
 }
@@ -633,7 +661,7 @@ ImageListContainer::ImageListContainerIndices ImageListContainer::getNewImage(in
 		if (availableImageListIndex == -1)
 		{
 			indices.listIndex = m_imageLists.size();
-			m_imageLists.emplace_back(ImageList{ m_device, static_cast<uint32_t>(width), static_cast<uint32_t>(height), format, m_listsUsage, m_allocateMipmaps, static_cast<uint32_t>(m_listLayerCount) }, false);
+			m_imageLists.emplace_back(ImageList{ m_device, static_cast<uint32_t>(width), static_cast<uint32_t>(height), format, m_listsUsage, m_allocateMipmaps, static_cast<uint32_t>(m_listLayerCount), m_aspects }, false);
 			EASSERT(m_imageLists.back().list.getLayer(indices.layerIndex) == true, "App", "No free layers in a new ImageList. || Should never happen.");
 		}
 		else
@@ -663,6 +691,23 @@ VkImageView ImageListContainer::getImageViewHandle(uint16_t listIndex) const
 {
 	return m_imageLists[listIndex].list.getImageView();
 }
+void ImageListContainer::cmdTransitionLayoutsFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout)
+{
+	VkImageMemoryBarrier2* barriers{ new VkImageMemoryBarrier2[m_imageLists.size()] };
+
+	for (int i{ 0 }; i < m_imageLists.size(); ++i)
+	{
+		barriers[i] = BarrierOperations::constructImageBarrier(
+			srcStageMask, dstStageMask,
+			0, 0,
+			VK_IMAGE_LAYOUT_UNDEFINED, dstLayout,
+			m_imageLists[i].list.getImageHandle(), VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_imageLists[i].list.getMipLevelCount(), .baseArrayLayer = 0, .layerCount = m_listLayerCount });
+	}
+
+	BarrierOperations::cmdExecuteBarrier(cb, { barriers, barriers + m_imageLists.size() });
+
+	delete[] barriers;
+}
 void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListContainerIndices indices, VkImageLayout currentLayout)
 {
 	ImageList& mipmappedList{ m_imageLists[indices.listIndex].list };
@@ -682,14 +727,14 @@ void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListCont
 				0, VK_ACCESS_TRANSFER_READ_BIT,
 				currentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				imageHandle,
-				VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = layerIndex, .layerCount = 1 }) },
+				VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = layerIndex, .layerCount = 1 }) },
 		VkImageMemoryBarrier2{
 			BarrierOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_WRITE_BIT,
 				currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				imageHandle,
-				VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 1, .levelCount = mipCount - 1, .baseArrayLayer = layerIndex, .layerCount = 1 }) }
+				VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 1, .levelCount = mipCount - 1, .baseArrayLayer = layerIndex, .layerCount = 1 }) }
 	};
 
 	VkImageMemoryBarrier2 memBarrier{
@@ -698,7 +743,7 @@ void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListCont
 			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			imageHandle,
-			VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = layerIndex, .layerCount = 1}) };
+			VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = layerIndex, .layerCount = 1}) };
 
 	BarrierOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
 
@@ -707,10 +752,10 @@ void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListCont
 		VkImageBlit blit{};
 		blit.srcOffsets[0] = VkOffset3D{ 0, 0, 0 };
 		blit.srcOffsets[1] = VkOffset3D{ width, height, 1 };
-		blit.srcSubresource = VkImageSubresourceLayers{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = i - 1, .baseArrayLayer = layerIndex, .layerCount = 1 };
+		blit.srcSubresource = VkImageSubresourceLayers{ .aspectMask = m_aspects, .mipLevel = i - 1, .baseArrayLayer = layerIndex, .layerCount = 1 };
 		blit.dstOffsets[0] = VkOffset3D{ 0, 0, 0 };
 		blit.dstOffsets[1] = VkOffset3D{ width > 1 ? width / 2 : 1, height > 1 ? height / 2 : 1, 1 };
-		blit.dstSubresource = VkImageSubresourceLayers{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = i, .baseArrayLayer = layerIndex, .layerCount = 1 };
+		blit.dstSubresource = VkImageSubresourceLayers{ .aspectMask = m_aspects, .mipLevel = i, .baseArrayLayer = layerIndex, .layerCount = 1 };
 
 		vkCmdBlitImage(cb, imageHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 		width = width > 1 ? width / 2 : 1;
@@ -725,7 +770,7 @@ void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListCont
 												VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 												VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, currentLayout,
 												imageHandle,
-												VkImageSubresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = mipCount, .baseArrayLayer = layerIndex, .layerCount = 1})} });
+												VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = mipCount, .baseArrayLayer = layerIndex, .layerCount = 1})} });
 }
 void ImageListContainer::cmdCreateListMipmaps(VkCommandBuffer cb, uint16_t listIndex, VkImageLayout currentLayout)
 {

@@ -29,12 +29,15 @@ Clusterer::Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue qu
 	createTileTestObjects(viewprojDataUB);
 	uploadBuffersData(cmdBufferSet, queue);
 
+	createVisualizationPipelines(viewprojDataUB, windowWidth, windowHeight);
+
 	oneapi::tbb::flow::make_edge(m_cullNode, m_sortNode);
 	oneapi::tbb::flow::make_edge(m_sortNode, m_fillBuffersNode);
 	oneapi::tbb::flow::make_edge(m_sortNode, m_fillBinsNode);
 }
 Clusterer::~Clusterer()
 {
+	delete m_visPipelines;
 	delete[] m_nonculledLightsData;
 	m_sortedLightData.reset();
 	m_binsMinMax.reset();
@@ -42,52 +45,52 @@ Clusterer::~Clusterer()
 	m_instanceSpotLightIndexData.reset();
 }
 
-void Clusterer::submitPointLight(const glm::vec3& position, const glm::vec3& color, float power, float radius)
-{
-	uint32_t newIndex{ static_cast<uint32_t>(m_lightData.size()) };
-	LightFormat& lightData{ m_lightData.emplace_back() };
-	lightData.position = position;
-	lightData.spectrum = color * power;
-	lightData.length = radius;
-
-	m_boundingSpheres.push_back({ position, radius });
-
-	m_typeData.push_back(LightFormat::TYPE_POINT);
-}
-void Clusterer::submitSpotLight(const glm::vec3& position, const glm::vec3& color, float power, float length, glm::vec3 lightDir, float cutoffStartAngle, float cutoffEndAngle)
-{
-	lightDir = glm::normalize(lightDir);
-	if (lightDir.y > 0.999)
-	{
-		lightDir.y = 0.999;
-		lightDir.x = 0.001;
-	}
-	else if (lightDir.y < -0.999)
-	{
-		lightDir.y = -0.999;
-		lightDir.x = 0.001;
-	}
-
-	uint32_t newIndex{ static_cast<uint32_t>(m_lightData.size()) };
-	LightFormat& lightData{ m_lightData.emplace_back() };
-	lightData.position = position;
-	lightData.spectrum = color * power;
-	lightData.length = length;
-	lightData.lightDir = lightDir;
-	lightData.falloffCos = std::cos(std::min(std::min(cutoffStartAngle, cutoffEndAngle), static_cast<float>(M_PI_2)));
-	lightData.cutoffCos = std::cos(std::min(cutoffEndAngle, static_cast<float>(M_PI_2)));
-
-	glm::vec4 boundingSphere{
-		lightData.cutoffCos > glm::one_over_root_two<float>()
-			?
-			glm::vec4{position + lightDir * (length / 2.0f), length / 2.0f}
-		:
-			glm::vec4{ position + lightDir * length * lightData.cutoffCos, length * std::sqrt(1 - lightData.cutoffCos * lightData.cutoffCos) } };
-
-	m_boundingSpheres.push_back(boundingSphere);
-
-	m_typeData.push_back(LightFormat::TYPE_SPOT);
-}
+//void Clusterer::submitPointLight(const glm::vec3& position, const glm::vec3& color, float power, float radius)
+//{
+//	uint32_t newIndex{ static_cast<uint32_t>(m_lightData.size()) };
+//	LightFormat& lightData{ m_lightData.emplace_back() };
+//	lightData.position = position;
+//	lightData.spectrum = color * power;
+//	lightData.length = radius;
+//
+//	m_boundingSpheres.push_back({ position, radius });
+//
+//	m_typeData.push_back(LightFormat::TYPE_POINT);
+//}
+//void Clusterer::submitSpotLight(const glm::vec3& position, const glm::vec3& color, float power, float length, glm::vec3 lightDir, float cutoffStartAngle, float cutoffEndAngle)
+//{
+//	lightDir = glm::normalize(lightDir);
+//	if (lightDir.y > 0.999)
+//	{
+//		lightDir.y = 0.999;
+//		lightDir.x = 0.001;
+//	}
+//	else if (lightDir.y < -0.999)
+//	{
+//		lightDir.y = -0.999;
+//		lightDir.x = 0.001;
+//	}
+//
+//	uint32_t newIndex{ static_cast<uint32_t>(m_lightData.size()) };
+//	LightFormat& lightData{ m_lightData.emplace_back() };
+//	lightData.position = position;
+//	lightData.spectrum = color * power;
+//	lightData.length = length;
+//	lightData.lightDir = lightDir;
+//	lightData.falloffCos = std::cos(std::min(std::min(cutoffStartAngle, cutoffEndAngle), static_cast<float>(M_PI_2)));
+//	lightData.cutoffCos = std::cos(std::min(cutoffEndAngle, static_cast<float>(M_PI_2)));
+//
+//	glm::vec4 boundingSphere{
+//		lightData.cutoffCos > glm::one_over_root_two<float>()
+//			?
+//			glm::vec4{position + lightDir * (length / 2.0f), length / 2.0f}
+//		:
+//			glm::vec4{ position + lightDir * length * lightData.cutoffCos, length * std::sqrt(1 - lightData.cutoffCos * lightData.cutoffCos) } };
+//
+//	m_boundingSpheres.push_back(boundingSphere);
+//
+//	m_typeData.push_back(LightFormat::TYPE_SPOT);
+//}
 void Clusterer::submitFrustum(double near, double far, double aspect, double FOV)
 {
 	double FOV_X{ glm::atan(glm::tan(FOV / 2) * aspect) * 2 }; //FOV provided to glm::perspective defines vertical frustum angle in radians
@@ -191,6 +194,13 @@ void Clusterer::fillZBins()
 			minMax[1] = max;
 		}, ap);
 }
+void Clusterer::waitLightData()
+{
+	//Waiting until light counts are ready
+	std::unique_lock<std::mutex> lock{m_mutex};
+	m_cv.wait(lock, [this] { return m_countDataReady; });
+	m_countDataReady = false;
+}
 void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 {
 	VkRenderingInfo renderInfo{};
@@ -209,10 +219,6 @@ void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& de
 
 	vkCmdBeginRendering(cb, &renderInfo);
 		
-		//Waiting untill light counts are ready
-		std::unique_lock<std::mutex> lock{m_mutex};
-		m_cv.wait(lock, [this] { return m_countDataReady; });
-		m_countDataReady = false;
 		descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 			m_pointLightTileTestPipeline.getResourceSets(), m_pointLightTileTestPipeline.getResourceSetsInUse(), m_pointLightTileTestPipeline.getPipelineLayoutHandle());
 		VkBuffer vertexBinding[1]{ m_lightBoundingVolumeVertexData.getBufferHandle() };
@@ -228,22 +234,44 @@ void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& de
 		
 	vkCmdEndRendering(cb);
 }
-void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager, Pipeline& pointLPipeline, Pipeline& spotLPipeline)
+void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 {
+	constexpr float pcData{ 1.0 };
+
 	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		pointLPipeline.getResourceSets(), pointLPipeline.getResourceSetsInUse(), pointLPipeline.getPipelineLayoutHandle());
+		m_visPipelines->m_pointBV.getResourceSets(), m_visPipelines->m_pointBV.getResourceSetsInUse(), m_visPipelines->m_pointBV.getPipelineLayoutHandle());
 	VkBuffer vertexBinding[1]{ m_lightBoundingVolumeVertexData.getBufferHandle() };
 	VkDeviceSize vertexOffsets[1]{ m_lightBoundingVolumeVertexData.getOffset() };
 	vkCmdBindVertexBuffers(cb, 0, 1, vertexBinding, vertexOffsets);
-	pointLPipeline.cmdBind(cb);
+	m_visPipelines->m_pointBV.cmdBind(cb);
+	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
 	vkCmdDraw(cb, POINT_LIGHT_BV_VERTEX_COUNT, m_nonculledPointLightCount, 0, 0);
 
 	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		spotLPipeline.getResourceSets(), spotLPipeline.getResourceSetsInUse(), spotLPipeline.getPipelineLayoutHandle());
-	spotLPipeline.cmdBind(cb);
+		m_visPipelines->m_spotBV.getResourceSets(), m_visPipelines->m_spotBV.getResourceSetsInUse(), m_visPipelines->m_spotBV.getPipelineLayoutHandle());
+	m_visPipelines->m_spotBV.cmdBind(cb);
+	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
 	vkCmdDraw(cb, SPOT_LIGHT_BV_VERTEX_COUNT, m_nonculledSpotLightCount, 0, 0);
 }
+void Clusterer::cmdDrawProxies(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+{
+	constexpr float pcData{ 0.05 };
 
+	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_visPipelines->m_pointProxy.getResourceSets(), m_visPipelines->m_pointProxy.getResourceSetsInUse(), m_visPipelines->m_pointProxy.getPipelineLayoutHandle());
+	VkBuffer vertexBinding[1]{ m_lightBoundingVolumeVertexData.getBufferHandle() };
+	VkDeviceSize vertexOffsets[1]{ m_lightBoundingVolumeVertexData.getOffset() };
+	vkCmdBindVertexBuffers(cb, 0, 1, vertexBinding, vertexOffsets);
+	m_visPipelines->m_pointProxy.cmdBind(cb);
+	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
+	vkCmdDraw(cb, POINT_LIGHT_BV_VERTEX_COUNT, m_nonculledPointLightCount, 0, 0);
+
+	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_visPipelines->m_spotProxy.getResourceSets(), m_visPipelines->m_spotProxy.getResourceSetsInUse(), m_visPipelines->m_spotProxy.getPipelineLayoutHandle());
+	m_visPipelines->m_spotProxy.cmdBind(cb);
+	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
+	vkCmdDraw(cb, SPOT_LIGHT_BV_VERTEX_COUNT, m_nonculledSpotLightCount, 0, 0);
+}
 
 
 bool Clusterer::testSphereAgainstFrustum(const glm::vec4& sphereData)
@@ -414,4 +442,98 @@ void Clusterer::getNewLight(LightFormat** lightData, glm::vec4** boundingSphere,
 	*boundingSphere = &m_boundingSpheres.emplace_back();
 
 	m_typeData.push_back(type);
+}
+
+void Clusterer::createVisualizationPipelines(const BufferMapped& viewprojDataUB, uint32_t windowWidth, uint32_t windowHeight)
+{
+	m_visPipelines = { new VisualizationPipelines };
+
+	PipelineAssembler assembler{ m_device };
+	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
+	assembler.setViewportState(PipelineAssembler::VIEWPORT_STATE_DEFAULT, windowWidth, windowHeight);
+	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_DEFAULT);
+	assembler.setTesselationState(PipelineAssembler::TESSELATION_STATE_DEFAULT);
+	assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
+	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
+	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
+	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_LINE_POLYGONS, 1.4f, VK_CULL_MODE_NONE);
+	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
+
+	//Binding 0
+	//viewproj matrices
+	VkDescriptorSetLayoutBinding viewprojBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT viewprojAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = viewprojDataUB.getSize() };
+	//Binding 2 Point
+	//Light indices
+	VkDescriptorSetLayoutBinding pointLightIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT pointLightIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_instancePointLightIndexData.getDeviceAddress(), .range = m_instancePointLightIndexData.getSize() };
+	//Binding 2 Spot
+	//Light indices
+	VkDescriptorSetLayoutBinding spotLightIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT spotLightIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_instanceSpotLightIndexData.getDeviceAddress(), .range = m_instanceSpotLightIndexData.getSize() };
+	//Binding 3
+	//Light data
+	VkDescriptorSetLayoutBinding lightDataBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT lightDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_sortedLightData.getDeviceAddress(), .range = m_sortedLightData.getSize() };
+
+	std::vector<ResourceSet> resourceSetsP{};
+
+	resourceSetsP.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
+	{viewprojBinding, pointLightIndicesBinding, lightDataBinding},  {},
+		{{{.pUniformBuffer = &viewprojAddressInfo}},
+		{{.pStorageBuffer = &pointLightIndicesAddressInfo}},
+		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+
+	m_visPipelines->m_pointBV.initializeGraphics(assembler,
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		resourceSetsP,
+		{ {PosOnlyVertex::getBindingDescription()} },
+		{ PosOnlyVertex::getAttributeDescriptions() }, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
+
+
+	std::vector<ResourceSet> resourceSetsS{};
+
+	resourceSetsS.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
+	{viewprojBinding, spotLightIndicesBinding, lightDataBinding},  {},
+		{{{.pUniformBuffer = &viewprojAddressInfo}},
+		{{.pStorageBuffer = &spotLightIndicesAddressInfo}},
+		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+
+	m_visPipelines->m_spotBV.initializeGraphics(assembler,
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		resourceSetsS,
+		{},
+		{}, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
+
+
+	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0, VK_CULL_MODE_NONE);
+
+	std::vector<ResourceSet> resourceSetsPP{};
+
+	resourceSetsPP.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
+	{viewprojBinding, pointLightIndicesBinding, lightDataBinding},  {},
+		{{{.pUniformBuffer = &viewprojAddressInfo}},
+		{{.pStorageBuffer = &pointLightIndicesAddressInfo}},
+		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+
+	m_visPipelines->m_pointProxy.initializeGraphics(assembler,
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		resourceSetsPP,
+		{ {PosOnlyVertex::getBindingDescription()} },
+		{ PosOnlyVertex::getAttributeDescriptions() }, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
+
+
+	std::vector<ResourceSet> resourceSetsSP{};
+
+	resourceSetsSP.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
+	{viewprojBinding, spotLightIndicesBinding, lightDataBinding},  {},
+		{{{.pUniformBuffer = &viewprojAddressInfo}},
+		{{.pStorageBuffer = &spotLightIndicesAddressInfo}},
+		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+
+	m_visPipelines->m_spotProxy.initializeGraphics(assembler,
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		resourceSetsSP,
+		{},
+		{}, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
 }

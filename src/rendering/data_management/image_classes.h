@@ -70,7 +70,7 @@ private:
 
 public:
 	Image() = delete;
-	Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, bool allocateMips = false);
+	explicit Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, bool allocateMips = false);
 	Image(Image&& src) noexcept;
 	~Image() = default;
 
@@ -93,7 +93,7 @@ private:
 
 public:
 	ImageMS() = delete;
-	ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkSampleCountFlagBits sampleCount);
+	explicit ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkSampleCountFlagBits sampleCount);
 	ImageMS(ImageMS&& src) noexcept;
 	~ImageMS() = default;
 
@@ -110,11 +110,13 @@ private:
 	uint32_t m_height{};
 	uint32_t m_arrayLayerCount{};
 
+	VkImageAspectFlags m_aspects{};
+
 	std::deque<uint16_t> m_freeLayers{};
 
 public:
 	ImageList() = delete;
-	ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usageFlags, bool allocateMips = false, uint32_t layercount = 0); //if layerCount is zero default layerCount is used
+	explicit ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usageFlags, bool allocateMips = false, uint32_t layercount = 0, VkImageAspectFlags aspects = VK_IMAGE_ASPECT_COLOR_BIT); //if layerCount is zero default layerCount is used
 	ImageList(ImageList&& src) noexcept;
 	~ImageList() = default;
 	ImageList& operator=(ImageList&& src) noexcept;
@@ -130,6 +132,8 @@ public:
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 
+	void cmdTransitionLayoutFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout);
+
 	bool getLayer(uint16_t& layerIndex);
 	void freeLayer(uint16_t freedLayerIndex);
 
@@ -143,16 +147,20 @@ private:
 	uint32_t m_sideLength{};
 	uint32_t m_arrayLayerCount{};
 
+	VkImageAspectFlags m_aspects{};
 	VkSampler m_sampler{};
 
 public:
 	ImageCubeMap() = delete;
-	ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags, uint32_t mipLevels = 0);
+	explicit ImageCubeMap(VkDevice device, VkFormat format, uint32_t sideLength, VkImageUsageFlags usageFlags, int mipLevels = -1, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 	ImageCubeMap(ImageCubeMap&& src) noexcept;
 	~ImageCubeMap();
 
 	VkSampler getSampler() const { return m_sampler; }
+	uint32_t getSideLength() const { return m_sideLength; };
+	VkImageSubresourceRange getSubresourceRange() const { return VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount }; };
 
+	void cmdTransitionLayoutFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t sideLength, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 };
 
@@ -166,6 +174,7 @@ private:
 	VkImageUsageFlags m_listsUsage{};
 	bool m_allocateMipmaps{};
 	VkSampler m_sampler{};
+	VkImageAspectFlags m_aspects{};
 	struct ImageListAndAvailability
 	{
 		ImageList list;
@@ -173,7 +182,7 @@ private:
 	};
 	std::vector<ImageListAndAvailability> m_imageLists{};
 
-	const int m_listLayerCount{ 4 };
+	const uint32_t m_listLayerCount{};
 
 public:
 	struct ImageListContainerIndices
@@ -183,17 +192,19 @@ public:
 	};
 
 public:
-	ImageListContainer(VkDevice device, VkImageUsageFlags usageFlags, bool allocateMips, VkSamplerCreateInfo samplerCI);
+	explicit ImageListContainer(VkDevice device, VkImageUsageFlags usageFlags, bool allocateMips, VkSamplerCreateInfo samplerCI, uint32_t listLayerCount = 4, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 	~ImageListContainer();
 
 	int getImageListCount() const { return m_imageLists.size(); }
 	VkImageSubresourceRange getImageListSubresourceRange(uint32_t index) const { return m_imageLists[index].list.getSubresourceRange();  };
+	void getImageListResolution(uint32_t listIndex, uint32_t& width, uint32_t& height) { width = m_imageLists[listIndex].list.getWidth(); height = m_imageLists[listIndex].list.getHeight(); };
 
 	[[nodiscard]] ImageListContainerIndices getNewImage(int width, int height, VkFormat format);
 	void freeImage(ImageListContainerIndices indices);
 	VkSampler getSampler() const;
 	VkImage getImageHandle(uint16_t listIndex) const;
 	VkImageView getImageViewHandle(uint16_t listIndex) const;
+	void cmdTransitionLayoutsFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout);
 	void cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListContainerIndices indices, VkImageLayout currentLayout);
 	void cmdCreateListMipmaps(VkCommandBuffer cb, uint16_t listIndex, VkImageLayout currentLayout);
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentLayout);

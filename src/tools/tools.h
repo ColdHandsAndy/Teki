@@ -2,6 +2,8 @@
 #include "src/tools/gltf_loader.h"
 #include "src/tools/obj_loader.h"
 
+#include "src/tools/projection.h"
+
 #include "src/tools/alignment.h"
 #include "src/tools/comp_s.h"
 #include "src/tools/arraysize.h"

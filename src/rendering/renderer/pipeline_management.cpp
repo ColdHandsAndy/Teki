@@ -11,6 +11,7 @@ PipelineAssembler::PipelineAssembler(VkDevice device)
 }
 PipelineAssembler::~PipelineAssembler()
 {
+	delete[] m_dynamicStateValues;
 }
 
 
@@ -21,23 +22,36 @@ void PipelineAssembler::setDynamicState(StatePresets preset)
 	case DYNAMIC_STATE_DEFAULT:
 		m_dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 		break;
+	case DYNAMIC_STATE_VIEWPORT:
+		m_dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+		m_dynamicStateValues = { new VkDynamicState[1] };
+		*m_dynamicStateValues = VK_DYNAMIC_STATE_VIEWPORT;
+		m_dynamicState.dynamicStateCount = 1;
+		m_dynamicState.pDynamicStates = m_dynamicStateValues;
+		break;
 	default:
 		EASSERT(false, "App", "Invalid state preset.")
 			break;
 	}
 }
-void PipelineAssembler::setViewportState(StatePresets preset, uint32_t viewportWidth, uint32_t viewportHeight)
+void PipelineAssembler::setViewportState(StatePresets preset, uint32_t viewportWidth, uint32_t viewportHeight, uint32_t viewportCount)
 {
 	switch (preset)
 	{
 	case VIEWPORT_STATE_DEFAULT:
 		m_viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-		m_viewportState.viewportCount = 1;
-		//m_viewport = { .x = 0, .y = static_cast<float>(viewportHeight), .width = static_cast<float>(viewportWidth), .height = -static_cast<float>(viewportHeight), .minDepth = 0.0f, .maxDepth = 1.0f };
+		m_viewportState.viewportCount = viewportCount;
 		m_viewport = { .x = 0, .y = 0, .width = static_cast<float>(viewportWidth), .height = static_cast<float>(viewportHeight), .minDepth = 0.0f, .maxDepth = 1.0f };
 		m_viewportState.pViewports = &m_viewport;
 		m_viewportState.scissorCount = 1;
 		m_rect = { .offset{0, 0}, .extent{.width = viewportWidth, .height = viewportHeight} };
+		m_viewportState.pScissors = &m_rect;
+		break;
+	case VIEWPORT_STATE_DYNAMIC:
+		m_viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+		m_viewportState.viewportCount = viewportCount;
+		m_viewportState.scissorCount = 1;
+		m_rect = { .offset{0, 0}, .extent{.width = 1 << 19, .height = 1 << 19} };
 		m_viewportState.pScissors = &m_rect;
 		break;
 	default:
@@ -143,7 +157,17 @@ void PipelineAssembler::setRasterizationState(StatePresets preset, float lineWid
 		m_rasterizationState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 		m_rasterizationState.depthClampEnable = VK_FALSE;
 		m_rasterizationState.rasterizerDiscardEnable = VK_TRUE;
-		m_rasterizationState.polygonMode = VK_POLYGON_MODE_POINT;
+		m_rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+		m_rasterizationState.lineWidth = lineWidth;
+		m_rasterizationState.cullMode = cullMode;
+		m_rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+		m_rasterizationState.depthBiasEnable = VK_FALSE;
+		break;
+	case RASTERIZATION_STATE_SHADOW_MAP:
+		m_rasterizationState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		m_rasterizationState.depthClampEnable = VK_TRUE;
+		m_rasterizationState.rasterizerDiscardEnable = VK_FALSE;
+		m_rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
 		m_rasterizationState.lineWidth = lineWidth;
 		m_rasterizationState.cullMode = cullMode;
 		m_rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
@@ -154,7 +178,7 @@ void PipelineAssembler::setRasterizationState(StatePresets preset, float lineWid
 			break;
 	}
 }
-void PipelineAssembler::setDepthStencilState(StatePresets preset)
+void PipelineAssembler::setDepthStencilState(StatePresets preset, VkCompareOp cmpOp)
 {
 	switch (preset)
 	{
@@ -162,7 +186,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 		m_depthStencilState.depthTestEnable = VK_TRUE;
 		m_depthStencilState.depthWriteEnable = VK_TRUE;
-		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+		m_depthStencilState.depthCompareOp = cmpOp;
 		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;
@@ -170,7 +194,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 		m_depthStencilState.depthTestEnable = VK_FALSE;
 		m_depthStencilState.depthWriteEnable = VK_TRUE;
-		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+		m_depthStencilState.depthCompareOp = cmpOp;
 		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;
@@ -178,7 +202,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 		m_depthStencilState.depthTestEnable = VK_TRUE;
 		m_depthStencilState.depthWriteEnable = VK_FALSE;
-		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+		m_depthStencilState.depthCompareOp = cmpOp;
 		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;
@@ -186,7 +210,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 		m_depthStencilState.depthTestEnable = VK_TRUE;
 		m_depthStencilState.depthWriteEnable = VK_FALSE;
-		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+		m_depthStencilState.depthCompareOp = cmpOp;
 		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;
@@ -194,7 +218,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset)
 		m_depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 		m_depthStencilState.depthTestEnable = VK_FALSE;
 		m_depthStencilState.depthWriteEnable = VK_FALSE;
-		m_depthStencilState.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+		m_depthStencilState.depthCompareOp = cmpOp;
 		m_depthStencilState.depthBoundsTestEnable = VK_FALSE;
 		m_depthStencilState.stencilTestEnable = VK_FALSE;
 		break;

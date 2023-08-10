@@ -138,7 +138,7 @@ public:
 			float* xs{};
 			float* ys{};
 			float* zs{};
-			boundingBoxes.getOBB(i, &xs, &ys, &zs);
+			boundingBoxes.getPointsOBB(i, &xs, &ys, &zs);
 			__m128 points[8]{};
 			for (int j{ 0 }; j < 8; ++j)
 			{

@@ -58,7 +58,7 @@ namespace TextureLoaders
 		ktxTexture_LoadImageData((ktxTexture*)texture, (ktx_uint8_t*)staging.getData(), totalByteSize);
 		ktxTexture_Destroy((ktxTexture*)texture);
 
-		ImageCubeMap cubemap{ vulkanObjects->getLogicalDevice(), format, static_cast<uint32_t>(sideLength), VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, static_cast<uint32_t>(mipLevelCount) };
+		ImageCubeMap cubemap{ vulkanObjects->getLogicalDevice(), format, static_cast<uint32_t>(sideLength), VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, static_cast<int>(mipLevelCount) };
 
 		VkCommandBuffer cb{ commandBufferSet.beginTransientRecording() };
 		BarrierOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{

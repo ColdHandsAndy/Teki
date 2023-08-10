@@ -1,13 +1,17 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive						: enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int8     : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int16    : enable
 #extension GL_KHR_shader_subgroup_ballot					: enable
 #extension GL_KHR_shader_subgroup_arithmetic				: enable
-
+#extension GL_EXT_samplerless_texture_functions				: enable
 
 layout(depth_unchanged) out float gl_FragDepth;
 
+#include "pbr.h"
+#include "lighting.h"
+#include "misc.h"
 
 //Math
 #define PI 3.141592653589
@@ -26,6 +30,9 @@ layout(depth_unchanged) out float gl_FragDepth;
 #define TILE_PIXEL_WIDTH 8
 #define TILE_PIXEL_HEIGHT 8 
 
+//Shadows
+#define BLOCKER_SEARCH_NUM_SAMPLES 4
+#define PCF_NUM_SAMPLES 8
 
 
 layout(location = 0) in flat uint drawID;
@@ -41,6 +48,7 @@ layout(push_constant) uniform PushConsts
 	float binWidth;
 	vec2 resolutionAO;
 	uint windowTileWidth;
+	float nearPlane;
 } pushConstants;
 
 layout(set = 0, binding = 0) uniform ViewProjMatrices 
@@ -49,40 +57,23 @@ layout(set = 0, binding = 0) uniform ViewProjMatrices
     mat4 proj;
 } viewproj;
 
-layout (set = 1, binding = 0) uniform sampler2DArray imageListArray[64];
-
-struct DrawData
+layout(set = 1, binding = 0) uniform sampler2DArray imageListArray[64];
+layout(set = 1, binding = 1) uniform sampler samplerS;
+layout(set = 1, binding = 2) uniform texture2DArray shadowMapArray[64];
+layout(set = 1, binding = 3) uniform texture2DArray shadowCubeMapArray[64];
+layout(set = 1, binding = 4) buffer ShadowViewMatrices
 {
-    uint8_t modelIndex;
-    uint8_t index1;
-    uint8_t index2;
-    uint8_t index3;
-    uint8_t bcIndexList;
-    uint8_t bcIndexLayer;
-    uint8_t nmIndexList;
-    uint8_t nmIndexLayer;
-    uint8_t mrIndexList;
-    uint8_t mrIndexLayer;
-    uint8_t emIndexList;
-    uint8_t emIndexLayer;
-};
+	mat4 matrices[];
+} shadowViewMatrices;
+
 layout(set = 2, binding = 0) buffer DrawDataBuffer 
 {
     DrawData data[];
 } drawData;
 
-struct UnifiedLightData
+layout(set = 3, binding = 0) buffer LightsData
 {
-	vec3 position;
-	float lightLength;
-	vec3 spectrum;
-	float cutoffCos;
-	vec3 direction;
-	float falloffCos;
-};
-layout(set = 3, binding = 0) uniform LightsData
-{
-	UnifiedLightData lights[MAX_LIGHTS];
+	UnifiedLightData lights[];
 } lightsData;
 const uint TYPE_POINT = 0;
 const uint TYPE_SPOT = 1;
@@ -122,38 +113,6 @@ layout(std140, set = 5, binding = 0) uniform DirectionalLight
 
 
 
-
-vec3 F_Schlick(vec3 F0, float F90, float NdotX)
-{
-	return F0 + (F90 - F0) * pow(1.0 - NdotX, 5.0);
-}
-float V_SmithGGXCorrelated(float NdotL, float NdotV, float alpha2)
-{
-	float Lambda_GGXV = NdotL * sqrt((-NdotV * alpha2 + NdotV) * NdotV + alpha2);
-	float Lambda_GGXL = NdotV * sqrt((-NdotL * alpha2 + NdotL) * NdotL + alpha2);
-	
-	return 0.5 / (Lambda_GGXV + Lambda_GGXL);
-}
-float D_GGX(float NdotH, float alpha2)
-{
-	float d = (NdotH * alpha2 - NdotH) * NdotH + 1;
-	return alpha2 / (d * d);
-}
-
-float Fr_DisneyDiffuse(float NdotV, float NdotL, float LdotH, float roughness)
-{
-	float energyBias = mix(0, 0.5, roughness);
-	float energyFactor = mix(1.0, 1.0 / 1.51 , roughness);
-	float fd90 = energyBias + 2.0 * LdotH * LdotH * roughness;
-	vec3 f0 = vec3(1.0, 1.0, 1.0);
-	float lightScatter = F_Schlick(f0, fd90, NdotL).r;
-	float viewScatter = F_Schlick(f0, fd90, NdotV).r;
-	
-	return lightScatter * viewScatter * energyFactor;
-}
-
-
-
 vec3 evaluateIBL(vec3 N, vec3 V, vec3 R, float NdotV, float alpha, float roughness, vec3 F0, vec3 DFG, vec3 albedo, float specAO, float diffAO)
 {
     vec3 Fr = max(vec3(1.0 - alpha), F0) - F0;
@@ -171,13 +130,31 @@ vec3 evaluateIBL(vec3 N, vec3 V, vec3 R, float NdotV, float alpha, float roughne
 
     return FssEss * specLD * specAO + (FmsEms + kD) * diffLD;
 }
-float computeSpecOcclusion(float NdotV, float diffAO, float alpha)
+
+float calcShadowingOnedir(int list, uint layer, uint viewmat, float angleCos, float lightSize, float NdotL)
 {
-	return clamp(pow(NdotV + diffAO, exp2(-16.0 * alpha - 1.0)) - 1.0 + diffAO, 0.0, 1.0);
+	vec4 pos = vec4(inPos, 1.0);
+	vec3 viewpos = vec3(shadowViewMatrices.matrices[viewmat] * pos);
+	float projMod = angleCos / sqrt(1.0 - angleCos * angleCos);
+	
+	vec3 uv = vec3(vec2(((viewpos.x * projMod) / viewpos.z) * 0.5 + 0.5, ((viewpos.y * (-projMod)) / viewpos.z) * 0.5 + 0.5), float(layer) + 0.1);
+	float depth = viewpos.z;
+	
+	float bias = max(0.05 * (1.0 - NdotL), 0.005);
+	
+	return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowMapArray[list]);
 }
-
-
-
+float calcShadowingOmnidir(int list, uint viewmat, vec3 lightPos, float lightSize, float NdotL)
+{
+	vec3 dirvec = vec3(inPos.x, inPos.y, inPos.z) - vec3(lightPos.x, lightPos.y, lightPos.z);
+	float depth = max(max(abs(dirvec.x), abs(dirvec.y)), abs(dirvec.z));
+	
+	vec3 uv = getTexArrayCoordinateFromDirection(dirvec);
+	
+	float bias = max(0.05 * (1.0 - NdotL), 0.005);
+	
+	return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowCubeMapArray[list]);
+}
 struct MaterialData
 {
 	vec3  F0;
@@ -211,7 +188,7 @@ vec3 directionalLightEval(vec3 V, vec3 N, float NdotV, MaterialData data)
 
 	return (Fr * data.specAO + Fd * (vec3(1.0) - F) * data.albedo) * dirLight.light.spectrum * NdotL;
 }
-vec3 pointLightEval(vec3 spectrum, vec3 unnormL, float radius, vec3 V, vec3 N, float NdotV, MaterialData data)
+vec3 pointLightEval(vec3 spectrum, vec3 unnormL, float radius, vec3 V, vec3 N, float NdotV, MaterialData data, int shadowList, uint viewmatIndex, vec3 lightPos, float lightSize)
 {
 	float	dist = length(unnormL);
 	vec3 	L = normalize(unnormL);
@@ -227,10 +204,20 @@ vec3 pointLightEval(vec3 spectrum, vec3 unnormL, float radius, vec3 V, vec3 N, f
 
 	float sqrtNom = clamp(1 - pow(dist / radius, 4), 0.0, 1.0);
 	float attenuationTerm = (sqrtNom * sqrtNom) / (dist * dist + 1.0);
+	
+	vec3 lighting = ((Fr * data.specAO + Fd * (vec3(1.0) - F)) * data.albedo) * spectrum * NdotL * attenuationTerm;
+	float shadowing = 1.0;
+	if (shadowList != -1)
+		shadowing = calcShadowingOmnidir(shadowList, viewmatIndex, lightPos, lightSize, NdotL);
 
-    return ((Fr * data.specAO + Fd * (vec3(1.0) - F)) * data.albedo) * spectrum * NdotL * attenuationTerm;
+    return lighting * shadowing;
 }
-vec3 spotLightEval(vec3 spectrum, vec3 direction, vec3 unnormL, float lengthL, float falloffCos, float cutoffCos, vec3 V, vec3 N, float NdotV, MaterialData data)
+vec3 spotLightEval(vec3 spectrum, vec3 direction, 
+	vec3 unnormL, float lengthL, 
+	float falloffCos, float cutoffCos, 
+	vec3 V, vec3 N, float NdotV, 
+	MaterialData data, int shadowList, uint shadowLayer, 
+	uint viewmatIndex, float lightSize)
 {
 	float	dist = length(unnormL);
 	vec3 	L = normalize(unnormL);
@@ -247,8 +234,13 @@ vec3 spotLightEval(vec3 spectrum, vec3 direction, vec3 unnormL, float lengthL, f
 	float sqrtNom = clamp(1 - pow(dist / lengthL, 4), 0.0, 1.0);
 	float attenuationTerm = (sqrtNom * sqrtNom) / (dist * dist + 1.0);
     float falloffIntensity = clamp((-dot(direction, L) - cutoffCos) / (falloffCos - cutoffCos), 0.0, 1.0);
+	
+	vec3 lighting = ((Fr * data.specAO + Fd * (vec3(1.0) - F)) * data.albedo) * spectrum * falloffIntensity * NdotL * attenuationTerm;
+	float shadowing = 1.0;
+	if (shadowList != -1)
+		shadowing = calcShadowingOnedir(shadowList, shadowLayer, viewmatIndex, cutoffCos, lightSize, NdotL);
 
-    return ((Fr * data.specAO + Fd * (vec3(1.0) - F)) * data.albedo) * spectrum * falloffIntensity * NdotL * attenuationTerm;
+    return lighting * shadowing;
 }
 
 vec3 processLight(uint index, vec3 V, vec3 N, float NdotV, MaterialData data)
@@ -261,10 +253,14 @@ vec3 processLight(uint index, vec3 V, vec3 N, float NdotV, MaterialData data)
 	switch (type)
 	{
 		case TYPE_POINT:
-			result = pointLightEval(light.spectrum, light.position - pos, light.lightLength, V, N, NdotV, data);
+			result = pointLightEval(light.spectrum, light.position - pos, light.lightLength, 
+			V, N, NdotV, data, 
+			light.shadowListIndex, light.shadowMatrixIndex, light.position, light.lightSize);
 			break;
 		case TYPE_SPOT:
-			result = spotLightEval(light.spectrum, light.direction, light.position - pos, light.lightLength, light.falloffCos, light.cutoffCos, V, N, NdotV, data);
+			result = spotLightEval(light.spectrum, light.direction, light.position - pos, light.lightLength, light.falloffCos, light.cutoffCos, 
+			V, N, NdotV, data, 
+			light.shadowListIndex, light.shadowLayerIndex, light.shadowMatrixIndex, light.lightSize);
 			break;
 		default:
 			result = vec3(1.0, 0.0, 0.0);
@@ -358,11 +354,6 @@ void main()
 	
 	vec4 bcData = texture(imageListArray[drawData.bcIndexList], vec3(inTexC, drawData.bcIndexLayer + 0.1));
 
-	float opacity = bcData.w;
-
-	if (opacity < 0.01)
-		discard;
-
 	MaterialData data;
 	data.albedo = bcData.xyz;
 	data.F0 = mix(vec3(0.04), data.albedo, mrData.b);
@@ -381,5 +372,5 @@ void main()
 	
 	vec3 result = lightsContrib + IBLcontrib + emission;
 
-    outputColor = vec4(result, opacity);
+    outputColor = vec4(result, 1.0);
 }

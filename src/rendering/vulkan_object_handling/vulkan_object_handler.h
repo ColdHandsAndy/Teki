@@ -158,6 +158,7 @@ public:
 			.imageCubeArray = VK_TRUE,
 			.multiDrawIndirect = VK_TRUE,
 			.drawIndirectFirstInstance = VK_TRUE,
+			.depthClamp = VK_TRUE,
 			.fillModeNonSolid = VK_TRUE,
 			.wideLines = VK_TRUE,
 			.samplerAnisotropy = VK_TRUE,
@@ -178,13 +179,14 @@ public:
 		.runtimeDescriptorArray = VK_TRUE,
 		.samplerFilterMinmax = VK_TRUE,
 		.timelineSemaphore = VK_TRUE,
-		.bufferDeviceAddress = VK_TRUE} };
+		.bufferDeviceAddress = VK_TRUE,
+		.shaderOutputLayer = VK_TRUE} };
 	VkPhysicalDeviceVulkan13Features* vulkan13Features{ new VkPhysicalDeviceVulkan13Features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, 
 		.synchronization2 = VK_TRUE, 
 		.dynamicRendering = VK_TRUE,
 		.maintenance4 = VK_TRUE} };
 	VkPhysicalDeviceDescriptorBufferFeaturesEXT* dbFeatures{ new VkPhysicalDeviceDescriptorBufferFeaturesEXT{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT, .descriptorBuffer = VK_TRUE} };
-	
+
 	VkFormat swapchainPreferredFormat{ VK_FORMAT_B8G8R8A8_UNORM };
 	VkColorSpaceKHR swapchainPreferredColorspace{ VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
 	VkPresentModeKHR swapchainPreferredPresentMode{ VK_PRESENT_MODE_MAILBOX_KHR };
@@ -220,7 +222,8 @@ private:
 #define REQUIRED_DEVCIE_EXTENSIONS \
 	{ \
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME, \
-	VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME \
+	VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME, \
+	VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME \
 	}
 	void getRequiredDeviceExtensions(std::vector<const char*>& extensions)
 	{

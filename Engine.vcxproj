@@ -177,7 +177,7 @@
       <AdditionalDependencies>vulkan-1.lib;ktx.lib;ktx_read.lib</AdditionalDependencies>
     </Link>
     <CustomBuild>
-      <Command>$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename)%(Extension)" --target-env vulkan1.3</Command>
+      <Command>$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename)%(Extension)" -I"$(SHADER_INPUT_DIR)\include"  --target-env vulkan1.3</Command>
       <Message>Compiling shader "%(Filename)%(Extension)"</Message>
       <Outputs>$(SHADER_OUTPUT_DIR)\%(Filename).spv</Outputs>
       <VerifyInputsAndOutputsExist>false</VerifyInputsAndOutputsExist>
@@ -204,6 +204,22 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="obj loader\obj_loader.h" />
+    <Text Include="shaders\not cmpld\include\lighting.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ExcludedFromBuild>
+    </Text>
+    <Text Include="shaders\not cmpld\include\misc.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ExcludedFromBuild>
+    </Text>
+    <Text Include="shaders\not cmpld\include\pbr.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ExcludedFromBuild>
+    </Text>
+    <Text Include="shaders\not cmpld\include\rand.h">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ExcludedFromBuild>
+    </Text>
     <ClInclude Include="src\rendering\data_abstraction\BB.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
     <ClInclude Include="src\rendering\data_abstraction\mesh.h" />
@@ -212,6 +228,7 @@
     <ClInclude Include="src\rendering\data_management\image_classes.h" />
     <ClInclude Include="src\rendering\data_management\memory_manager.h" />
     <ClInclude Include="src\rendering\lighting\light_types.h" />
+    <ClInclude Include="src\rendering\lighting\shadows.h" />
     <ClInclude Include="src\rendering\renderer\barrier_operations.h" />
     <ClInclude Include="src\rendering\renderer\clusterer.h" />
     <ClInclude Include="src\rendering\renderer\command_management.h" />
@@ -230,6 +247,7 @@
     <ClInclude Include="src\tools\asserter.h" />
     <ClInclude Include="src\tools\comp_s.h" />
     <ClInclude Include="src\tools\gltf_loader.h" />
+    <ClInclude Include="src\tools\projection.h" />
     <ClInclude Include="src\tools\texture_loader.h" />
     <ClInclude Include="src\tools\logging.h" />
     <ClInclude Include="src\rendering\vulkan_object_handling\vulkan_object_handler.h" />
@@ -303,10 +321,10 @@
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\BV_frag.frag">
+    <CustomBuild Include="shaders\not cmpld\light_mesh_frag.frag">
       <FileType>Document</FileType>
     </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\cone_BV_vert.vert">
+    <CustomBuild Include="shaders\not cmpld\cone_light_mesh_vert.vert">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\raster_tile_frag.frag">
@@ -318,7 +336,7 @@
     <CustomBuild Include="shaders\not cmpld\raster_tile_spot_light_vert.vert">
       <FileType>Document</FileType>
     </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\point_BV_vert.vert">
+    <CustomBuild Include="shaders\not cmpld\point_light_mesh_vert.vert">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\fullscreen_vert.vert">
@@ -343,6 +361,12 @@
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\occlusion_culling_comp.comp">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\shadow_pass_vert.vert">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\shadow_pass_frag.frag">
       <FileType>Document</FileType>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />

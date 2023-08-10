@@ -27,7 +27,9 @@ public:
 	enum StatePresets
 	{
 		DYNAMIC_STATE_DEFAULT,
+		DYNAMIC_STATE_VIEWPORT,
 		VIEWPORT_STATE_DEFAULT,
+		VIEWPORT_STATE_DYNAMIC,
 		INPUT_ASSEMBLY_STATE_DEFAULT,
 		INPUT_ASSEMBLY_STATE_TRIANGLE_FAN_DRAWING,
 		INPUT_ASSEMBLY_STATE_LINE_DRAWING,
@@ -38,6 +40,7 @@ public:
 		RASTERIZATION_STATE_DEFAULT,
 		RASTERIZATION_STATE_LINE_POLYGONS,
 		RASTERIZATION_STATE_POINT_VERTICES,
+		RASTERIZATION_STATE_SHADOW_MAP,
 		RASTERIZATION_STATE_DISABLED,
 		DEPTH_STENCIL_STATE_DEFAULT,
 		DEPTH_STENCIL_STATE_TEST_ONLY,
@@ -55,12 +58,12 @@ public:
 	VkDevice getDevice() const { return m_device; };
 
 	void setDynamicState(StatePresets preset);
-	void setViewportState(StatePresets preset, uint32_t viewportWidth, uint32_t viewportHeight);
+	void setViewportState(StatePresets preset, uint32_t viewportWidth = 1, uint32_t viewportHeight = 1, uint32_t viewportCount = 1);
 	void setInputAssemblyState(StatePresets preset);
 	void setTesselationState(StatePresets preset);
 	void setMultisamplingState(StatePresets preset, VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT);
 	void setRasterizationState(StatePresets preset, float lineWidth = 1.0f, VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT);
-	void setDepthStencilState(StatePresets preset);
+	void setDepthStencilState(StatePresets preset, VkCompareOp cmpOp = VK_COMPARE_OP_GREATER_OR_EQUAL);
 	void setColorBlendState(StatePresets preset, VkColorComponentFlags writeMask = 0xFFFFFFFF);
 	void setPipelineRenderingState(StatePresets preset, VkFormat colorAttachmentFormat = VK_FORMAT_B8G8R8A8_UNORM);
 
@@ -78,6 +81,7 @@ private:
 	VkDevice m_device{};
 
 	VkPipelineDynamicStateCreateInfo			 m_dynamicState{};
+	VkDynamicState*								 m_dynamicStateValues{ nullptr };
 	VkPipelineViewportStateCreateInfo			 m_viewportState{};
 	VkViewport									 m_viewport{};
 	VkRect2D									 m_rect{};
