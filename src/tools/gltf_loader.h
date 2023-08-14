@@ -397,7 +397,7 @@ inline void processNode(cgltf_data* model,
 {
 	float matr[16]{};
 	cgltf_node_transform_local(node, matr);
-	glm::mat4 nodeTransformW{ glm::make_mat4x4(matr) * nodeTransformL };
+	glm::mat4 nodeTransformW{ nodeTransformL * glm::make_mat4x4(matr)};
 
 	cgltf_mesh* mesh{ node->mesh };
 
@@ -530,7 +530,8 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 				if (normData)
 				{
 					const float* normDataTyped{ reinterpret_cast<const float*>(normData) };
-					vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{ *(normDataTyped + 0), * (normDataTyped + 1), -*(normDataTyped + 2), 0.0f });
+					glm::vec3 tNorm{ nodeTransform * glm::vec4{*(normDataTyped + 0), *(normDataTyped + 1), *(normDataTyped + 2), 0.0f} };
+					vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{tNorm.x, tNorm.y, -tNorm.z, 0.0f});
 					normData += normAtrrib.data->stride;
 				}
 				else
@@ -541,7 +542,8 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 				if (tangData)
 				{
 					const float* tangDataTyped{ reinterpret_cast<const float*>(tangData) };
-					vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{ *(tangDataTyped + 0), * (tangDataTyped + 1), -*(tangDataTyped + 2), * (tangDataTyped + 3) });
+					glm::vec3 tTang{ nodeTransform * glm::vec4{ *(tangDataTyped + 0), *(tangDataTyped + 1), *(tangDataTyped + 2), 0.0f } };
+					vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{tTang.x, tTang.y, -tTang.z, *(tangDataTyped + 3)});
 					tangData += tangAtrrib.data->stride;
 				}
 				else
@@ -565,14 +567,25 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 		});
 	
 	EASSERT(posAtrrib.data->has_max && posAtrrib.data->has_min, "App", "Application requires min and max mesh position values.");
-	glm::vec4 point0{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->max[1], posAtrrib.data->min[2], 1.0} };
-	glm::vec4 point1{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->max[1], posAtrrib.data->min[2], 1.0} };
-	glm::vec4 point2{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->max[1], posAtrrib.data->max[2], 1.0} };
-	glm::vec4 point3{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->max[1], posAtrrib.data->max[2], 1.0} };
-	glm::vec4 point4{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->min[1], posAtrrib.data->min[2], 1.0} };
-	glm::vec4 point5{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->min[1], posAtrrib.data->min[2], 1.0} };
-	glm::vec4 point6{ nodeTransform * glm::vec4{posAtrrib.data->min[0], posAtrrib.data->min[1], posAtrrib.data->max[2], 1.0} };
-	glm::vec4 point7{ nodeTransform * glm::vec4{posAtrrib.data->max[0], posAtrrib.data->min[1], posAtrrib.data->max[2], 1.0} };
+
+	glm::vec4 min{ posAtrrib.data->min[0], posAtrrib.data->min[1], posAtrrib.data->min[2], 1.0 };
+	glm::vec4 max{ posAtrrib.data->max[0], posAtrrib.data->max[1], posAtrrib.data->max[2], 1.0 };
+
+	max.x = max.x - min.x < 0.0001 ? max.x + 0.0001 : max.x;
+	max.y = max.y - min.y < 0.0001 ? max.y + 0.0001 : max.y;
+	max.z = max.z - min.z < 0.0001 ? max.z + 0.0001 : max.z;
+
+	min = nodeTransform * min;
+	max = nodeTransform * max;
+
+	glm::vec3 point0{ min.x, max.y, min.z };
+	glm::vec3 point1{ max.x, max.y, min.z };
+	glm::vec3 point2{ min.x, max.y, max.z };
+	glm::vec3 point3{ max.x, max.y, max.z };
+	glm::vec3 point4{ min.x, min.y, min.z };
+	glm::vec3 point5{ max.x, min.y, min.z };
+	glm::vec3 point6{ min.x, min.y, max.z };
+	glm::vec3 point7{ max.x, min.y, max.z };
 
 	float dataOBB[3 * 8]
 		{

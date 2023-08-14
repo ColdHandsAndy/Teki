@@ -45,52 +45,6 @@ Clusterer::~Clusterer()
 	m_instanceSpotLightIndexData.reset();
 }
 
-//void Clusterer::submitPointLight(const glm::vec3& position, const glm::vec3& color, float power, float radius)
-//{
-//	uint32_t newIndex{ static_cast<uint32_t>(m_lightData.size()) };
-//	LightFormat& lightData{ m_lightData.emplace_back() };
-//	lightData.position = position;
-//	lightData.spectrum = color * power;
-//	lightData.length = radius;
-//
-//	m_boundingSpheres.push_back({ position, radius });
-//
-//	m_typeData.push_back(LightFormat::TYPE_POINT);
-//}
-//void Clusterer::submitSpotLight(const glm::vec3& position, const glm::vec3& color, float power, float length, glm::vec3 lightDir, float cutoffStartAngle, float cutoffEndAngle)
-//{
-//	lightDir = glm::normalize(lightDir);
-//	if (lightDir.y > 0.999)
-//	{
-//		lightDir.y = 0.999;
-//		lightDir.x = 0.001;
-//	}
-//	else if (lightDir.y < -0.999)
-//	{
-//		lightDir.y = -0.999;
-//		lightDir.x = 0.001;
-//	}
-//
-//	uint32_t newIndex{ static_cast<uint32_t>(m_lightData.size()) };
-//	LightFormat& lightData{ m_lightData.emplace_back() };
-//	lightData.position = position;
-//	lightData.spectrum = color * power;
-//	lightData.length = length;
-//	lightData.lightDir = lightDir;
-//	lightData.falloffCos = std::cos(std::min(std::min(cutoffStartAngle, cutoffEndAngle), static_cast<float>(M_PI_2)));
-//	lightData.cutoffCos = std::cos(std::min(cutoffEndAngle, static_cast<float>(M_PI_2)));
-//
-//	glm::vec4 boundingSphere{
-//		lightData.cutoffCos > glm::one_over_root_two<float>()
-//			?
-//			glm::vec4{position + lightDir * (length / 2.0f), length / 2.0f}
-//		:
-//			glm::vec4{ position + lightDir * length * lightData.cutoffCos, length * std::sqrt(1 - lightData.cutoffCos * lightData.cutoffCos) } };
-//
-//	m_boundingSpheres.push_back(boundingSphere);
-//
-//	m_typeData.push_back(LightFormat::TYPE_SPOT);
-//}
 void Clusterer::submitFrustum(double near, double far, double aspect, double FOV)
 {
 	double FOV_X{ glm::atan(glm::tan(FOV / 2) * aspect) * 2 }; //FOV provided to glm::perspective defines vertical frustum angle in radians
@@ -255,7 +209,7 @@ void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorMana
 }
 void Clusterer::cmdDrawProxies(VkCommandBuffer cb, DescriptorManager& descriptorManager)
 {
-	constexpr float pcData{ 0.05 };
+	constexpr float pcData{ 0.02 };
 
 	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_visPipelines->m_pointProxy.getResourceSets(), m_visPipelines->m_pointProxy.getResourceSetsInUse(), m_visPipelines->m_pointProxy.getPipelineLayoutHandle());
@@ -485,7 +439,7 @@ void Clusterer::createVisualizationPipelines(const BufferMapped& viewprojDataUB,
 		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
 
 	m_visPipelines->m_pointBV.initializeGraphics(assembler,
-		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
 		resourceSetsP,
 		{ {PosOnlyVertex::getBindingDescription()} },
 		{ PosOnlyVertex::getAttributeDescriptions() }, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
@@ -500,7 +454,7 @@ void Clusterer::createVisualizationPipelines(const BufferMapped& viewprojDataUB,
 		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
 
 	m_visPipelines->m_spotBV.initializeGraphics(assembler,
-		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
 		resourceSetsS,
 		{},
 		{}, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
@@ -517,7 +471,7 @@ void Clusterer::createVisualizationPipelines(const BufferMapped& viewprojDataUB,
 		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
 
 	m_visPipelines->m_pointProxy.initializeGraphics(assembler,
-		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
 		resourceSetsPP,
 		{ {PosOnlyVertex::getBindingDescription()} },
 		{ PosOnlyVertex::getAttributeDescriptions() }, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
@@ -532,7 +486,7 @@ void Clusterer::createVisualizationPipelines(const BufferMapped& viewprojDataUB,
 		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
 
 	m_visPipelines->m_spotProxy.initializeGraphics(assembler,
-		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/light_mesh_frag.spv"} } },
+		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
 		resourceSetsSP,
 		{},
 		{}, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });

@@ -279,9 +279,9 @@ private:
 				dpW.m128_f32[j] = glm::clamp(dpW.m128_f32[j], -*(extentsZ + i + j), *(extentsZ + i + j));
 			}
 
-			xC = _mm_add_ps(xC, dpU);
-			yC = _mm_add_ps(yC, dpV);
-			zC = _mm_add_ps(zC, dpW);
+			xC = _mm_add_ps(xC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xU, dpU), _mm_mul_ps(yU, dpU)), _mm_mul_ps(zU, dpU)));
+			yC = _mm_add_ps(yC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xV, dpV), _mm_mul_ps(yV, dpV)), _mm_mul_ps(zV, dpV)));
+			zC = _mm_add_ps(zC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xW, dpW), _mm_mul_ps(yW, dpW)), _mm_mul_ps(zW, dpW)));
 
 			__m128 xD{_mm_sub_ps(xP, xC)};
 			__m128 yD{_mm_sub_ps(yP, yC)};

@@ -148,7 +148,7 @@
       <AdditionalDependencies>vulkan-1.lib;ktx.lib;ktx_read.lib</AdditionalDependencies>
     </Link>
     <CustomBuild>
-      <Command>$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename)%(Extension)" --target-env vulkan1.3</Command>
+      <Command>$(VULKAN_SDK)\Bin\glslangValidator -V -o "$(SHADER_OUTPUT_DIR)\%(Filename).spv" "$(SHADER_INPUT_DIR)\%(Filename)%(Extension)" -I"$(SHADER_INPUT_DIR)\include"  --target-env vulkan1.3</Command>
       <Message>Compiling shader "%(Filename)%(Extension)"</Message>
       <Outputs>$(SHADER_OUTPUT_DIR)\%(Filename).spv</Outputs>
       <VerifyInputsAndOutputsExist>false</VerifyInputsAndOutputsExist>
@@ -321,7 +321,7 @@
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
     </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\light_mesh_frag.frag">
+    <CustomBuild Include="shaders\not cmpld\color_frag.frag">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\cone_light_mesh_vert.vert">
@@ -367,6 +367,9 @@
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shadow_pass_frag.frag">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\simple_proj_vert.vert">
       <FileType>Document</FileType>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />

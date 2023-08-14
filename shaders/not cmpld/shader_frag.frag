@@ -9,9 +9,9 @@
 
 layout(depth_unchanged) out float gl_FragDepth;
 
-#include "pbr.h"
-#include "lighting.h"
 #include "misc.h"
+#include "lighting.h"
+#include "pbr.h"
 
 //Math
 #define PI 3.141592653589

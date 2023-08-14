@@ -1,10 +1,10 @@
 { 
 	"models" : 
 		[
-			{"path" : "A:/Models/gltf/bistroI/scene.gltf", "model index" : 0}
+			{"path" : "A:/Models/gltf/whsceneM/scene.gltf", "model index" : 0}
 		],
 
-	"environment" : "A:/materials/distant_probes_cubemaps/beach",
+	"environment" : "A:/materials/distant_probes_cubemaps/green",
 
 	"model matrices" : 
 		[
