@@ -20,8 +20,8 @@ struct UnifiedLightData
 
 //Shadow mapping functions
 //PCSS
-#define BLOCKER_SEARCH_NUM_SAMPLES 4
-#define PCF_NUM_SAMPLES 8
+#define BLOCKER_SEARCH_NUM_SAMPLES 16
+#define PCF_NUM_SAMPLES 16
 vec2 poissonDisc[16] = {
  vec2( 0.14383161, -0.14100790 ),
  vec2( 0.19984126, 0.78641367 ),

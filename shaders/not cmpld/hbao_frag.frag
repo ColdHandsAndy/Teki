@@ -123,7 +123,7 @@ float computeAmbientOcclusion(vec2 uv, float pixelRad, vec4 randInp, vec3 viewPo
 
 	occlusion *= pushConstants.aoExponent / (NUM_DIRECTIONS * NUM_STEPS);
 	
-	return clamp(1.0 - occlusion * 2.0,0,1);
+	return 1.0 - occlusion * 2.0;
 }
 
 layout (location = 0) out float AO;
@@ -146,5 +146,5 @@ void main()
 	
 	float result = computeAmbientOcclusion(fetchUV, pixelRad, randInp, viewPos, viewNorm);
 	
-	AO = pow(result, pushConstants.aoExponent);
+	AO = clamp(pow(result, pushConstants.aoExponent), 0.0, 1.0);
 }

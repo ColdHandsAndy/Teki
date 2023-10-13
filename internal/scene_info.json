@@ -1,10 +1,10 @@
 { 
 	"models" : 
 		[
-			{"path" : "A:/Models/gltf/whsceneM/scene.gltf", "model index" : 0}
+			{"path" : "A:/Models/gltf/bathroomR/scene.gltf", "model index" : 0}
 		],
 
-	"environment" : "A:/materials/distant_probes_cubemaps/green",
+	"environment" : "A:/materials/distant_probes_cubemaps/room",
 
 	"model matrices" : 
 		[

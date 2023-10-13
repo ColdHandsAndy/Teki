@@ -30,10 +30,6 @@ layout(depth_unchanged) out float gl_FragDepth;
 #define TILE_PIXEL_WIDTH 8
 #define TILE_PIXEL_HEIGHT 8 
 
-//Shadows
-#define BLOCKER_SEARCH_NUM_SAMPLES 4
-#define PCF_NUM_SAMPLES 8
-
 
 layout(location = 0) in flat uint drawID;
 layout(location = 1) in vec3 inPos;
