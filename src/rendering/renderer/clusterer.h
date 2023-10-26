@@ -80,6 +80,8 @@ private:
 	BufferBaseHostInaccessible m_constData;
 	BufferBaseHostInaccessible m_lightBoundingVolumeVertexData;
 
+	std::array<ResourceSet, 4> m_resourceSets{};
+
 	uint32_t m_widthInTiles{};
 	uint32_t m_heightInTiles{};
 
@@ -125,11 +127,9 @@ private:
 	} *m_visPipelines{ nullptr };
 
 public:
-	Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const BufferMapped& viewprojDataUB);
+	Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const ResourceSet& viewprojRS);
 	~Clusterer();
 
-	void submitPointLight(const glm::vec3& position, const glm::vec3& color, float power, float radius);
-	void submitSpotLight(const glm::vec3& position, const glm::vec3& color, float power, float length, glm::vec3 lightDir, float cutoffStartAngle, float cutoffEndAngle);
 	void submitFrustum(double near, double far, double aspect, double FOV);
 	void submitViewMatrix(const glm::mat4& viewMat);
 
@@ -147,27 +147,27 @@ public:
 	void cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 	void cmdDrawProxies(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 
-	const BufferMapped& getSortedLightsUB() const
+	const BufferMapped& getSortedLights() const
 	{
 		return m_sortedLightData;
 	}
-	const BufferBaseHostAccessible& getSortedTypeDataUB() const
+	const BufferBaseHostAccessible& getSortedTypeData() const
 	{
 		return m_sortedTypeData;
 	}
-	const BufferBaseHostInaccessible& getTileDataSSBO() const
+	const BufferBaseHostInaccessible& getTileData() const
 	{
 		return m_tileData;
 	}
-	const BufferMapped& getPointIndicesUB() const
+	const BufferMapped& getPointIndices() const
 	{
 		return m_instancePointLightIndexData;
 	}
-	const BufferMapped& getSpotIndicesUB() const
+	const BufferMapped& getSpotIndices() const
 	{
 		return m_instanceSpotLightIndexData;
 	}
-	const BufferMapped& getZBinUB() const
+	const BufferMapped& getZBin() const
 	{
 		return m_binsMinMax;
 	}
@@ -197,11 +197,11 @@ private:
 	bool testSphereAgainstFrustum(const glm::vec4& sphereData);
 	void computeFrontAndBack(const LightFormat& light, LightFormat::Types type, float& front, float& back);
 
-	void createTileTestObjects(const BufferMapped& viewprojDataUB);
+	void createTileTestObjects(const ResourceSet& viewprojRS);
 	void uploadBuffersData(CommandBufferSet& cmdBufferSet, VkQueue queue);
 	void getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type);
 
-	void createVisualizationPipelines(const BufferMapped& viewprojDataUB, uint32_t windowWidth, uint32_t windowHeight);
+	void createVisualizationPipelines(const ResourceSet& viewprojRS, uint32_t windowWidth, uint32_t windowHeight);
 
 	Clusterer() = delete;
 	Clusterer(Clusterer&) = delete;

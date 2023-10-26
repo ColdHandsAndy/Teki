@@ -195,6 +195,7 @@ public:
 	explicit ImageListContainer(VkDevice device, VkImageUsageFlags usageFlags, bool allocateMips, VkSamplerCreateInfo samplerCI, uint32_t listLayerCount = 4, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 	~ImageListContainer();
 
+	uint32_t getMaxImageListLayerCount() const { return m_listLayerCount; };
 	int getImageListCount() const { return m_imageLists.size(); }
 	VkImageSubresourceRange getImageListSubresourceRange(uint32_t index) const { return m_imageLists[index].list.getSubresourceRange();  };
 	void getImageListResolution(uint32_t listIndex, uint32_t& width, uint32_t& height) { width = m_imageLists[listIndex].list.getWidth(); height = m_imageLists[listIndex].list.getHeight(); };

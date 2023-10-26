@@ -34,6 +34,8 @@ class Culling
 {
 private:
 	Pipeline m_occlusionPass{};
+
+	ResourceSet m_resSet{};
 	
 	BufferBaseHostAccessible m_baseShared;
 	BufferBaseHostInaccessible m_baseDevice;
@@ -52,8 +54,8 @@ public:
 	Culling(VkDevice device,
 		uint32_t drawCommandsMax,
 		float zNearProjPlane,
-		const BufferMapped& viewprojUB,
-		const BufferMapped& indirectDataBuffer,
+		const ResourceSet& viewprojRS,
+		const BufferMapped& indirectDrawCmdData,
 		const DepthBuffer& depthBuffer,
 		uint32_t computeQueueIndex,
 		uint32_t graphicsQueueIndex)
@@ -71,13 +73,11 @@ public:
 		m_targetDrawCommands.initialize(m_baseDevice, sizeof(VkDrawIndexedIndirectCommand) * drawCommandsMax);
 		m_targetDrawDataIndices.initialize(m_baseDevice, sizeof(uint32_t) * drawCommandsMax);
 
-		std::vector<ResourceSet> resourceSets{};
-
 		VkDescriptorSetLayoutBinding indicesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 		VkDescriptorAddressInfoEXT indicesAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_indicesCmds.getDeviceAddress(), .range = m_indicesCmds.getSize() };
 
 		VkDescriptorSetLayoutBinding cmdAndSpheresBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-		VkDescriptorAddressInfoEXT cmdAndSpheresAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = indirectDataBuffer.getDeviceAddress(), .range = indirectDataBuffer.getSize() };
+		VkDescriptorAddressInfoEXT cmdAndSpheresAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = indirectDrawCmdData.getDeviceAddress(), .range = indirectDrawCmdData.getSize() };
 
 		VkDescriptorSetLayoutBinding targetCmdsBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 		VkDescriptorAddressInfoEXT targetCmdsAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_targetDrawCommands.getDeviceAddress(), .range = m_targetDrawCommands.getSize() };
@@ -88,21 +88,21 @@ public:
 		VkDescriptorSetLayoutBinding drawDataIndicesBinding{ .binding = 5, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 		VkDescriptorAddressInfoEXT drawDataIndicesAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_targetDrawDataIndices.getDeviceAddress(), .range = m_targetDrawDataIndices.getSize() };
 
-		VkDescriptorSetLayoutBinding viewprojBinding{ .binding = 6, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-		VkDescriptorAddressInfoEXT viewprojAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojUB.getDeviceAddress(), .range = viewprojUB.getSize() };
-
 		VkDescriptorSetLayoutBinding hiZBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 		VkDescriptorImageInfo hiZImageInfo{ .sampler = depthBuffer.getReductionSampler(), .imageView = depthBuffer.getImageViewHiZ(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
-		resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-			{{indicesBinding, cmdAndSpheresBinding, targetCmdsBinding, drawCountBinding, hiZBinding, drawDataIndicesBinding, viewprojBinding}},  {},
-			{{{.pStorageBuffer = &indicesAddressinfo}},
-				{{.pStorageBuffer = &cmdAndSpheresAddressinfo}},
-					{{.pStorageBuffer = &targetCmdsAddressinfo}},
-						{{.pStorageBuffer = &drawCountAddressinfo}},
-							{{.pCombinedImageSampler = &hiZImageInfo}},
-								{{.pStorageBuffer = &drawDataIndicesAddressinfo}},
-									{{.pUniformBuffer = &viewprojAddressinfo}}}, true });
+		m_resSet.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlags{},
+			std::array{ indicesBinding, cmdAndSpheresBinding, targetCmdsBinding, drawCountBinding, hiZBinding, drawDataIndicesBinding }, std::array<VkDescriptorBindingFlags, 0>{},
+			std::vector<std::vector<VkDescriptorDataEXT>>{
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &indicesAddressinfo} },
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &cmdAndSpheresAddressinfo} },
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &targetCmdsAddressinfo} },
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &drawCountAddressinfo} },
+				std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &hiZImageInfo} },
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &drawDataIndicesAddressinfo} }},
+			true);
+
+		std::array<std::reference_wrapper<const ResourceSet>, 2> resourceSets{ viewprojRS, m_resSet };
 
 		m_occlusionPass.initializaCompute(device,
 			"shaders/cmpld/occlusion_culling_comp.spv",

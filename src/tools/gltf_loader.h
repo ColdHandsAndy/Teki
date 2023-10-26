@@ -173,7 +173,6 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 	{
 		drawCount += mesh.getRUnits().size();
 	};
-	indirectDataBuffer.initialize(drawCount * sizeof(IndirectData));
 
 	std::vector<VkBufferCopy> copyRegionsVertexBuf{};
 	std::vector<VkBufferCopy> copyRegionsIndexBuf{};

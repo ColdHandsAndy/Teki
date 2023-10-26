@@ -53,31 +53,50 @@ layout(set = 0, binding = 0) uniform ViewProjMatrices
     mat4 proj;
 } viewproj;
 
-layout(set = 1, binding = 0) uniform sampler2DArray imageListArray[64];
-layout(set = 1, binding = 1) uniform sampler samplerS;
-layout(set = 1, binding = 2) uniform texture2DArray shadowMapArray[64];
-layout(set = 1, binding = 3) uniform texture2DArray shadowCubeMapArray[64];
-layout(set = 1, binding = 4) buffer ShadowViewMatrices
+layout(set = 2, binding = 0) uniform sampler2DArray imageListArray[64];
+
+layout(set = 3, binding = 0) uniform texture2DArray shadowMapArray[64];
+layout(set = 3, binding = 1) uniform texture2DArray shadowCubeMapArray[64];
+layout(set = 3, binding = 2) uniform sampler samplerS;
+layout(set = 3, binding = 3) buffer ShadowViewMatrices
 {
 	mat4 matrices[];
 } shadowViewMatrices;
 
-layout(set = 2, binding = 0) buffer DrawDataBuffer 
+layout(set = 4, binding = 0) uniform samplerCube samplerCubeMap;
+layout(set = 4, binding = 1) uniform samplerCube samplerCubeMapRad;
+layout(set = 4, binding = 2) uniform samplerCube samplerCubeMapIrrad;
+
+layout(set = 5, binding = 0) buffer DrawDataBuffer 
 {
     DrawData data[];
 } drawData;
 
-layout(set = 3, binding = 0) buffer LightsData
+layout(set = 6, binding = 0) uniform sampler2D brdfLUT;
+layout(set = 6, binding = 1) uniform sampler2D AO;
+
+
+
+struct DirectionalLightLayout
+{
+    vec3 spectrum;
+    vec3 direction;
+};
+layout(std140, set = 7, binding = 0) uniform DirectionalLight
+{
+    DirectionalLightLayout light;
+} dirLight;
+layout(set = 7, binding = 1) buffer LightsData
 {
 	UnifiedLightData lights[];
 } lightsData;
 const uint TYPE_POINT = 0;
 const uint TYPE_SPOT = 1;
-layout(std430, set = 3, binding = 1) buffer TypeData
+layout(std430, set = 7, binding = 2) buffer TypeData
 {
 	uint8_t types[];
 } typeData;
-layout(set = 3, binding = 2) buffer TilesData
+layout(set = 7, binding = 3) buffer TilesData
 {
 	uint tilesWords[];
 } tilesData;
@@ -86,26 +105,10 @@ struct ZBin
 	uint16_t minI;
 	uint16_t maxI;
 };
-layout(set = 3, binding = 3) buffer ZBinData
+layout(set = 7, binding = 4) buffer ZBinData
 {
 	ZBin data[];
 } zBinData;
-
-layout(set = 4, binding = 0) uniform samplerCube samplerCubeMap;
-layout(set = 4, binding = 1) uniform samplerCube samplerCubeMapRad;
-layout(set = 4, binding = 2) uniform samplerCube samplerCubeMapIrrad;
-layout(set = 4, binding = 3) uniform sampler2D brdfLUT;
-layout(set = 4, binding = 4) uniform sampler2D AO;
-
-struct DirectionalLightLayout
-{
-    vec3 spectrum;
-    vec3 direction;
-};
-layout(std140, set = 5, binding = 0) uniform DirectionalLight
-{
-    DirectionalLightLayout light;
-} dirLight;
 
 
 

@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "src/rendering/renderer/pipeline_management.h"
+#include "src/rendering/renderer/descriptor_management.h"
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/renderer/barrier_operations.h"
 #include "src/rendering/data_management/image_classes.h"
@@ -17,6 +18,7 @@ private:
 	Image m_depthImage;
 	Image m_hierarchicalZ;
 
+	ResourceSet m_resSet{};
 	Pipeline m_calcHiZ{};
 	int m_hiZopCount{};
 
@@ -67,7 +69,7 @@ public:
 			vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewsHiZ[i]);
 		}
 
-		std::vector<VkDescriptorSetLayoutBinding> bindings(2);
+		std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
 		std::vector<VkDescriptorImageInfo> imageInfos(operationNum * 2);
 
 		bindings[0] = { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
@@ -89,10 +91,13 @@ public:
 			descData[1].push_back(VkDescriptorDataEXT{ .pStorageImage = &imageInfos[2 * i + 1] });
 		}
 
-		std::vector<ResourceSet> resourceSets{};
-		resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, operationNum,
-			bindings,  {},
-			descData, true });
+		m_resSet.initializeSet(device, operationNum, VkDescriptorSetLayoutCreateFlags{},
+			bindings, 
+			std::array<VkDescriptorBindingFlags, 0>{},
+			descData, true);
+
+		std::array<std::reference_wrapper<const ResourceSet>, 1> resourceSets{ m_resSet };
+
 		m_calcHiZ.initializaCompute(device, 
 			"shaders/cmpld/calc_hi_z_comp.spv",
 			resourceSets, 

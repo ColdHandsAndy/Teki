@@ -1,6 +1,6 @@
 #include "src/rendering/renderer/clusterer.h"
 
-Clusterer::Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const BufferMapped& viewprojDataUB)
+Clusterer::Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue queue, uint32_t windowWidth, uint32_t windowHeight, const ResourceSet& viewprojRS)
 	: m_motherBufferShared{ device, CLUSTERED_BUFFERS_SIZE, 
 		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, BufferBase::DEDICATED_FLAG, true },
 	m_sortedTypeData{ device, MAX_LIGHTS * sizeof(uint8_t), 
@@ -26,10 +26,10 @@ Clusterer::Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue qu
 	m_instancePointLightIndexData.initialize(m_motherBufferShared, MAX_LIGHTS * sizeof(uint16_t));
 	m_instanceSpotLightIndexData.initialize(m_motherBufferShared, MAX_LIGHTS * sizeof(uint16_t));
 
-	createTileTestObjects(viewprojDataUB);
+	createTileTestObjects(viewprojRS);
 	uploadBuffersData(cmdBufferSet, queue);
 
-	createVisualizationPipelines(viewprojDataUB, windowWidth, windowHeight);
+	createVisualizationPipelines(viewprojRS, windowWidth, windowHeight);
 
 	oneapi::tbb::flow::make_edge(m_cullNode, m_sortNode);
 	oneapi::tbb::flow::make_edge(m_sortNode, m_fillBuffersNode);
@@ -290,7 +290,7 @@ void Clusterer::computeFrontAndBack(const LightFormat& light, LightFormat::Types
 	}
 }
 
-void Clusterer::createTileTestObjects(const BufferMapped& viewprojDataUB)
+void Clusterer::createTileTestObjects(const ResourceSet& viewprojRS)
 {
 	PipelineAssembler assembler{ m_device };
 	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
@@ -303,13 +303,10 @@ void Clusterer::createTileTestObjects(const BufferMapped& viewprojDataUB)
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_NO_ATTACHMENT);
 
-	std::vector<ResourceSet> resourceSets[2]{};
-
 	//Binding 0
-	//viewproj matrices
-	VkDescriptorSetLayoutBinding viewprojBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT viewprojAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = viewprojDataUB.getSize() };
-
+	//Tiling constants : tile width, tile height, max light num
+	VkDescriptorSetLayoutBinding constDataBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT constDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_constData.getDeviceAddress(), .range = m_constData.getSize() };
 	//Binding 1
 	//Tiles light data
 	VkDescriptorSetLayoutBinding tilesLightsDataBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
@@ -326,35 +323,38 @@ void Clusterer::createTileTestObjects(const BufferMapped& viewprojDataUB)
 	//Light data
 	VkDescriptorSetLayoutBinding lightDataBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT lightDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_sortedLightData.getDeviceAddress(), .range = m_sortedLightData.getSize() };
-	//Binding 4
-	//Tiling constants : tile width, tile height, max light num
-	VkDescriptorSetLayoutBinding constDataBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT constDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_constData.getDeviceAddress(), .range = m_constData.getSize() };
 
-	resourceSets[0].push_back({ m_device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-	{viewprojBinding, tilesLightsDataBinding, pointLightIndicesBinding, lightDataBinding, constDataBinding},  {},
-		{{{.pUniformBuffer = &viewprojAddressInfo}}, 
-		{{.pStorageBuffer = &tilesLightsDataAddressInfo}}, 
-		{{.pStorageBuffer = &pointLightIndicesAddressInfo}}, 
-		{{.pStorageBuffer = &lightDataAddressInfo}}, 
-		{{.pUniformBuffer = &constDataAddressInfo}}} });
+	m_resourceSets[0].initializeSet(m_device, 1, VkDescriptorSetLayoutCreateFlags{},
+	std::array{ constDataBinding, tilesLightsDataBinding, pointLightIndicesBinding, lightDataBinding }, std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &constDataAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &tilesLightsDataAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &pointLightIndicesAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &lightDataAddressInfo} }}, 
+		false);
+	m_resourceSets[1].initializeSet(m_device, 1, VkDescriptorSetLayoutCreateFlags{},
+		std::array{ constDataBinding, tilesLightsDataBinding, spotLightIndicesBinding, lightDataBinding }, std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &constDataAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &tilesLightsDataAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &spotLightIndicesAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &lightDataAddressInfo} }},
+		false);
 
-	resourceSets[1].push_back({ m_device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-	{viewprojBinding, tilesLightsDataBinding, spotLightIndicesBinding, lightDataBinding, constDataBinding},  {},
-		{{{.pUniformBuffer = &viewprojAddressInfo}},
-		{{.pStorageBuffer = &tilesLightsDataAddressInfo}},
-		{{.pStorageBuffer = &spotLightIndicesAddressInfo}},
-		{{.pStorageBuffer = &lightDataAddressInfo}},
-		{{.pUniformBuffer = &constDataAddressInfo}}} });
+
+	std::array<std::reference_wrapper<const ResourceSet>, 2> res{ viewprojRS, m_resourceSets[0] };
 
 	m_pointLightTileTestPipeline.initializeGraphics(assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/raster_tile_point_light_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/raster_tile_frag.spv"} } },
-		resourceSets[0],
+		std::span(res.begin() + 0, res.begin() + 2),
 		{ {PosOnlyVertex::getBindingDescription()} },
 		{ PosOnlyVertex::getAttributeDescriptions() });
+	
+	res = { viewprojRS, m_resourceSets[1] };
+
 	m_spotLightTileTestPipeline.initializeGraphics(assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/raster_tile_spot_light_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/raster_tile_frag.spv"} } },
-		resourceSets[1],
+		std::span(res.begin() + 0, res.begin() + 2),
 		{},
 		{});
 }
@@ -398,7 +398,7 @@ void Clusterer::getNewLight(LightFormat** lightData, glm::vec4** boundingSphere,
 	m_typeData.push_back(type);
 }
 
-void Clusterer::createVisualizationPipelines(const BufferMapped& viewprojDataUB, uint32_t windowWidth, uint32_t windowHeight)
+void Clusterer::createVisualizationPipelines(const ResourceSet& viewprojRS, uint32_t windowWidth, uint32_t windowHeight)
 {
 	m_visPipelines = { new VisualizationPipelines };
 
@@ -413,81 +413,65 @@ void Clusterer::createVisualizationPipelines(const BufferMapped& viewprojDataUB,
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_LINE_POLYGONS, 1.4f, VK_CULL_MODE_NONE);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 
-	//Binding 0
-	//viewproj matrices
-	VkDescriptorSetLayoutBinding viewprojBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT viewprojAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = viewprojDataUB.getSize() };
-	//Binding 2 Point
+	//Binding 0 Point
 	//Light indices
-	VkDescriptorSetLayoutBinding pointLightIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorSetLayoutBinding pointLightIndicesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT pointLightIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_instancePointLightIndexData.getDeviceAddress(), .range = m_instancePointLightIndexData.getSize() };
-	//Binding 2 Spot
+	//Binding 0 Spot
 	//Light indices
-	VkDescriptorSetLayoutBinding spotLightIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorSetLayoutBinding spotLightIndicesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT spotLightIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_instanceSpotLightIndexData.getDeviceAddress(), .range = m_instanceSpotLightIndexData.getSize() };
-	//Binding 3
+	//Binding 1
 	//Light data
-	VkDescriptorSetLayoutBinding lightDataBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorSetLayoutBinding lightDataBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT lightDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_sortedLightData.getDeviceAddress(), .range = m_sortedLightData.getSize() };
 
-	std::vector<ResourceSet> resourceSetsP{};
+	m_resourceSets[2].initializeSet(m_device, 1, VkDescriptorSetLayoutCreateFlags{},
+		std::array{ pointLightIndicesBinding, lightDataBinding }, std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &pointLightIndicesAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &lightDataAddressInfo} }},
+		false);
+	m_resourceSets[3].initializeSet(m_device, 1, VkDescriptorSetLayoutCreateFlags{},
+		std::array{ spotLightIndicesBinding, lightDataBinding }, std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &spotLightIndicesAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &lightDataAddressInfo} }},
+		false);
 
-	resourceSetsP.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-	{viewprojBinding, pointLightIndicesBinding, lightDataBinding},  {},
-		{{{.pUniformBuffer = &viewprojAddressInfo}},
-		{{.pStorageBuffer = &pointLightIndicesAddressInfo}},
-		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+	std::array<std::reference_wrapper<const ResourceSet>, 2> res{ viewprojRS, m_resourceSets[2] };
 
 	m_visPipelines->m_pointBV.initializeGraphics(assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
-		resourceSetsP,
+		std::span(res.begin() + 0, res.begin() + 2),
 		{ {PosOnlyVertex::getBindingDescription()} },
 		{ PosOnlyVertex::getAttributeDescriptions() }, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
 
-
-	std::vector<ResourceSet> resourceSetsS{};
-
-	resourceSetsS.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-	{viewprojBinding, spotLightIndicesBinding, lightDataBinding},  {},
-		{{{.pUniformBuffer = &viewprojAddressInfo}},
-		{{.pStorageBuffer = &spotLightIndicesAddressInfo}},
-		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+	res = { viewprojRS, m_resourceSets[3] };
 
 	m_visPipelines->m_spotBV.initializeGraphics(assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
-		resourceSetsS,
+		std::span(res.begin() + 0, res.begin() + 2),
 		{},
 		{}, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
 
 
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0, VK_CULL_MODE_NONE);
 
-	std::vector<ResourceSet> resourceSetsPP{};
 
-	resourceSetsPP.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-	{viewprojBinding, pointLightIndicesBinding, lightDataBinding},  {},
-		{{{.pUniformBuffer = &viewprojAddressInfo}},
-		{{.pStorageBuffer = &pointLightIndicesAddressInfo}},
-		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+	res = { viewprojRS, m_resourceSets[2] };
 
 	m_visPipelines->m_pointProxy.initializeGraphics(assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/point_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
-		resourceSetsPP,
+		std::span(res.begin() + 0, res.begin() + 2),
 		{ {PosOnlyVertex::getBindingDescription()} },
 		{ PosOnlyVertex::getAttributeDescriptions() }, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
 
-
-	std::vector<ResourceSet> resourceSetsSP{};
-
-	resourceSetsSP.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-	{viewprojBinding, spotLightIndicesBinding, lightDataBinding},  {},
-		{{{.pUniformBuffer = &viewprojAddressInfo}},
-		{{.pStorageBuffer = &spotLightIndicesAddressInfo}},
-		{{.pStorageBuffer = &lightDataAddressInfo}}}, false });
+	res = { viewprojRS, m_resourceSets[3] };
 
 	m_visPipelines->m_spotProxy.initializeGraphics(assembler,
 		{ { ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/cone_light_mesh_vert.spv"}, ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/color_frag.spv"} } },
-		resourceSetsSP,
+		std::span(res.begin() + 0, res.begin() + 2),
 		{},
 		{}, {{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(float)}} });
 }

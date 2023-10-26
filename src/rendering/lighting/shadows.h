@@ -29,7 +29,6 @@ class ShadowCaster
 private:
 	VkDevice m_device{};
 
-	uint32_t m_shadowMapsLayerCount{ 4 };
 	using DrawsIndex = uint32_t;
 	struct ShadowMapInfo
 	{
@@ -47,14 +46,17 @@ private:
 	std::vector<ShadowMapInfo> m_indicesForShadowMaps{};
 	std::vector<ShadowCubeMapInfo> m_indicesForShadowCubeMaps{};
 	std::vector<std::vector<uint32_t>> m_drawCommandIndices{};
-	ImageListContainer m_shadowMaps;
-	std::vector<ImageList> m_shadowCubeMaps{};
+	ImageListContainer& m_shadowMaps;
+	std::vector<ImageList>& m_shadowCubeMaps;
 	bool m_newLightsAdded{ false };
 	uint32_t m_viewMatCount{ 0 };
+	const uint32_t m_shadowMapsLayerCount{ 0 };
 	BufferBaseHostAccessible m_shadowMapViewMatrices;
-	BufferMapped* const m_indirectDataBuffer{ nullptr };
+	BufferMapped* const m_indirectDrawCmdData{ nullptr };
 
 	OBBs* m_rUnitsBoundingBoxes{};
+
+	ResourceSet m_resSet{};
 
 	Pipeline m_shadowMapPass{};
 
@@ -63,30 +65,17 @@ private:
 	struct { float far{}; float near{}; float cubeProj00{}; float proj22{}; float proj32{}; } m_frustumData{};
 
 public:
-	ShadowCaster(VkDevice device, Clusterer& clusterer, 
-		BufferMapped& indirectDataBuffer, 
-		const BufferMapped& modelTransformDataSSBO,
-		const BufferMapped& drawDataSSBO,
+	ShadowCaster(VkDevice device, Clusterer& clusterer,
+		ImageListContainer& shadowMaps,
+		std::vector<ImageList>& shadowCubeMaps,
+		BufferMapped& indirectDrawCmdData,
+		const BufferMapped& modelTransformData,
+		const BufferMapped& drawData,
 		OBBs& boundingBoxes) :
-		m_shadowMaps{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, false,
-		VkSamplerCreateInfo{
-			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-			.magFilter = VK_FILTER_LINEAR,
-			.minFilter = VK_FILTER_LINEAR,
-			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-			.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-			.mipLodBias = 0.0f,
-			.anisotropyEnable = VK_FALSE,
-			.compareEnable = VK_FALSE,
-			.compareOp = VK_COMPARE_OP_ALWAYS,
-			.minLod = 0.0f,
-			.maxLod = 128.0f,
-			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
-			.unnormalizedCoordinates = VK_FALSE }, m_shadowMapsLayerCount, VK_IMAGE_ASPECT_DEPTH_BIT }, m_device{ device }, m_clusterer{ &clusterer }, m_indirectDataBuffer{ &indirectDataBuffer },
+			m_shadowMaps{ shadowMaps }, m_shadowCubeMaps{ shadowCubeMaps }, m_device{ device }, m_clusterer{ &clusterer }, m_indirectDrawCmdData{ &indirectDrawCmdData },
 			m_shadowMapViewMatrices{ device, sizeof(glm::mat4) * (MAX_POINT_LIGHT_SHADOWS * 6 + MAX_SPOT_LIGHT_SHADOWS), 
-			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, BufferBase::NULL_FLAG, false, true }, m_rUnitsBoundingBoxes{ &boundingBoxes }
+			VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, BufferBase::NULL_FLAG, false, true }, m_rUnitsBoundingBoxes{ &boundingBoxes },
+			m_shadowMapsLayerCount{ m_shadowMaps.getMaxImageListLayerCount()}
 	{
 		PipelineAssembler assembler{ device };
 		assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_VIEWPORT);
@@ -99,22 +88,24 @@ public:
 		assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT, VK_COMPARE_OP_LESS_OR_EQUAL);
 		assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEPTH_ATTACHMENT_ONLY);
 
-		std::vector<ResourceSet> resourceSets{};
-
 		VkDescriptorSetLayoutBinding shadowMapViewMatricesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 		VkDescriptorAddressInfoEXT shadowMapViewMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_shadowMapViewMatrices.getDeviceAddress(), .range = m_shadowMapViewMatrices.getSize() };
 
 		VkDescriptorSetLayoutBinding modelTransformBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-		VkDescriptorAddressInfoEXT modelTransformAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = modelTransformDataSSBO.getDeviceAddress(), .range = modelTransformDataSSBO.getSize() };
+		VkDescriptorAddressInfoEXT modelTransformAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = modelTransformData.getDeviceAddress(), .range = modelTransformData.getSize() };
 
 		VkDescriptorSetLayoutBinding drawDataBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-		VkDescriptorAddressInfoEXT drawDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawDataSSBO.getDeviceAddress(), .range = drawDataSSBO.getSize() };
+		VkDescriptorAddressInfoEXT drawDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawData.getDeviceAddress(), .range = drawData.getSize() };
 
-		resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{shadowMapViewMatricesBinding, modelTransformBinding, drawDataBinding},  {},
-			{{{.pStorageBuffer = &shadowMapViewMatricesAddressInfo}},
-			{{.pStorageBuffer = &modelTransformAddressInfo}},
-			{{.pStorageBuffer = &drawDataAddressInfo}}}, false });
+		m_resSet.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlags{},
+			std::array{ shadowMapViewMatricesBinding, modelTransformBinding, drawDataBinding }, std::array<VkDescriptorBindingFlags, 0>{},
+			std::vector<std::vector<VkDescriptorDataEXT>>{
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &shadowMapViewMatricesAddressInfo} },
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &modelTransformAddressInfo} },
+				std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &drawDataAddressInfo} }},
+			false);
+
+		std::array<std::reference_wrapper<const ResourceSet>, 1> resourceSets{ m_resSet };
 
 		m_shadowMapPass.initializeGraphics(assembler, { {ShaderStage{ VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shadow_pass_vert.spv"}, 
 			ShaderStage{ VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shadow_pass_frag.spv"}} }, resourceSets,
@@ -406,7 +397,7 @@ private:
 				pcData.proj00 = m_indicesForShadowMaps[i + j].proj00;
 				pcData.proj11 = -pcData.proj00;
 				auto& drawIndices{ m_drawCommandIndices[m_indicesForShadowMaps[i].drawsIndex] };
-				IndirectData* drawCommands{ reinterpret_cast<IndirectData*>(m_indirectDataBuffer->getData()) };
+				IndirectData* drawCommands{ reinterpret_cast<IndirectData*>(m_indirectDrawCmdData->getData()) };
 				for (int k{ 0 }; k < drawIndices.size(); ++k)
 				{
 					pcData.drawDataIndex = drawIndices[k];
@@ -462,7 +453,7 @@ private:
 			{
 				pcData.layer = j;
 				pcData.viewMatrixIndex = m_indicesForShadowCubeMaps[i].viewMatIndex + j;
-				IndirectData* drawCommands{ reinterpret_cast<IndirectData*>(m_indirectDataBuffer->getData()) };
+				IndirectData* drawCommands{ reinterpret_cast<IndirectData*>(m_indirectDrawCmdData->getData()) };
 				for (int k{ 0 }; k < drawIndices.size(); ++k)
 				{
 					pcData.drawDataIndex = drawIndices[k];

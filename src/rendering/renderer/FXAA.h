@@ -21,6 +21,8 @@ private:
 
 	const Image* m_inputImage{};
 
+	ResourceSet m_resSet{};
+
 	Pipeline m_FXAApass{};
 
 	VkSampler m_sampler{};
@@ -53,10 +55,13 @@ public:
 		VkDescriptorSetLayoutBinding inputImageBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
 		VkDescriptorImageInfo inputImageInfo{ .sampler = m_sampler, .imageView = m_inputImage->getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
-		std::vector<ResourceSet> resourceSets{};
-		resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-			{{inputImageBinding}},  {},
-				{ {{.pCombinedImageSampler = &inputImageInfo}} } });
+		m_resSet.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlags{},
+			std::array{ inputImageBinding }, std::array<VkDescriptorBindingFlags, 0>{},
+			std::vector<std::vector<VkDescriptorDataEXT>>{
+				std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &inputImageInfo} } },
+			true);
+
+		std::reference_wrapper<const ResourceSet> resSet[1]{ m_resSet };
 
 		PipelineAssembler assembler{ device };
 		assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
@@ -71,7 +76,7 @@ public:
 		m_FXAApass.initializeGraphics(assembler,
 			{ {ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/fullscreen_vert.spv"},
 			ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/fxaa_frag.spv"}} },
-			resourceSets, {}, {},
+			resSet, {}, {},
 			{ { VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(float) * 2}} });
 	}
 	~FXAA()

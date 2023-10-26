@@ -23,32 +23,32 @@ struct DrawCallData
 	float   boundingSpherePosZ;
 	float   boundingSphereRad;
 };
-layout(binding = 0) buffer readonly Indices
-{
-	uint indices[];
-};
-layout(binding = 1, std430) buffer readonly DrawCallDataBuffer
-{
-	DrawCallData drawCallData[];
-};
-layout(binding = 2) buffer writeonly targetDrawCommands
-{
-	IndirectCommand cmds[];
-};
-layout(binding = 3) buffer TargetDrawCount
-{
-	uint targetDrawCount;
-};
-layout(binding = 4) uniform sampler2D hierarchicalZ;
-layout(binding = 5) buffer DrawDataIndices
-{
-	uint drawDataIndices[];
-};
-layout(binding = 6) uniform ViewProj
+layout(set = 0, binding = 0) uniform ViewProj
 {
     mat4 view;
     mat4 proj;
 } viewproj;
+layout(set = 1, binding = 0) buffer readonly Indices
+{
+	uint indices[];
+};
+layout(set = 1, binding = 1, std430) buffer readonly DrawCallDataBuffer
+{
+	DrawCallData drawCallData[];
+};
+layout(set = 1, binding = 2) buffer writeonly TargetDrawCommands
+{
+	IndirectCommand cmds[];
+};
+layout(set = 1, binding = 3) buffer TargetDrawCount
+{
+	uint targetDrawCount;
+};
+layout(set = 1, binding = 4) uniform sampler2D hierarchicalZ;
+layout(set = 1, binding = 5) buffer DrawDataIndices
+{
+	uint drawDataIndices[];
+};
 
 layout(push_constant) uniform PushConstants
 {
@@ -96,7 +96,7 @@ bool testOcclusion(vec3 pos, float rad)
 	
 	uint n = clamp(uint(-log2(max(bvWidth, bvHeight))), 0, pushConstants.mipMax);
 	
-	uint levelHiZ = pushConstants.mipMax - n;
+	uint levelHiZ = pushConstants.mipMax - n - 1;
 
 	return textureLod(hierarchicalZ, sampleDepth, levelHiZ).x > depth;
 }

@@ -3,6 +3,8 @@
 
 #include <string>
 #include <filesystem>
+#include <functional>
+#include <span>
 
 #include <vulkan/vulkan.h>
 
@@ -108,7 +110,7 @@ private:
 	VkPipelineLayout m_pipelineLayoutHandle{};
 	VkPipelineBindPoint m_bindPoint{};
 
-	std::vector<ResourceSet> m_resourceSets{};
+	std::vector<std::reference_wrapper<const ResourceSet>> m_resourceSets{};
 	std::vector<uint32_t> m_setsInUse{};
 
 	bool m_invalid{ true };
@@ -117,30 +119,30 @@ public:
 	Pipeline();
 	Pipeline(const PipelineAssembler& assembler, 
 		std::span<const ShaderStage> shaders,
-		std::vector<ResourceSet>& resourceSets, 
+		std::span<std::reference_wrapper<const ResourceSet>> resourceSets,
 		std::span<const VkVertexInputBindingDescription> bindings = {}, 
 		std::span<const VkVertexInputAttributeDescription> attributes = {},
 		std::span<const VkPushConstantRange> pushConstantsRanges = {});
-	Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges = {});
+	Pipeline(VkDevice device, fs::path computeShaderFilepath, std::span<std::reference_wrapper<const ResourceSet>> resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges = {});
 	Pipeline(Pipeline&& srcPipeline) noexcept;
 	~Pipeline();
 
 	VkPipeline getPipelineHandle() const;
 	VkPipelineLayout getPipelineLayoutHandle() const;
-	std::vector<ResourceSet>& getResourceSets();
-	const std::vector<uint32_t>& getResourceSetsInUse();
+	const std::vector<std::reference_wrapper<const ResourceSet>>& getResourceSets() const;
+	const std::vector<uint32_t>& getResourceSetsInUse() const;
 	void setResourceInUse(uint32_t resSetIndex, uint32_t value);
 
 	void cmdBind(VkCommandBuffer cb);
 
 	void initializeGraphics(const PipelineAssembler& assembler,
 		std::span<const ShaderStage> shaders,
-		std::vector<ResourceSet>& resourceSets,
+		std::span<std::reference_wrapper<const ResourceSet>> resourceSets,
 		std::span<const VkVertexInputBindingDescription> bindings = {},
 		std::span<const VkVertexInputAttributeDescription> attributes = {},
 		std::span<const VkPushConstantRange> pushConstantsRanges = {});
 
-	void initializaCompute(VkDevice device, const fs::path& computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges = {});
+	void initializaCompute(VkDevice device, const fs::path& computeShaderFilepath, std::span<std::reference_wrapper<const ResourceSet>> resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges = {});
 
 private:
 	Pipeline(Pipeline&) = delete;

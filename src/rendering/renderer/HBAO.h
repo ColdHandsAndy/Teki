@@ -30,6 +30,8 @@ private:
 	Image m_randTex;
 	Image m_depthBuffer;
 
+	std::array<ResourceSet, 3> m_resSets{};
+
 	Pipeline m_linearExpandedFOVDepthPass;
 	Pipeline m_HBAOpass;
 	Pipeline m_blurHBAOpass;
@@ -51,13 +53,13 @@ private:
 	} m_hbaoInfo;
 	float m_blurSharpness{};
 
-	BufferBaseHostAccessible m_viewprojexpDataUB{ m_device, sizeof(glm::mat4) * 2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+	BufferBaseHostAccessible m_viewprojexpData{ m_device, sizeof(glm::mat4) * 2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 
 	VkSampler m_hbaoSampler{};
 	VkSampler m_randSampler{};
 
 public:
-	HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight);
+	HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight, const BufferMapped& modelTransformData, const BufferMapped& perDrawDataIndices, CommandBufferSet& cmdBufferSet, VkQueue queue);
 	~HBAO();
 
 	uint32_t getAOImageWidth()
@@ -101,18 +103,19 @@ public:
 
 	void setHBAOsettings(float radius, float aoExponent, float angleBias, float sharpness);
 
-	void acquireDepthPassData(const BufferMapped& modelTransformDataUB, const BufferMapped& perDrawDataIndicesSSBO);
-	void fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue);
 
 	void submitFrustum(double near, double far, double aspect, double FOV);
 	void submitViewMatrix(const glm::mat4& viewMat);
 
-	void cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData, uint32_t maxDrawCount);
+	void cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
 
 private:
-	void cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData, uint32_t maxDrawCount);
+	void cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
 	void cmdCalculateHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
 	void cmdBlurHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
+
+	void acquireDepthPassData(const BufferMapped& modelTransformData, const BufferMapped& perDrawDataIndices);
+	void fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue);
 };
 
 #endif

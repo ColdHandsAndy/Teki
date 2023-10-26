@@ -21,7 +21,7 @@ layout(set = 0, binding = 0) uniform ViewProjMatrices
     mat4 proj;
 } viewproj;
 
-layout(set = 1, binding = 5) buffer ModelMatrices 
+layout(set = 1, binding = 0) buffer ModelMatrices 
 {
     mat4 modelMatrices[];
 } modelMatrices;
@@ -41,11 +41,11 @@ struct DrawData
     uint8_t emIndexList;
     uint8_t emIndexLayer;
 };
-layout(set = 2, binding = 0) buffer DrawDataBuffer 
+layout(set = 5, binding = 0) buffer DrawDataBuffer 
 {
     DrawData data[];
 } drawData;
-layout(set = 2, binding = 1) buffer DrawDataIndexBuffer 
+layout(set = 5, binding = 1) buffer DrawDataIndexBuffer 
 {
     uint data[];
 } drawDataIndices;

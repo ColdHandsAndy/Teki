@@ -2,7 +2,7 @@
 
 #include "src/rendering/shader_management/shader_operations.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
-
+#include "src/tools/asserter.h"
 
 
 PipelineAssembler::PipelineAssembler(VkDevice device)
@@ -354,12 +354,17 @@ Pipeline::Pipeline() : m_invalid{ true }
 
 }
 
-Pipeline::Pipeline(const PipelineAssembler& assembler, std::span<const ShaderStage> shaders, std::vector<ResourceSet>& resourceSets, std::span<const VkVertexInputBindingDescription> bindings, std::span<const VkVertexInputAttributeDescription> attributes, std::span<const VkPushConstantRange> pushConstantsRanges)
+Pipeline::Pipeline(const PipelineAssembler& assembler, 
+	std::span<const ShaderStage> shaders,
+	std::span<std::reference_wrapper<const ResourceSet>> resourceSets,
+	std::span<const VkVertexInputBindingDescription> bindings, 
+	std::span<const VkVertexInputAttributeDescription> attributes, 
+	std::span<const VkPushConstantRange> pushConstantsRanges)
 {
 	initializeGraphics(assembler, shaders, resourceSets, bindings, attributes, pushConstantsRanges);
 }
 
-Pipeline::Pipeline(VkDevice device, fs::path computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges)
+Pipeline::Pipeline(VkDevice device, fs::path computeShaderFilepath, std::span<std::reference_wrapper<const ResourceSet>> resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges)
 {
 	initializaCompute(device, computeShaderFilepath, resourceSets, pushConstantsRanges);
 }
@@ -401,12 +406,12 @@ VkPipelineLayout Pipeline::getPipelineLayoutHandle() const
 	return m_pipelineLayoutHandle;
 }
 
-std::vector<ResourceSet>& Pipeline::getResourceSets()
+const std::vector<std::reference_wrapper<const ResourceSet>>& Pipeline::getResourceSets() const
 {
 	return m_resourceSets;
 }
 
-const std::vector<uint32_t>& Pipeline::getResourceSetsInUse()
+const std::vector<uint32_t>& Pipeline::getResourceSetsInUse() const
 {
 	return m_setsInUse;
 }
@@ -422,8 +427,8 @@ void Pipeline::cmdBind(VkCommandBuffer cb)
 }
 
 void Pipeline::initializeGraphics(const PipelineAssembler& assembler,
-	std::span<const ShaderStage> shaders, 
-	std::vector<ResourceSet>& resourceSets, 
+	std::span<const ShaderStage> shaders,
+	std::span<std::reference_wrapper<const ResourceSet>> resourceSets,
 	std::span<const VkVertexInputBindingDescription> bindings,
 	std::span<const VkVertexInputAttributeDescription> attributes, 
 	std::span<const VkPushConstantRange> pushConstantsRanges)
@@ -472,7 +477,7 @@ void Pipeline::initializeGraphics(const PipelineAssembler& assembler,
 	std::vector<VkDescriptorSetLayout> setLayouts(resourceSets.size());
 	for (uint32_t i{ 0 }; i < resourceSets.size(); ++i)
 	{
-		setLayouts[i] = resourceSets[i].getSetLayout();
+		setLayouts[i] = resourceSets[i].get().getSetLayout();
 	}
 	pipelineLayoutCI.setLayoutCount = setLayouts.size();
 	pipelineLayoutCI.pSetLayouts = setLayouts.data();
@@ -483,7 +488,11 @@ void Pipeline::initializeGraphics(const PipelineAssembler& assembler,
 	}
 	EASSERT(vkCreatePipelineLayout(m_device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
 	pipelineCI.layout = m_pipelineLayoutHandle;
-	m_resourceSets = std::move(resourceSets);
+	m_resourceSets.reserve(resourceSets.size());
+	for (int i{ 0 }; i < resourceSets.size(); ++i)
+	{
+		m_resourceSets.push_back(resourceSets[i]);
+	}
 	m_setsInUse = std::vector<uint32_t>(m_resourceSets.size(), 0u);
 
 	EASSERT(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &m_pipelineHandle) == VK_SUCCESS, "Vulkan", "Pipeline creation failed.");
@@ -499,7 +508,7 @@ void Pipeline::initializeGraphics(const PipelineAssembler& assembler,
 	m_invalid = false;
 }
 
-void Pipeline::initializaCompute(VkDevice device, const fs::path& computeShaderFilepath, std::vector<ResourceSet>& resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges)
+void Pipeline::initializaCompute(VkDevice device, const fs::path& computeShaderFilepath, std::span<std::reference_wrapper<const ResourceSet>> resourceSets, std::span<const VkPushConstantRange> pushConstantsRanges)
 {
 	m_device = device; 
 	m_bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE;
@@ -510,7 +519,7 @@ void Pipeline::initializaCompute(VkDevice device, const fs::path& computeShaderF
 	std::vector<VkDescriptorSetLayout> setLayouts(resourceSets.size());
 	for (uint32_t i{ 0 }; i < resourceSets.size(); ++i)
 	{
-		setLayouts[i] = resourceSets[i].getSetLayout();
+		setLayouts[i] = resourceSets[i].get().getSetLayout();
 	}
 	pipelineLayoutCI.setLayoutCount = setLayouts.size();
 	pipelineLayoutCI.pSetLayouts = setLayouts.data();
@@ -520,7 +529,11 @@ void Pipeline::initializaCompute(VkDevice device, const fs::path& computeShaderF
 		pipelineLayoutCI.pPushConstantRanges = pushConstantsRanges.data();
 	}
 	EASSERT(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &m_pipelineLayoutHandle) == VK_SUCCESS, "Vulkan", "Pipeline layout creation failed.");
-	m_resourceSets = std::move(resourceSets);
+	m_resourceSets.reserve(resourceSets.size());
+	for (int i{ 0 }; i < resourceSets.size(); ++i)
+	{
+		m_resourceSets.push_back(resourceSets[i]);
+	}
 	m_setsInUse = std::vector<uint32_t>(m_resourceSets.size(), 0u);
 
 	VkPipelineShaderStageCreateInfo shaderStage{ .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };

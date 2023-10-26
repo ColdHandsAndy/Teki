@@ -19,9 +19,9 @@ layout(set = 0, binding = 0) uniform ViewProjMatrices
     mat4 proj;
 } viewproj;
 
-layout(set = 0, binding = 1) uniform ModelMatrices 
+layout(set = 0, binding = 1) buffer ModelMatrices 
 {
-    mat4 modelMatrices[8];
+    mat4 modelMatrices[];
 } modelMatrices;
 
 layout(set = 0, binding = 2) buffer DrawDataIndicesBuffer 

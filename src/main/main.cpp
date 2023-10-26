@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <span>
+#include <initializer_list>
 #include <tuple>
 #include <filesystem>
 #include <fstream>
@@ -25,13 +26,6 @@
 #include <glm/gtx/transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/rotate_vector.hpp>
-
-#define WINDOW_WIDTH_DEFAULT  1280
-#define WINDOW_HEIGHT_DEFAULT 720
-#define HBAO_WIDTH_DEFAULT  1280
-#define HBAO_HEIGHT_DEFAULT 720
-#define NEAR_PLANE 0.1
-#define FAR_PLANE  10000.0
 
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/rendering/renderer/pipeline_management.h"
@@ -62,6 +56,17 @@
 
 #include "src/tools/tools.h"
 
+#define WINDOW_WIDTH_DEFAULT  1280
+#define WINDOW_HEIGHT_DEFAULT 720
+#define HBAO_WIDTH_DEFAULT  1280
+#define HBAO_HEIGHT_DEFAULT 720
+
+#define MAX_INDIRECT_DRAWS 128
+#define MAX_TRANSFORM_MATRICES 1024
+
+#define NEAR_PLANE 0.1
+#define FAR_PLANE  10000.0
+
 #define GENERAL_BUFFER_DEFAULT_SIZE 134217728ll
 #define SHARED_BUFFER_DEFAULT_SIZE 8388608ll
 #define DEVICE_BUFFER_DEFAULT_SIZE  268435456ll
@@ -87,40 +92,53 @@ struct InputAccessedData
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
 
 Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
-	const BufferMapped& viewprojDataUB,
-	const BufferMapped& modelTransformDataSSBO,
-	const BufferMapped& drawDataSSBO,
-	const Buffer& drawDataIndicesSSBO,
+	const ResourceSet& viewprojRS,
+	const ResourceSet& transformMatricesRS,
+	const ResourceSet& materialsTexturesRS,
+	const ResourceSet& shadowMapsRS,
+	const ResourceSet& skyboxLightingRS,
+	const ResourceSet& drawDataRS,
+	const ResourceSet& pbrRS,
+	const ResourceSet& directLightingRS);
+Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS, const ResourceSet& skyboxLightingRS);
+Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS);
+
+void createResourceSets(VkDevice device,
+	ResourceSet& viewprojRS,
+	const BufferMapped& viewprojData,
+	ResourceSet& transformMatricesRS,
+	const BufferMapped& transformMatrices,
+	ResourceSet& materialsTexturesRS,
 	const ImageListContainer& imageLists,
-	const ImageListContainer& shadowMapLists,
-	const std::vector<ImageList>& shadowCubeMapLists,
-	const BufferBaseHostAccessible& shadowMapsViewMatricesSSBO,
+	ResourceSet& skyboxLightingRS,
 	const ImageCubeMap& skybox,
 	const ImageCubeMap& radiance,
-	const ImageCubeMap& irradiance,
+	const ImageCubeMap& irradiance);
+void createDrawDataResourceSet(VkDevice device,
+	ResourceSet& drawDataRS,
+	const BufferMapped& drawData,
+	const Buffer& drawDataIndices);
+void createShadowMapResourceSet(VkDevice device,
+	ResourceSet& shadowMapsRS,
+	const ImageListContainer& shadowMapLists,
+	const std::vector<ImageList>& shadowCubeMapLists,
+	const BufferBaseHostAccessible& shadowMapViewMatrices);
+void createPBRResourceSet(VkDevice device,
+	VkSampler generalSampler,
+	ResourceSet& pbrRS,
 	const Image& brdfLUT,
-	const Image& imageAO,
-	VkSampler univSampler,
-	const BufferMapped& directionalLightUB,
-	const BufferMapped& sortedLightsDataUB,
-	const BufferBaseHostAccessible& typeDataUB,
-	const BufferBaseHostInaccessible& tileDataSSBO,
-	const BufferMapped& zBinDataUB);
-Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, BufferMapped& spaceTransformDataUB);
-Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ImageCubeMap& cubemapImages, const BufferMapped& skyboxTransformUB);
-Pipeline createSphereTestPBRPipeline(PipelineAssembler& assembler,
-	BufferMapped& viewprojDataUB, 
-	BufferMapped& perInstanceDataSSBO,
-	const ImageCubeMap& skybox,
-	const ImageCubeMap& radiance, 
-	const ImageCubeMap& irradiance, 
-	VkSampler uSampler, 
-	const Image& brdfLUT,
-	int instCount);
+	const Image& aoImage);
+void createDirecLightingResourceSet(VkDevice device,
+	ResourceSet& directLightingRS,
+	const BufferMapped& directionalLight,
+	const BufferMapped& sortedLightsData,
+	const BufferBaseHostAccessible& typeData,
+	const BufferBaseHostInaccessible& tileData,
+	const BufferMapped& zBinData);
 
 uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
-uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
+//uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 
 void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices);
@@ -128,9 +146,8 @@ void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBo
 
 void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster);
 void fillModelMatrices(const BufferMapped& modelTransformDataSSBO, const std::vector<glm::mat4>& modelMatrices);
-void fillDrawDataIndices(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
-void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform);
-void fillPBRSphereTestInstanceData(const BufferMapped& perInstPBRTestSSBO, int sphereInstCount);
+void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
+//void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform);
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos);
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -159,7 +176,6 @@ int main()
 	
 	DescriptorManager descriptorManager{ *vulkanObjectHandler };
 	ResourceSetSharedData::initializeResourceManagement(*vulkanObjectHandler, descriptorManager);
-
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
 	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, 
@@ -171,18 +187,28 @@ int main()
 	BufferBaseHostAccessible baseSharedBuffer{ device, 8388608ll,
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::NULL_FLAG, true };
 
-	BufferMapped viewprojDataUB{ baseHostBuffer, sizeof(glm::mat4) * 2 };
-	BufferMapped indirectDataBuffer{ baseHostCachedBuffer };
+	std::vector<fs::path> modelPaths{};
+	std::vector<glm::mat4> modelMatrices{};
+	fs::path envPath{};
+	Scene::parseSceneData("internal/scene_info.json", modelPaths, modelMatrices, envPath);
 
-	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), viewprojDataUB};
-	LightTypes::LightBase::assignGlobalClusterer(clusterer);
-
-	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT };
-
+	Buffer vertexData{ baseDeviceBuffer };
+	Buffer indexData{ baseDeviceBuffer };
+	BufferMapped indirectDrawCmdData{ baseHostCachedBuffer, sizeof(IndirectData) * MAX_INDIRECT_DRAWS };
+	BufferMapped drawData{ baseHostBuffer, sizeof(uint8_t) * 12 * MAX_INDIRECT_DRAWS };
+	BufferMapped viewprojData{ baseHostBuffer, sizeof(glm::mat4) * 2 };
+	BufferMapped transformMatrices{ baseHostBuffer, sizeof(glm::mat4) * MAX_TRANSFORM_MATRICES };
+	BufferMapped directionalLight{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
+	VkSampler generalSampler{ createGeneralSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
 	Image framebufferImage{ device, vulkanObjectHandler->getSwapchainFormat(), window.getWidth(), window.getHeight(), VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT };
-	FXAA fxaa{ device, window.getWidth(), window.getHeight(), framebufferImage };
-
-	ImageListContainer materialTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true, 
+	Image brdfLUT{ TextureLoaders::loadImage(vulkanObjectHandler, cmdBufferSet, baseHostBuffer,
+											 "internal/brdfLUT/brdfLUT.exr",
+											 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
+											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
+	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
+	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance/radiance.ktx2") };
+	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance/irradiance.ktx2") };
+	ImageListContainer materialsTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true,
 		VkSamplerCreateInfo{ 
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, 
 			.magFilter = VK_FILTER_LINEAR, 
@@ -200,61 +226,75 @@ int main()
 			.maxLod = 128.0f,
 			.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
 			.unnormalizedCoordinates = VK_FALSE } };
-	loadDefaultTextures(materialTextures, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
-
-	Buffer vertexData{ baseDeviceBuffer };
-	Buffer indexData{ baseDeviceBuffer };
-	
-	std::vector<fs::path> modelPaths{};
-	std::vector<glm::mat4> modelMatrices{};
-	fs::path envPath{};
-	Scene::parseSceneData("internal/scene_info.json", modelPaths, modelMatrices, envPath);
-
+	loadDefaultTextures(materialsTextures, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+	ImageListContainer shadowMaps{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, false,
+		VkSamplerCreateInfo{
+			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+			.magFilter = VK_FILTER_LINEAR,
+			.minFilter = VK_FILTER_LINEAR,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = VK_FALSE,
+			.compareEnable = VK_FALSE,
+			.compareOp = VK_COMPARE_OP_ALWAYS,
+			.minLod = 0.0f,
+			.maxLod = 128.0f,
+			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+			.unnormalizedCoordinates = VK_FALSE }, 
+			2, VK_IMAGE_ASPECT_DEPTH_BIT };
+	std::vector<ImageList> shadowCubeMaps{};
 	FrustumInfo frustumInfo{};
-
 	OBBs rUnitOBBs{ 8192 };
 	uint32_t drawCount{};
-
-	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, 
-		indirectDataBuffer, drawCount,
-		rUnitOBBs,
-		materialTextures, 
-		modelPaths,
-		vulkanObjectHandler, descriptorManager, cmdBufferSet)
-	};
-
-	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
-	getBoundingSpheres(indirectDataBuffer, rUnitOBBs);
-
-	BufferMapped modelTransformDataSSBO{ baseHostBuffer, sizeof(glm::mat4) * modelMatrices.size() };
-	BufferMapped drawDataSSBO{ baseHostBuffer, sizeof(uint8_t) * 12 * drawCount };
-
-	cmdBufferSet.resetPool(CommandBufferSet::TRANSIENT_POOL);
-
-	VkSampler universalSampler{ createGeneralSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
-	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
-	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance/radiance.ktx2") };
-	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance/irradiance.ktx2") };
-
-	Image brdfLUT{ TextureLoaders::loadImage(vulkanObjectHandler, cmdBufferSet, baseHostBuffer,
-											 "internal/brdfLUT/brdfLUT.exr",
-											 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
-											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
-
-	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
-
-	Culling culling{ device, drawCount, NEAR_PLANE, viewprojDataUB, indirectDataBuffer, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex() };
-	ShadowCaster caster{ device, clusterer, indirectDataBuffer, modelTransformDataSSBO, drawDataSSBO, rUnitOBBs };
-	LightTypes::LightBase::assignGlobalShadowCaster(caster);
-
-	cmdBufferSet.resetPool(CommandBufferSet::TRANSIENT_POOL);
-
 	UiData renderingData{};
 	renderingData.finalDrawCount.initialize(baseHostBuffer, sizeof(uint32_t));
 
+	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, 
+		indirectDrawCmdData, drawCount,
+		rUnitOBBs,
+		materialsTextures, 
+		modelPaths,
+		vulkanObjectHandler, descriptorManager, cmdBufferSet)
+	};
+	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
+	getBoundingSpheres(indirectDrawCmdData, rUnitOBBs);
+	 
+	ResourceSet viewprojRS{};
+	ResourceSet transformMatricesRS{};
+	ResourceSet materialsTexturesRS{};
+	ResourceSet shadowMapsRS{};
+	ResourceSet skyboxLightingRS{};
+	ResourceSet drawDataRS{};
+	ResourceSet pbrRS{};
+	ResourceSet directLightingRS{};
+	createResourceSets(device,
+		viewprojRS, viewprojData, 
+		transformMatricesRS, transformMatrices, 
+		materialsTexturesRS, materialsTextures, 
+		skyboxLightingRS, cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance);
+	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
+	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), viewprojRS };
+	LightTypes::LightBase::assignGlobalClusterer(clusterer);
+	ShadowCaster caster{ device, clusterer, shadowMaps, shadowCubeMaps, indirectDrawCmdData, transformMatrices, drawData, rUnitOBBs };
+	LightTypes::LightBase::assignGlobalShadowCaster(caster);
+	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
+	dirLight.plantData(directionalLight.getData());
 	LightTypes::PointLight pLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 10.0f, 2048, 0.0);
 	LightTypes::SpotLight sLight(glm::vec3{-8.5f, 14.0f, -3.5f}, glm::vec3{0.6f, 0.5f, 0.7f}, 1000.0f, 24.0f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(25.0), glm::radians(30.0), 2048, 0.0);
-	
+
+	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, viewprojRS, indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex() };
+	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, transformMatrices, drawData, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
+	FXAA fxaa{ device, window.getWidth(), window.getHeight(), framebufferImage };
+	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
+	createShadowMapResourceSet(device, shadowMapsRS, shadowMaps, shadowCubeMaps, caster.getShadowViewMatrices());
+	createPBRResourceSet(device, generalSampler, pbrRS, brdfLUT, hbao.getAO());
+	createDirecLightingResourceSet(device, directLightingRS, directionalLight, clusterer.getSortedLights(), clusterer.getSortedTypeData(), clusterer.getTileData(), clusterer.getZBin());
+
+
+
 	PipelineAssembler assembler{ device };
 	
 	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
@@ -267,27 +307,7 @@ int main()
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 
-	BufferMapped directionalLightUB{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
-	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
-	dirLight.plantData(directionalLightUB.getData());
-	
-	VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
-	VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
-
-	Pipeline forwardClusteredPipeline( 
-		createForwardClusteredPipeline(assembler, 
-			viewprojDataUB, modelTransformDataSSBO, drawDataSSBO, culling.getDrawDataIndexBuffer(),
-			materialTextures, caster.getShadowMaps(), caster.getShadowCubeMaps(), caster.getShadowViewMatrices(),
-			cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance, brdfLUT, hbao.getAO(), universalSampler,
-			directionalLightUB,
-			clusterer.getSortedLightsUB(), clusterer.getSortedTypeDataUB(), clusterer.getTileDataSSBO(), clusterer.getZBinUB())
-	);
-
-	/*Buffer sphereTestPBRdata{ baseDeviceBuffer };
-	uint32_t sphereTestPBRVertNum{ uploadSphereVertexData("A:/Models/obj/sphere.obj", sphereTestPBRdata, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
-	BufferMapped perInstPBRTestSSBO{ baseHostBuffer };
-	int sphereInstCount{ 25 };
-	Pipeline sphereTestPBRPipeline{ createSphereTestPBRPipeline(assembler, viewprojDataUB, perInstPBRTestSSBO, cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance, universalSampler, brdfLUT, sphereInstCount) };*/
+	Pipeline forwardClusteredPipeline( createForwardClusteredPipeline(assembler, viewprojRS, transformMatricesRS, materialsTexturesRS, shadowMapsRS, skyboxLightingRS, drawDataRS, pbrRS, directLightingRS));
 
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
@@ -295,27 +315,27 @@ int main()
 	Buffer skyboxData{ baseDeviceBuffer };
 	uploadSkyboxVertexData(skyboxData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 	BufferMapped skyboxTransformUB{ baseHostBuffer, sizeof(glm::mat4) * 2 };
-	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, cubemapSkybox, skyboxTransformUB) };
+	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, viewprojRS, skyboxLightingRS) };
 	
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_LINE_DRAWING);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.5f);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
 	Buffer spaceLinesVertexData{ baseDeviceBuffer };
 	uint32_t lineVertNum{ uploadLineVertices("internal/spaceLinesMesh/space_lines_vertices.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
-	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, viewprojDataUB) };
-
-	hbao.acquireDepthPassData(modelTransformDataSSBO, drawDataSSBO);
-	hbao.fiilRandomRotationImage(cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, viewprojRS) };
 
 	//Resource filling 
-	glm::mat4* vpMatrices{ reinterpret_cast<glm::mat4*>(viewprojDataUB.getData()) };
-	glm::mat4* skyboxTransform{ reinterpret_cast<glm::mat4*>(skyboxTransformUB.getData()) };
+	glm::mat4* vpMatrices{ reinterpret_cast<glm::mat4*>(viewprojData.getData()) };
 	fillFrustumData(vpMatrices, window, clusterer, hbao, frustumInfo, caster);
-	fillModelMatrices(modelTransformDataSSBO, modelMatrices);
-	fillDrawDataIndices(drawDataSSBO, staticMeshes, drawCount);
-	fillSkyboxTransformData(vpMatrices, skyboxTransform);
-	//fillPBRSphereTestInstanceData(perInstPBRTestSSBO, sphereInstCount);
+	fillModelMatrices(transformMatrices, modelMatrices);
+	fillDrawData(drawData, staticMeshes, drawCount);
 	//end   
+
+	
+	VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
+	VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
+
+
 
 	TimelineSemaphore semaphore{ device };
 	TimelineSemaphore semaphoreHiZ{ device };
@@ -353,8 +373,8 @@ int main()
 
 	uint32_t cbSetIndex{ cmdBufferSet.createInterchangeableSet(2, CommandBufferSet::ASYNC_COMPUTE_CB) };
 
-	WorldState::initialize();
 	vkDeviceWaitIdle(device);
+	WorldState::initialize();
 	while (!glfwWindowShouldClose(window))
 	{
 		//
@@ -362,10 +382,8 @@ int main()
 		//
 
 		WorldState::refreshFrameTime();
-
+		
 		vpMatrices[0] = glm::lookAt(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{0.0, 1.0, 0.0});
-		skyboxTransform[0] = vpMatrices[0];
-		skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
 
 		hbao.submitViewMatrix(vpMatrices[0]);
 		clusterer.submitViewMatrix(vpMatrices[0]);
@@ -389,7 +407,7 @@ int main()
 				BufferTools::cmdBufferCopy(cbDraw, culling.getDrawCountBufferHandle(), renderingData.finalDrawCount.getBufferHandle(), 1, &copy);
 			}
 
-			hbao.cmdPassCalcHBAO(cbDraw, descriptorManager, culling, vertexData, indexData, culling.getMaxDrawCount());
+			hbao.cmdPassCalcHBAO(cbDraw, descriptorManager, culling, vertexData, indexData);
 
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
 				{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
@@ -449,17 +467,6 @@ int main()
 					culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(),
 					culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(),
 					culling.getMaxDrawCount(), culling.getDrawCommandBufferStride());
-				
-				
-				//PBR sphere test
-				/*descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, sphereTestPBRPipeline.getResourceSets(), sphereTestPBRPipeline.getResourceSetsInUse(), sphereTestPBRPipeline.getPipelineLayoutHandle());
-				VkBuffer sphereTestPBRVertexBinding[1]{ sphereTestPBRdata.getBufferHandle() };
-				VkDeviceSize sphereTestPBRVertexOffsets[1]{ sphereTestPBRdata.getOffset() };
-				vkCmdBindVertexBuffers(cbDraw, 0, 1, sphereTestPBRVertexBinding, sphereTestPBRVertexOffsets);
-				sphereTestPBRPipeline.cmdBind(cbDraw);
-				vkCmdPushConstants(cbDraw, sphereTestPBRPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
-				vkCmdDraw(cbDraw, sphereTestPBRVertNum, sphereInstCount, 0, 0);*/
-				//
 			
 			
 			vkCmdEndRendering(cbDraw);
@@ -547,13 +554,13 @@ int main()
 
 		VkCommandBuffer cbPreprocessing{ cmdBufferSet.beginTransientRecording() };
 
-		culling.cmdCullOccluded(cbPreprocessing, descriptorManager);
-		clusterer.waitLightData();
-		caster.prepareDataForShadowMapRendering();
-		vkCmdBindVertexBuffers(cbPreprocessing, 0, 1, vertexBindings, vertexBindingOffsets);
-		vkCmdBindIndexBuffer(cbPreprocessing, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
-		caster.cmdRenderShadowMaps(cbPreprocessing, descriptorManager);
-		clusterer.cmdPassConductTileTest(cbPreprocessing, descriptorManager);
+			culling.cmdCullOccluded(cbPreprocessing, descriptorManager);
+			clusterer.waitLightData();
+			caster.prepareDataForShadowMapRendering();
+			vkCmdBindVertexBuffers(cbPreprocessing, 0, 1, vertexBindings, vertexBindingOffsets);
+			vkCmdBindIndexBuffer(cbPreprocessing, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
+			caster.cmdRenderShadowMaps(cbPreprocessing, descriptorManager);
+			clusterer.cmdPassConductTileTest(cbPreprocessing, descriptorManager);
 
 		cmdBufferSet.endRecording(cbPreprocessing);
 
@@ -643,12 +650,13 @@ int main()
 	}
 	
 	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
-	vkDestroySampler(device, universalSampler, nullptr);
+	vkDestroySampler(device, generalSampler, nullptr);
 	vkDestroySemaphore(device, swapchainSemaphore, nullptr);
 	vkDestroySemaphore(device, readyToPresentSemaphore, nullptr);
 	glfwTerminate();
 	return 0;
 }
+
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window)
 {
@@ -778,29 +786,33 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 {
 }
 
-Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
-	const BufferMapped& viewprojDataUB,
-	const BufferMapped& modelTransformDataSSBO,
-	const BufferMapped& drawDataSSBO,
-	const Buffer& drawDataIndicesSSBO,
+void createResourceSets(VkDevice device,
+	ResourceSet& viewprojRS, 
+	const BufferMapped& viewprojData,
+	ResourceSet& transformMatricesRS, 
+	const BufferMapped& transformMatrices,
+	ResourceSet& materialsTexturesRS, 
 	const ImageListContainer& imageLists,
-	const ImageListContainer& shadowMapLists,
-	const std::vector<ImageList>& shadowCubeMapLists,
-	const BufferBaseHostAccessible& shadowMapsViewMatricesSSBO,
+	ResourceSet& skyboxLightingRS, 
 	const ImageCubeMap& skybox,
 	const ImageCubeMap& radiance,
-	const ImageCubeMap& irradiance,
-	const Image& brdfLUT,
-	const Image& imageAO,
-	VkSampler univSampler,
-	const BufferMapped& directionalLightUB,
-	const BufferMapped& sortedLightsDataUB,
-	const BufferBaseHostAccessible& typeDataUB,
-	const BufferBaseHostInaccessible& tileDataSSBO,
-	const BufferMapped& zBinDataUB)
+	const ImageCubeMap& irradiance)
 {
-	VkDescriptorSetLayoutBinding viewprojBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT viewprojAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = viewprojDataUB.getSize() };
+	VkDescriptorSetLayoutBinding viewprojBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorAddressInfoEXT viewprojAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojData.getDeviceAddress(), .range = viewprojData.getSize() };
+	viewprojRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{}, 
+		std::array{ viewprojBinding }, 
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{ std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &viewprojAddressInfo} } },
+		false);
+
+	VkDescriptorSetLayoutBinding transformMatricesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT transformMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = transformMatrices.getDeviceAddress(), .range = transformMatrices.getSize() };
+	transformMatricesRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ transformMatricesBinding },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{ std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &transformMatricesAddressInfo} } },
+		false);
 
 	VkDescriptorSetLayoutBinding imageListsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
 	std::vector<VkDescriptorImageInfo> storageImageData(imageLists.getImageListCount());
@@ -810,47 +822,11 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 		storageImageData[i] = { .sampler = imageLists.getSampler(), .imageView = imageLists.getImageViewHandle(i), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		imageListsDescData[i].pCombinedImageSampler = &storageImageData[i];
 	}
-	//
-	VkDescriptorSetLayoutBinding samplerBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkSampler samplerData{ shadowMapLists.getSampler() };
-	//
-	VkDescriptorSetLayoutBinding shadowMapsBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	std::vector<VkDescriptorImageInfo> shadowMapsImageData(shadowMapLists.getImageListCount());
-	std::vector<VkDescriptorDataEXT> shadowMapsDescData(shadowMapLists.getImageListCount());
-	for (uint32_t i{ 0 }; i < shadowMapsDescData.size(); ++i)
-	{
-		shadowMapsImageData[i] = { .imageView = shadowMapLists.getImageViewHandle(i), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-		shadowMapsDescData[i].pSampledImage = &shadowMapsImageData[i];
-	}
-	//
-	VkDescriptorSetLayoutBinding shadowCubeMapsBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	std::vector<VkDescriptorImageInfo> shadowCubeMapsImageData(shadowCubeMapLists.size());
-	std::vector<VkDescriptorDataEXT> shadowCubeMapsDescData(shadowCubeMapLists.size());
-	for (uint32_t i{ 0 }; i < shadowCubeMapsDescData.size(); ++i)
-	{
-		shadowCubeMapsImageData[i] = { .imageView = shadowCubeMapLists[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-		shadowCubeMapsDescData[i].pSampledImage = &shadowCubeMapsImageData[i];
-	}
-	//
-	VkDescriptorSetLayoutBinding shadowMapViewsBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT shadowMapViewsAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = shadowMapsViewMatricesSSBO.getDeviceAddress(), .range = shadowMapsViewMatricesSSBO.getSize() };
-	//
-	VkDescriptorSetLayoutBinding modelTransformBinding{ .binding = 5, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT modelTransformAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = modelTransformDataSSBO.getDeviceAddress(), .range = modelTransformDataSSBO.getSize() };
-
-	VkDescriptorSetLayoutBinding drawDataBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT drawDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawDataSSBO.getDeviceAddress(), .range = drawDataSSBO.getSize() };
-	VkDescriptorSetLayoutBinding drawDataIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT drawDataIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawDataIndicesSSBO.getDeviceAddress(), .range = drawDataIndicesSSBO.getSize() };
-
-	VkDescriptorSetLayoutBinding sortedLightsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT sortedLightsAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = sortedLightsDataUB.getDeviceAddress(), .range = sortedLightsDataUB.getSize() };
-	VkDescriptorSetLayoutBinding typesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT typesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = typeDataUB.getDeviceAddress(), .range = typeDataUB.getSize() };
-	VkDescriptorSetLayoutBinding tileDataBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT tileDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = tileDataSSBO.getDeviceAddress(), .range = tileDataSSBO.getSize() };
-	VkDescriptorSetLayoutBinding zBinDataBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT zBinDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = zBinDataUB.getDeviceAddress(), .range = zBinDataUB.getSize() };
+	materialsTexturesRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ imageListsBinding },
+		std::array<VkDescriptorBindingFlags, 1>{ {VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT} },
+		std::vector<std::vector<VkDescriptorDataEXT>>{ imageListsDescData },
+		true);
 
 	VkDescriptorSetLayoutBinding skyboxBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
 	VkDescriptorImageInfo skyboxImageInfo{ .sampler = skybox.getSampler(), .imageView = skybox.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
@@ -858,51 +834,132 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 	VkDescriptorImageInfo radianceImageInfo{ .sampler = radiance.getSampler(), .imageView = radiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	VkDescriptorSetLayoutBinding irradianceBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
 	VkDescriptorImageInfo irradianceImageInfo{ .sampler = irradiance.getSampler(), .imageView = irradiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding lutBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorImageInfo lutImageInfo{ .sampler = univSampler, .imageView = brdfLUT.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding aoBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorImageInfo aoImageInfo{ .sampler = univSampler, .imageView = imageAO.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+	skyboxLightingRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ skyboxBinding, radianceBinding, irradianceBinding },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{ 
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &skyboxImageInfo} } ,
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &radianceImageInfo} } ,
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &irradianceImageInfo} } },
+		true);
+}
 
+void createDrawDataResourceSet(VkDevice device,
+	ResourceSet& drawDataRS,
+	const BufferMapped& drawData,
+	const Buffer& drawDataIndices)
+{
+	VkDescriptorSetLayoutBinding drawDataBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT drawDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawData.getDeviceAddress(), .range = drawData.getSize() };
+	VkDescriptorSetLayoutBinding drawDataIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT drawDataIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawDataIndices.getDeviceAddress(), .range = drawDataIndices.getSize() };
+	drawDataRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ drawDataBinding, drawDataIndicesBinding },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+		std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &drawDataAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &drawDataIndicesAddressInfo} } },
+		false);
+}
+
+void createShadowMapResourceSet(VkDevice device,
+	ResourceSet& shadowMapsRS,
+	const ImageListContainer& shadowMapLists,
+	const std::vector<ImageList>& shadowCubeMapLists, 
+	const BufferBaseHostAccessible& shadowMapViewMatrices)
+{
+	VkDescriptorSetLayoutBinding shadowMapsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	std::vector<VkDescriptorImageInfo> shadowMapsImageData(shadowMapLists.getImageListCount());
+	std::vector<VkDescriptorDataEXT> shadowMapsDescData(shadowMapLists.getImageListCount());
+	for (uint32_t i{ 0 }; i < shadowMapsDescData.size(); ++i)
+	{
+		shadowMapsImageData[i] = { .imageView = shadowMapLists.getImageViewHandle(i), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		shadowMapsDescData[i].pSampledImage = &shadowMapsImageData[i];
+	}
+	VkDescriptorSetLayoutBinding shadowCubeMapsBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	std::vector<VkDescriptorImageInfo> shadowCubeMapsImageData(shadowCubeMapLists.size());
+	std::vector<VkDescriptorDataEXT> shadowCubeMapsDescData(shadowCubeMapLists.size());
+	for (uint32_t i{ 0 }; i < shadowCubeMapsDescData.size(); ++i)
+	{
+		shadowCubeMapsImageData[i] = { .imageView = shadowCubeMapLists[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		shadowCubeMapsDescData[i].pSampledImage = &shadowCubeMapsImageData[i];
+	}
+	VkDescriptorSetLayoutBinding samplerBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkSampler samplerData{ shadowMapLists.getSampler() };
+	VkDescriptorSetLayoutBinding viewMatricesBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT viewMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = shadowMapViewMatrices.getDeviceAddress(), .range = shadowMapViewMatrices.getSize() };
+
+	shadowMapsRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ shadowMapsBinding, shadowCubeMapsBinding, samplerBinding, viewMatricesBinding },
+		std::array<VkDescriptorBindingFlags, 4>{ VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, 0 , 0},
+		std::vector<std::vector<VkDescriptorDataEXT>>{ 
+			shadowMapsDescData, 
+			shadowCubeMapsDescData, 
+			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampler = &samplerData }},
+			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pStorageBuffer = &viewMatricesAddressInfo }} },
+		true);
+}
+
+void createPBRResourceSet(VkDevice device,
+	VkSampler generalSampler,
+	ResourceSet& pbrRS,
+	const Image& brdfLUT,
+	const Image& aoImage)
+{
+	VkDescriptorSetLayoutBinding lutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorImageInfo lutImageInfo{ .sampler = generalSampler, .imageView = brdfLUT.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+	VkDescriptorSetLayoutBinding aoImageBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorImageInfo aoImageInfo{ .sampler = generalSampler, .imageView = aoImage.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+	pbrRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ lutBinding, aoImageBinding },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &lutImageInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &aoImageInfo} }},
+		true);
+}
+
+void createDirecLightingResourceSet(VkDevice device,
+	ResourceSet& directLightingRS,
+	const BufferMapped& directionalLight,
+	const BufferMapped& sortedLightsData,
+	const BufferBaseHostAccessible& typeData,
+	const BufferBaseHostInaccessible& tileData,
+	const BufferMapped& zBinData)
+{
 	VkDescriptorSetLayoutBinding directionalLightBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT directionalLightAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = directionalLightUB.getDeviceAddress(), .range = directionalLightUB.getSize() };
+	VkDescriptorAddressInfoEXT directionalLightAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = directionalLight.getDeviceAddress(), .range = directionalLight.getSize() };
+	VkDescriptorSetLayoutBinding sortedLightsBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT sortedLightsAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = sortedLightsData.getDeviceAddress(), .range = sortedLightsData.getSize() };
+	VkDescriptorSetLayoutBinding typesBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT typesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = typeData.getDeviceAddress(), .range = typeData.getSize() };
+	VkDescriptorSetLayoutBinding tileDataBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT tileDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = tileData.getDeviceAddress(), .range = tileData.getSize() };
+	VkDescriptorSetLayoutBinding zBinDataBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorAddressInfoEXT zBinDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = zBinData.getDeviceAddress(), .range = zBinData.getSize() };
+	directLightingRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ directionalLightBinding, sortedLightsBinding, typesBinding, tileDataBinding, zBinDataBinding },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &directionalLightAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &sortedLightsAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &typesAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &tileDataAddressInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &zBinDataAddressInfo} }},
+		false);
+}
 
-	std::vector<ResourceSet> resourceSets{};
-	VkDevice device{ assembler.getDevice() };
-
-
-	resourceSets.push_back({ device, 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{viewprojBinding},  {},
-			{{{.pUniformBuffer = &viewprojAddressInfo}}}, false });
-
-	resourceSets.push_back({ device, 1, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{imageListsBinding, samplerBinding, shadowMapsBinding, shadowCubeMapsBinding, shadowMapViewsBinding, modelTransformBinding},
-		{{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, {}, {VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT}, {VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT}, {}, {}},
-			{imageListsDescData, {{.pSampler = &samplerData}}, shadowMapsDescData, shadowCubeMapsDescData, {{.pStorageBuffer = &shadowMapViewsAddressInfo}}, {{.pStorageBuffer = &modelTransformAddressInfo}}}, true });
-
-	resourceSets.push_back({ device, 2, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{drawDataBinding, drawDataIndicesBinding}, {},
-			{{{.pStorageBuffer = &drawDataAddressInfo}}, {{.pStorageBuffer = &drawDataIndicesAddressInfo}}}, false });
-
-	resourceSets.push_back({ device, 3, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{sortedLightsBinding, typesBinding, tileDataBinding, zBinDataBinding},  {},
-			{{{.pStorageBuffer = &sortedLightsAddressInfo}},
-			{{.pUniformBuffer = &typesAddressInfo}}, 
-			{{.pStorageBuffer = &tileDataAddressInfo}}, 
-			{{.pUniformBuffer = &zBinDataAddressInfo}}}, false });
-
-	resourceSets.push_back({ device, 4, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{skyboxBinding, radianceBinding, irradianceBinding, lutBinding, aoBinding}, {},
-			{{{.pCombinedImageSampler = &skyboxImageInfo}}, 
-			{{.pCombinedImageSampler = &radianceImageInfo}}, 
-			{{.pCombinedImageSampler = &irradianceImageInfo}},
-			{{.pCombinedImageSampler = &lutImageInfo}}, 
-			{{.pCombinedImageSampler = &aoImageInfo}}}, true });
-
-	resourceSets.push_back({ device, 5, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{directionalLightBinding}, {},
-			{{{.pUniformBuffer = &directionalLightAddressInfo}}}, false });
-
-
+Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
+	const ResourceSet& viewprojRS,
+	const ResourceSet& transformMatricesRS,
+	const ResourceSet& materialsTexturesRS,
+	const ResourceSet& shadowMapsRS,
+	const ResourceSet& skyboxLightingRS,
+	const ResourceSet& drawDataRS,
+	const ResourceSet& pbrRS,
+	const ResourceSet& directLightingRS)
+{
+	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSets{ viewprojRS, transformMatricesRS, materialsTexturesRS, shadowMapsRS, skyboxLightingRS, drawDataRS, pbrRS, directLightingRS };
 	return	Pipeline{ assembler,
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_vert.spv"},
 		ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shader_frag.spv"}}},
@@ -912,17 +969,9 @@ Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
 		{{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(glm::vec3) + sizeof(float) + sizeof(glm::vec2) + sizeof(uint32_t) + sizeof(float)}}} };
 }
 
-Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ImageCubeMap& cubemapImages, const BufferMapped& skyboxTransformUB)
+Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS, const ResourceSet& skyboxLightingRS)
 {
-	std::vector<ResourceSet> resourceSets{};
-	VkDescriptorSetLayoutBinding uniformViewTranslateBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT uniformViewTranslateAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = skyboxTransformUB.getDeviceAddress(), .range = sizeof(glm::mat4) * 2 };
-	VkDescriptorSetLayoutBinding cubeTextureBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorImageInfo cubeTextureAddressInfo{ .sampler = cubemapImages.getSampler(), .imageView = cubemapImages.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-
-	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1,
-		{uniformViewTranslateBinding, cubeTextureBinding},  {},
-		{{{.pUniformBuffer = &uniformViewTranslateAddressinfo}}, {{.pCombinedImageSampler = &cubeTextureAddressInfo}}}, true });
+	std::array<std::reference_wrapper<const ResourceSet>, 2> resourceSets{ viewprojRS, skyboxLightingRS };
 	return Pipeline{ assembler,
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_skybox_vert.spv"}, 
 		ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shader_skybox_frag.spv"}}},
@@ -990,12 +1039,9 @@ void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagin
 	vkQueueWaitIdle(queue);
 }
 
-Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, BufferMapped& viewprojDataUB)
+Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS)
 {
-	std::vector<ResourceSet> resourceSets{};
-	VkDescriptorSetLayoutBinding uniformViewProjBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT uniformViewProjAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = sizeof(glm::mat4) * 2};
-	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1, {uniformViewProjBinding},  {}, {{{.pUniformBuffer = &uniformViewProjAddressinfo}}}, false});
+	std::array<std::reference_wrapper<const ResourceSet>, 1> resourceSets{ viewprojRS };
 	return Pipeline{ assembler, 
 		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_space_lines_vert.spv"}, 
 		ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shader_space_lines_frag.spv"}}},
@@ -1033,74 +1079,6 @@ uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseH
 	
 	return vertNum;
 }
-
-Pipeline createSphereTestPBRPipeline(PipelineAssembler& assembler, BufferMapped& viewprojDataUB, BufferMapped& perInstanceDataSSBO, const ImageCubeMap& skybox, const ImageCubeMap& radiance, const ImageCubeMap& irradiance, VkSampler univSampler, const Image& brdfLUT, int instCount)
-{
-	std::vector<ResourceSet> resourceSets{};
-	VkDescriptorSetLayoutBinding uniformViewProjBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT uniformViewProjAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = sizeof(glm::mat4) * 2 };
-
-	perInstanceDataSSBO.initialize(sizeof(glm::vec4) * 2 * instCount);
-	VkDescriptorSetLayoutBinding uniformInstDataBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorAddressInfoEXT uniformInstDataAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = perInstanceDataSSBO.getDeviceAddress(), .range = sizeof(glm::vec4) * 2 * instCount };
-
-	VkDescriptorSetLayoutBinding skyboxBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorImageInfo skyboxAddressInfo{ .sampler = skybox.getSampler(), .imageView = skybox.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-
-	VkDescriptorSetLayoutBinding radianceBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorImageInfo radianceAddressInfo{ .sampler = radiance.getSampler(), .imageView = radiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-
-	VkDescriptorSetLayoutBinding irradianceBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorImageInfo irradianceAddressInfo{ .sampler = irradiance.getSampler(), .imageView = irradiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-
-	VkDescriptorSetLayoutBinding lutBinding{ .binding = 5, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
-	VkDescriptorImageInfo lutAddressInfo{ .sampler = univSampler, .imageView = brdfLUT.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-
-	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1, 
-		{uniformViewProjBinding, 
-			uniformInstDataBinding, 
-				skyboxBinding,
-					radianceBinding,
-						irradianceBinding,
-							lutBinding},
-		{}, 
-		{{{.pUniformBuffer = &uniformViewProjAddressinfo}}, 
-			{{.pStorageBuffer = &uniformInstDataAddressinfo}}, 
-				{{.pCombinedImageSampler = &skyboxAddressInfo}},
-					{{.pCombinedImageSampler = &radianceAddressInfo}},
-						{{.pCombinedImageSampler = &irradianceAddressInfo}},
-							{{.pCombinedImageSampler = &lutAddressInfo}}}, true });
-
-	return Pipeline{ assembler,
-		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/pbr_spheres_test_vert.spv"},
-		ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/pbr_spheres_test_frag.spv"}}},
-		resourceSets,
-		{{PosTexVertex::getBindingDescription()}},
-		{PosTexVertex::getAttributeDescriptions()},
-		{{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(glm::vec3)}}} };
-}
-uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue)
-{
-	BufferMapped staging{ stagingBase };
-
-	LoaderOBJ::loadOBJfile(filepath, staging, LoaderOBJ::POS_VERT | LoaderOBJ::TEXC_VERT);
-
-	sphereVertexData.initialize(staging.getSize());
-
-	VkCommandBuffer cb{ cmdBufferSet.beginTransientRecording() };
-
-	VkBufferCopy copy{ .srcOffset = staging.getOffset(), .dstOffset = sphereVertexData.getOffset(), .size = staging.getSize() };
-	BufferTools::cmdBufferCopy(cb, staging.getBufferHandle(), sphereVertexData.getBufferHandle(), 1, &copy);
-
-	cmdBufferSet.endRecording(cb);
-
-	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
-	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-	vkQueueWaitIdle(queue);
-
-	return staging.getSize() / (5 * sizeof(float));
-}
-
 
 void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices)
 {
@@ -1165,7 +1143,7 @@ void fillModelMatrices(const BufferMapped& modelTransformDataSSBO, const std::ve
 		transformMatrices[i] = modelMatrices[i];
 	}
 }
-void fillDrawDataIndices(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount)
+void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount)
 {
 	uint8_t* drawDataIndices{ reinterpret_cast<uint8_t*>(perDrawDataIndicesSSBO.getData()) };
 	//Per mesh indices
@@ -1200,38 +1178,12 @@ void fillDrawDataIndices(const BufferMapped& perDrawDataIndicesSSBO, std::vector
 		}
 	}
 }
-void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform)
-{
-	skyboxTransform[0] = vpMatrices[0];
-	skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
-	skyboxTransform[1] = vpMatrices[1];
-}
-void fillPBRSphereTestInstanceData(const BufferMapped& perInstPBRTestSSBO, int sphereInstCount)
-{
-	uint8_t* perInstDataPtr{ reinterpret_cast<uint8_t*>(perInstPBRTestSSBO.getData()) };
-	for (int i{ 0 }; i < sphereInstCount; ++i)
-	{
-		glm::vec4* color_metalnessData{ reinterpret_cast<glm::vec4*>(perInstDataPtr) };
-		glm::vec4* wPos_roughnessData{ color_metalnessData + 1 };
-
-		int row{ i / 5 };
-		int column{ i % 5 };
-
-		glm::vec3 sphereHorDistance{ 4.0, 0.0, 0.0 };
-		glm::vec3 sphereVerDistance{ 0.0, 4.0, 0.0 };
-
-		glm::vec3 color{ 1.0f };
-		float metalness{ 0.25f * row };
-
-		glm::vec3 position{ -8.0, -8.0, 0.0 };
-		position += (sphereHorDistance * static_cast<float>(column) + sphereVerDistance * static_cast<float>(row));
-		float roughness{ 0.25f * column };
-
-		*color_metalnessData = glm::vec4{ color, metalness };
-		*wPos_roughnessData = glm::vec4{ position, roughness };
-		perInstDataPtr += sizeof(glm::vec4) * 2;
-	}
-}
+//void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform)
+//{
+//	skyboxTransform[0] = vpMatrices[0];
+//	skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
+//	skyboxTransform[1] = vpMatrices[1];
+//}
 
 VkSampler createGeneralSampler(VkDevice device, float maxAnisotropy)
 {

@@ -56,7 +56,7 @@ public:
 	DescriptorManager(VulkanObjectHandler& vulkanObjectHandler);
 	~DescriptorManager();
 
-    void cmdSubmitPipelineResources(VkCommandBuffer cb, VkPipelineBindPoint bindPoint, std::vector<ResourceSet>& resourceSets, const std::vector<uint32_t>& resourceIndices, VkPipelineLayout pipelineLayout);
+    void cmdSubmitPipelineResources(VkCommandBuffer cb, VkPipelineBindPoint bindPoint, const std::vector<std::reference_wrapper<const ResourceSet>>& resourceSets, const std::vector<uint32_t>& resourceIndices, VkPipelineLayout pipelineLayout);
 
 private:
 	void createNewDescriptorBuffer(DescriptorBufferType type);
@@ -117,29 +117,99 @@ private:
     uint8_t* m_resourcePayload{ nullptr };
 
     VkDevice m_device{};
-    uint32_t m_setIndex{};
 
     bool m_invalid{ true };
 
 public:
     ResourceSet() = default;
-    ResourceSet(VkDevice device, 
-        uint32_t setIndex, 
-        VkDescriptorSetLayoutCreateFlags flags, 
-        uint32_t resCopies, 
-        const std::vector<VkDescriptorSetLayoutBinding>& bindings, 
-        const std::vector<VkDescriptorBindingFlags>& bindingFlags, 
-        const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData,
-        bool containsSampledData = true);
+    template<std::ranges::contiguous_range Range1, std::ranges::contiguous_range Range2, std::ranges::contiguous_range Range3>
+    ResourceSet(VkDevice device,
+        uint32_t resCopies,
+        VkDescriptorSetLayoutCreateFlags flags,
+        const Range1& bindings,
+        const Range2& bindingFlags,
+        const Range3& bindingsDescriptorData,
+        bool containsSampledData)
+    {
+        initializeSet(device, resCopies, flags, bindings, bindingFlags, bindingsDescriptorData, containsSampledData);
+    }
     ResourceSet(ResourceSet&& srcResourceSet) noexcept;
     ~ResourceSet();
 
+    template<std::ranges::contiguous_range Range1, std::ranges::contiguous_range Range2, std::ranges::contiguous_range Range3>
+    void initializeSet(VkDevice device, uint32_t resCopies, VkDescriptorSetLayoutCreateFlags flags, const Range1& bindings, const Range2& bindingFlags, const Range3& bindingsDescriptorData, bool containsSampledData)
+    {
+        if (!m_invalid)
+            return;
+
+        m_device = device;
+        m_resCopies = resCopies;
+
+        EASSERT(bindings.size() == bindingsDescriptorData.size(), "App", "Descriptors are not provided for every binding");
+
+        VkDescriptorSetLayoutCreateInfo layoutCI{};
+        layoutCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+        layoutCI.flags = flags;
+
+        m_resources.reserve(bindings.size());
+        for (auto it = bindings.begin(); it != bindings.end(); ++it)
+        {
+            m_resources.push_back(BindingData{ .binding = it->binding, .type = it->descriptorType, .count = it->descriptorCount, .stages = it->stageFlags });
+        }
+
+        layoutCI.bindingCount = bindings.size();
+        layoutCI.pBindings = bindings.data();
+
+        if (bindingFlags.empty())
+        {
+            EASSERT(vkCreateDescriptorSetLayout(m_device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
+        }
+        else
+        {
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+            bindingFlagsCI.bindingCount = bindingFlags.size();
+            bindingFlagsCI.pBindingFlags = bindingFlags.data();
+            layoutCI.pNext = &bindingFlagsCI;
+            EASSERT(vkCreateDescriptorSetLayout(m_device, &layoutCI, nullptr, &m_layout) == VK_SUCCESS, "Vulkan", "Descriptor set layout creation failed");
+        }
+
+
+        for (uint32_t i{ 0 }; i < bindings.size(); ++i)
+        {
+            lvkGetDescriptorSetLayoutBindingOffsetEXT(m_device, m_layout, m_resources[i].binding, &m_resources[i].inSetOffset);
+        }
+        lvkGetDescriptorSetLayoutSizeEXT(m_device, m_layout, &m_descSetByteSize);
+
+        m_descSetAlignedByteSize = (m_descSetByteSize + (m_assignedDescriptorManager->m_descriptorBufferAlignment - 1)) & ~(m_assignedDescriptorManager->m_descriptorBufferAlignment - 1);
+        m_resourcePayload = { new uint8_t[m_descSetAlignedByteSize * m_resCopies] };
+
+        for (uint32_t copyIndex{ 0 }; copyIndex < m_resCopies; ++copyIndex)
+        {
+            for (uint32_t resourceIndx{ 0 }; resourceIndx < m_resources.size(); ++resourceIndx)
+            {
+                uint32_t resourceNumToGet{ static_cast<uint32_t>(bindingsDescriptorData[resourceIndx].size() / m_resCopies) };
+
+                VkDescriptorGetInfoEXT descGetInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT, .type = m_resources[resourceIndx].type };
+                uint32_t descriptorTypeSize{ getDescriptorTypeSize(descGetInfo.type) };
+
+                for (VkDeviceSize descriptorArrayNumber{ 0 }; descriptorArrayNumber < resourceNumToGet; ++descriptorArrayNumber)
+                {
+                    descGetInfo.data = bindingsDescriptorData[resourceIndx][descriptorArrayNumber + resourceNumToGet * copyIndex];
+                    lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + copyIndex * m_descSetAlignedByteSize + m_resources[resourceIndx].inSetOffset + descriptorArrayNumber * descriptorTypeSize);
+                }
+            }
+        }
+
+        m_assignedDescriptorManager->insertResourceSetInBuffer(*this, containsSampledData);
+
+        m_invalid = false;
+    }
+
     uint32_t getCopiesCount() const;
-    uint32_t getSetIndex() const;
     const VkDescriptorSetLayout& getSetLayout() const;
 
 private:
-    void initializeSet(const std::vector<std::vector<VkDescriptorDataEXT>>& bindingsDescriptorData, bool containsSampledData);
     uint32_t getDescBufferIndex() const;
     VkDeviceSize getDescriptorSetAlignedSize();
     void setDescBufferOffset(VkDeviceSize offset);
@@ -152,6 +222,5 @@ private:
 
     friend class DescriptorManager;
 };
-
 
 #endif

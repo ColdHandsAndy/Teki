@@ -16,12 +16,12 @@ layout(set = 0, binding = 0) uniform ViewProjMatrices
     mat4 proj;
 } viewproj;
 
-layout(set = 0, binding = 1) buffer IndexBuffer
+layout(set = 1, binding = 0) buffer IndexBuffer
 {
     uint16_t indices[];
 } indexBuffer;
 
-layout(set = 0, binding = 2) buffer LightData
+layout(set = 1, binding = 1) buffer LightData
 {
     UnifiedLightData lights[];
 } lightData;
