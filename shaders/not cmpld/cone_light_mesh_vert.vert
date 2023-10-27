@@ -10,6 +10,8 @@ layout(push_constant) uniform PushConstants
 	float sizemod;
 } pushConstants;
 
+#define COORDINATE_TRANSFORMATION_SET_INDEX 0
+#include "coordinate_transformation_set.h"
 layout(set = 0, binding = 0) uniform ViewProjMatrices
 {
     mat4 view;
@@ -85,7 +87,7 @@ void main()
 	uint lightIndex = indexBuffer.indices[gl_InstanceIndex];
 	UnifiedLightData light = lightData.lights[lightIndex];
 	gl_Position = 
-	viewproj.proj * viewproj.view 
+	coordTransformData.ndcFromWorld
 	* vec4(spotVertexTransform(light, capPart ? CAP_TRANSFORM : vertexTransformTypes[vert], spotDirections[capPart ? vert * 2 : part * 2 + uint(directionChoice[vert])])
 	* light.lightLength * pushConstants.sizemod + light.position, 1.0);
 	outColor = vec3(0.35, 0.56, 0.94);

@@ -5,11 +5,8 @@
 
 #include "lighting.h"
 
-layout(set = 0, binding = 0) uniform ViewProjMatrices
-{
-    mat4 view;
-    mat4 proj;
-} viewproj;
+#define COORDINATE_TRANSFORMATION_SET_INDEX 0
+#include "coordinate_transformation_set.h"
 
 layout(set = 1, binding = 2) buffer IndexBuffer
 {
@@ -82,7 +79,7 @@ void main()
 	bool capPart = part > 2;
 	UnifiedLightData light = lightData.lights[lightIndex];
 	gl_Position = 
-	viewproj.proj * viewproj.view 
+	coordTransformData.ndcFromWorld
 	* vec4(spotVertexTransform(light, capPart ? CAP_TRANSFORM : vertexTransformTypes[vert], spotDirections[capPart ? vert * 2 : part * 2 + uint(directionChoice[vert])])
 	* light.lightLength + light.position, 1.0);
 }

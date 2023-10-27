@@ -13,11 +13,8 @@ layout(location = 3) in uint packedTexCoords2x16;
 layout(location = 0) out float outDepth;
 
 
-layout(set = 0, binding = 0) uniform ViewProjMatrices
-{
-    mat4 view;
-    mat4 proj;
-} viewproj;
+#define COORDINATE_TRANSFORMATION_SET_INDEX 0
+#include "coordinate_transformation_set.h"
 
 layout(set = 0, binding = 1) buffer ModelMatrices 
 {
@@ -34,7 +31,7 @@ void main()
 {
     mat4 modelmat = modelMatrices.modelMatrices[drawDataIndices.indices[gl_DrawID].modelIndex];
     vec4 worldPos = modelmat * vec4(position, 1.0);
-    gl_Position = viewproj.proj * viewproj.view * worldPos;
+    gl_Position = coordTransformData.ndcFromWorld * worldPos;
 
 	outDepth = gl_Position.w;
 }

@@ -1,5 +1,7 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive						:  enable
+
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texCoord;
 
@@ -11,11 +13,8 @@ layout(location = 4) out vec3 colorInp;
 layout(location = 5) out flat float metalnessInp;
 layout(location = 6) out flat float roughnessInp;
 
-layout(set = 0, binding = 0) uniform ViewProjMatrices
-{
-    mat4 view;
-    mat4 proj;
-} viewproj;
+#define COORDINATE_TRANSFORMATION_SET_INDEX 0
+#include "coordinate_transformation_set.h"
 
 struct InstanceData
 {
@@ -36,6 +35,6 @@ void main()
     colorInp = instData.data[gl_InstanceIndex].color_met.xyz;
     metalnessInp = instData.data[gl_InstanceIndex].color_met.w;
     roughnessInp = instData.data[gl_InstanceIndex].position_roughness.w;
-    vec4 vertPos = viewproj.proj * viewproj.view * vec4(posInp, 1.0);
+    vec4 vertPos = coordTransformData.ndcFromWorld * vec4(posInp, 1.0);
     gl_Position = vertPos;
 }

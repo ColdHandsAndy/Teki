@@ -47,12 +47,6 @@ layout(push_constant) uniform PushConsts
 	float nearPlane;
 } pushConstants;
 
-layout(set = 0, binding = 0) uniform ViewProjMatrices 
-{
-    mat4 view;
-    mat4 proj;
-} viewproj;
-
 layout(set = 2, binding = 0) uniform sampler2DArray imageListArray[64];
 
 layout(set = 3, binding = 0) uniform texture2DArray shadowMapArray[64];

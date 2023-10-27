@@ -49,6 +49,7 @@
 #include "src/rendering/renderer/HBAO.h"
 #include "src/rendering/renderer/FXAA.h"
 #include "src/rendering/data_abstraction/BB.h"
+#include "src/rendering/renderer/world_transform.h"
 #include "src/rendering/UI/UI.h"
 
 #include "src/window/window.h"
@@ -104,8 +105,6 @@ Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ResourceSet& v
 Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS);
 
 void createResourceSets(VkDevice device,
-	ResourceSet& viewprojRS,
-	const BufferMapped& viewprojData,
 	ResourceSet& transformMatricesRS,
 	const BufferMapped& transformMatrices,
 	ResourceSet& materialsTexturesRS,
@@ -138,16 +137,14 @@ void createDirecLightingResourceSet(VkDevice device,
 
 uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
-//uint32_t uploadSphereVertexData(fs::path filepath, Buffer& sphereVertexData, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 
 void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue);
 void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices);
 void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBoxes);
 
-void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster);
+void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster);
 void fillModelMatrices(const BufferMapped& modelTransformDataSSBO, const std::vector<glm::mat4>& modelMatrices);
 void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
-//void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform);
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos);
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -196,7 +193,6 @@ int main()
 	Buffer indexData{ baseDeviceBuffer };
 	BufferMapped indirectDrawCmdData{ baseHostCachedBuffer, sizeof(IndirectData) * MAX_INDIRECT_DRAWS };
 	BufferMapped drawData{ baseHostBuffer, sizeof(uint8_t) * 12 * MAX_INDIRECT_DRAWS };
-	BufferMapped viewprojData{ baseHostBuffer, sizeof(glm::mat4) * 2 };
 	BufferMapped transformMatrices{ baseHostBuffer, sizeof(glm::mat4) * MAX_TRANSFORM_MATRICES };
 	BufferMapped directionalLight{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
 	VkSampler generalSampler{ createGeneralSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
@@ -251,6 +247,7 @@ int main()
 	uint32_t drawCount{};
 	UiData renderingData{};
 	renderingData.finalDrawCount.initialize(baseHostBuffer, sizeof(uint32_t));
+	CoordinateTransformation coordinateTransformation{ device, baseHostCachedBuffer };
 
 	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, 
 		indirectDrawCmdData, drawCount,
@@ -262,7 +259,6 @@ int main()
 	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
 	getBoundingSpheres(indirectDrawCmdData, rUnitOBBs);
 	 
-	ResourceSet viewprojRS{};
 	ResourceSet transformMatricesRS{};
 	ResourceSet materialsTexturesRS{};
 	ResourceSet shadowMapsRS{};
@@ -271,12 +267,11 @@ int main()
 	ResourceSet pbrRS{};
 	ResourceSet directLightingRS{};
 	createResourceSets(device,
-		viewprojRS, viewprojData, 
 		transformMatricesRS, transformMatrices, 
 		materialsTexturesRS, materialsTextures, 
 		skyboxLightingRS, cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance);
 	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
-	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), viewprojRS };
+	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), coordinateTransformation.getResourceSet() };
 	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 	ShadowCaster caster{ device, clusterer, shadowMaps, shadowCubeMaps, indirectDrawCmdData, transformMatrices, drawData, rUnitOBBs };
 	LightTypes::LightBase::assignGlobalShadowCaster(caster);
@@ -285,7 +280,7 @@ int main()
 	LightTypes::PointLight pLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 10.0f, 2048, 0.0);
 	LightTypes::SpotLight sLight(glm::vec3{-8.5f, 14.0f, -3.5f}, glm::vec3{0.6f, 0.5f, 0.7f}, 1000.0f, 24.0f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(25.0), glm::radians(30.0), 2048, 0.0);
 
-	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, viewprojRS, indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex() };
+	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, coordinateTransformation.getResourceSet(), indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex()};
 	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, transformMatrices, drawData, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
 	FXAA fxaa{ device, window.getWidth(), window.getHeight(), framebufferImage };
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
@@ -307,7 +302,7 @@ int main()
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 
-	Pipeline forwardClusteredPipeline( createForwardClusteredPipeline(assembler, viewprojRS, transformMatricesRS, materialsTexturesRS, shadowMapsRS, skyboxLightingRS, drawDataRS, pbrRS, directLightingRS));
+	Pipeline forwardClusteredPipeline( createForwardClusteredPipeline(assembler, coordinateTransformation.getResourceSet(), transformMatricesRS, materialsTexturesRS, shadowMapsRS, skyboxLightingRS, drawDataRS, pbrRS, directLightingRS));
 
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
@@ -315,18 +310,17 @@ int main()
 	Buffer skyboxData{ baseDeviceBuffer };
 	uploadSkyboxVertexData(skyboxData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 	BufferMapped skyboxTransformUB{ baseHostBuffer, sizeof(glm::mat4) * 2 };
-	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, viewprojRS, skyboxLightingRS) };
+	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, coordinateTransformation.getResourceSet(), skyboxLightingRS) };
 	
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_LINE_DRAWING);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.5f);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
 	Buffer spaceLinesVertexData{ baseDeviceBuffer };
 	uint32_t lineVertNum{ uploadLineVertices("internal/spaceLinesMesh/space_lines_vertices.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
-	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, viewprojRS) };
+	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, coordinateTransformation.getResourceSet()) };
 
 	//Resource filling 
-	glm::mat4* vpMatrices{ reinterpret_cast<glm::mat4*>(viewprojData.getData()) };
-	fillFrustumData(vpMatrices, window, clusterer, hbao, frustumInfo, caster);
+	fillFrustumData(coordinateTransformation, window, clusterer, hbao, frustumInfo, caster);
 	fillModelMatrices(transformMatrices, modelMatrices);
 	fillDrawData(drawData, staticMeshes, drawCount);
 	//end   
@@ -383,13 +377,13 @@ int main()
 
 		WorldState::refreshFrameTime();
 		
-		vpMatrices[0] = glm::lookAt(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{0.0, 1.0, 0.0});
+		coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
 
-		hbao.submitViewMatrix(vpMatrices[0]);
-		clusterer.submitViewMatrix(vpMatrices[0]);
+		hbao.submitViewMatrix(coordinateTransformation.getViewMatrix());
+		clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
 
 		clusterer.startClusteringProcess();
-		renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, vpMatrices[0]);
+		renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, coordinateTransformation.getViewMatrix());
 
 		if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
 		{
@@ -787,8 +781,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 }
 
 void createResourceSets(VkDevice device,
-	ResourceSet& viewprojRS, 
-	const BufferMapped& viewprojData,
 	ResourceSet& transformMatricesRS, 
 	const BufferMapped& transformMatrices,
 	ResourceSet& materialsTexturesRS, 
@@ -798,14 +790,6 @@ void createResourceSets(VkDevice device,
 	const ImageCubeMap& radiance,
 	const ImageCubeMap& irradiance)
 {
-	VkDescriptorSetLayoutBinding viewprojBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorAddressInfoEXT viewprojAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojData.getDeviceAddress(), .range = viewprojData.getSize() };
-	viewprojRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{}, 
-		std::array{ viewprojBinding }, 
-		std::array<VkDescriptorBindingFlags, 0>{},
-		std::vector<std::vector<VkDescriptorDataEXT>>{ std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &viewprojAddressInfo} } },
-		false);
-
 	VkDescriptorSetLayoutBinding transformMatricesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
 	VkDescriptorAddressInfoEXT transformMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = transformMatrices.getDeviceAddress(), .range = transformMatrices.getSize() };
 	transformMatricesRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
@@ -1103,14 +1087,14 @@ void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBo
 	}
 }
 
-void fillFrustumData(glm::mat4* vpMatrices, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster)
+void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster)
 {
 	float nearPlane{ NEAR_PLANE };
 	float farPlane{ FAR_PLANE };
 	float aspect{ static_cast<float>(static_cast<double>(window.getWidth()) / window.getHeight()) };
 	float FOV{ glm::radians(80.0) };
 
-	vpMatrices[1] = getProjectionRZ(FOV, aspect, nearPlane, farPlane);
+	coordinateTransformation.updateProjectionMatrix(FOV, aspect, nearPlane, farPlane);
 	clusterer.submitFrustum(nearPlane, farPlane, aspect, FOV);
 	hbao.submitFrustum(nearPlane, farPlane, aspect, FOV);
 	caster.submitFrustum(nearPlane, farPlane);

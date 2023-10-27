@@ -1,5 +1,7 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive						:  enable
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 struct IndirectCommand 
@@ -23,11 +25,10 @@ struct DrawCallData
 	float   boundingSpherePosZ;
 	float   boundingSphereRad;
 };
-layout(set = 0, binding = 0) uniform ViewProj
-{
-    mat4 view;
-    mat4 proj;
-} viewproj;
+
+#define COORDINATE_TRANSFORMATION_SET_INDEX 0
+#include "coordinate_transformation_set.h"
+
 layout(set = 1, binding = 0) buffer readonly Indices
 {
 	uint indices[];
@@ -83,8 +84,8 @@ void projectSphere(vec3 p, float r, float proj00, float proj11, out float bvWidt
 
 bool testOcclusion(vec3 pos, float rad)
 {
-	vec3 viewPos = vec3(viewproj.view * vec4(pos, 1.0));
-	float depth = viewproj.proj[2].z + viewproj.proj[3].z / (viewPos.z - rad);
+	vec3 viewPos = vec3(coordTransformData.viewFromWorld * vec4(pos, 1.0));
+	float depth = coordTransformData.ndcFromView[2].z + coordTransformData.ndcFromView[3].z / (viewPos.z - rad);
 
 	if (viewPos.z < rad + pushConstants.zNear)
 		return false;
@@ -92,7 +93,7 @@ bool testOcclusion(vec3 pos, float rad)
 	float bvWidth;
 	float bvHeight;
 	vec2 sampleDepth;
-	projectSphere(viewPos, rad, viewproj.proj[0].x, viewproj.proj[1].y, bvWidth, bvHeight, sampleDepth);
+	projectSphere(viewPos, rad, coordTransformData.ndcFromView[0].x, coordTransformData.ndcFromView[1].y, bvWidth, bvHeight, sampleDepth);
 	
 	uint n = clamp(uint(-log2(max(bvWidth, bvHeight))), 0, pushConstants.mipMax);
 	

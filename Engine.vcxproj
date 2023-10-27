@@ -220,6 +220,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
       </ExcludedFromBuild>
     </Text>
+    <Text Include="shaders\not cmpld\include\coordinate_transformation_set.h" />
     <ClInclude Include="src\rendering\data_abstraction\BB.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
     <ClInclude Include="src\rendering\data_abstraction\mesh.h" />
@@ -239,6 +240,7 @@
     <ClInclude Include="src\rendering\renderer\pipeline_management.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="src\rendering\renderer\timeline_semaphore.h" />
+    <ClInclude Include="src\rendering\renderer\world_transform.h" />
     <ClInclude Include="src\rendering\scene\parse_scene.h" />
     <ClInclude Include="src\rendering\shader_management\shader_operations.h" />
     <ClInclude Include="src\rendering\UI\UI.h" />

@@ -179,6 +179,9 @@
     <ClInclude Include="src\tools\projection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\renderer\world_transform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -228,6 +231,9 @@
       <Filter>Header Files</Filter>
     </Text>
     <Text Include="shaders\not cmpld\include\rand.h">
+      <Filter>Header Files</Filter>
+    </Text>
+    <Text Include="shaders\not cmpld\include\coordinate_transformation_set.h">
       <Filter>Header Files</Filter>
     </Text>
   </ItemGroup>
