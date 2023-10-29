@@ -3,25 +3,8 @@
 
 #include "rand.h"
 
-//Light data layout
-struct UnifiedLightData
-{
-	vec3 position;
-	float lightLength;
-	vec3 spectrum;
-	float cutoffCos;
-	vec3 direction;
-	float falloffCos;
-	int shadowListIndex;
-	uint shadowLayerIndex;
-	uint shadowMatrixIndex;
-	float lightSize;
-};
-
-//Shadow mapping functions
-//PCSS
-#define BLOCKER_SEARCH_NUM_SAMPLES 16
 #define PCF_NUM_SAMPLES 16
+#define BLOCKER_SEARCH_NUM_SAMPLES 16
 vec2 poissonDisc[16] = {
  vec2( 0.14383161, -0.14100790 ),
  vec2( 0.19984126, 0.78641367 ),
@@ -40,6 +23,53 @@ vec2 poissonDisc[16] = {
  vec2( -0.81409955, 0.91437590 ),
  vec2( 0.94558609, -0.76890725 )
  };
+
+//Light data layout
+struct UnifiedLightData
+{
+	vec3 position;
+	float lightLength;
+	vec3 spectrum;
+	float cutoffCos;
+	vec3 direction;
+	float falloffCos;
+	int shadowListIndex;
+	uint shadowLayerIndex;
+	uint shadowMatrixIndex;
+	float lightSize;
+};
+
+//Shadow mapping functions
+//PCF
+float PCF(float bias, float receiverDepth, vec3 uv, sampler samplerSM, texture2DArray shadowMap)
+{
+	vec2 offsets[9] = {
+	  vec2(-1.0, -1.0),
+	  vec2(0.0, -1.0),
+	  vec2(1.0, -1.0),
+	  vec2(-1.0, 0.0),
+	  vec2(0.0, 0.0),
+	  vec2(1.0, 0.0),
+	  vec2(-1.0, 1.0),
+	  vec2(0.0, 1.0),
+	  vec2(1.0, 1.0)
+	};
+
+	float invRes = 1.0 / textureSize(shadowMap, 0).x;
+
+	float numCloserSamples = 0.0;
+	for (int i = 0; i < 9; ++i) 
+	{
+		float shadowSample = texture(sampler2DArray(shadowMap, samplerSM), vec3(uv.xy + offsets[i] * invRes, uv.z)).x;
+
+		if (shadowSample > receiverDepth - bias)
+			++numCloserSamples;
+	}
+
+	return numCloserSamples / 9.0;
+}
+
+//PCSS
 float penumbraSize(float receiverDepth, float blockerDepth)
 {
 	return (receiverDepth - blockerDepth) / blockerDepth;

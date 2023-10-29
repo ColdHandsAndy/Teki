@@ -155,7 +155,7 @@ void Clusterer::waitLightData()
 	m_cv.wait(lock, [this] { return m_countDataReady; });
 	m_countDataReady = false;
 }
-void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb)
 {
 	VkRenderingInfo renderInfo{};
 	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -173,27 +173,24 @@ void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& de
 
 	vkCmdBeginRendering(cb, &renderInfo);
 		
-		descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-			m_pointLightTileTestPipeline.getResourceSets(), m_pointLightTileTestPipeline.getResourceSetsInUse(), m_pointLightTileTestPipeline.getPipelineLayoutHandle());
+		m_pointLightTileTestPipeline.cmdBindResourceSets(cb);
 		VkBuffer vertexBinding[1]{ m_lightBoundingVolumeVertexData.getBufferHandle() };
 		VkDeviceSize vertexOffsets[1]{ m_lightBoundingVolumeVertexData.getOffset() };
 		vkCmdBindVertexBuffers(cb, 0, 1, vertexBinding, vertexOffsets);
 		m_pointLightTileTestPipeline.cmdBind(cb);
 		vkCmdDraw(cb, POINT_LIGHT_BV_VERTEX_COUNT, m_nonculledPointLightCount, 0, 0);
 
-		descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-			m_spotLightTileTestPipeline.getResourceSets(), m_spotLightTileTestPipeline.getResourceSetsInUse(), m_spotLightTileTestPipeline.getPipelineLayoutHandle());
+		m_spotLightTileTestPipeline.cmdBindResourceSets(cb);
 		m_spotLightTileTestPipeline.cmdBind(cb);
 		vkCmdDraw(cb, SPOT_LIGHT_BV_VERTEX_COUNT, m_nonculledSpotLightCount, 0, 0);
 		
 	vkCmdEndRendering(cb);
 }
-void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+void Clusterer::cmdDrawBVs(VkCommandBuffer cb)
 {
 	constexpr float pcData{ 1.0 };
 
-	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_visPipelines->m_pointBV.getResourceSets(), m_visPipelines->m_pointBV.getResourceSetsInUse(), m_visPipelines->m_pointBV.getPipelineLayoutHandle());
+	m_visPipelines->m_pointBV.cmdBindResourceSets(cb);
 	VkBuffer vertexBinding[1]{ m_lightBoundingVolumeVertexData.getBufferHandle() };
 	VkDeviceSize vertexOffsets[1]{ m_lightBoundingVolumeVertexData.getOffset() };
 	vkCmdBindVertexBuffers(cb, 0, 1, vertexBinding, vertexOffsets);
@@ -201,29 +198,26 @@ void Clusterer::cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorMana
 	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
 	vkCmdDraw(cb, POINT_LIGHT_BV_VERTEX_COUNT, m_nonculledPointLightCount, 0, 0);
 
-	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_visPipelines->m_spotBV.getResourceSets(), m_visPipelines->m_spotBV.getResourceSetsInUse(), m_visPipelines->m_spotBV.getPipelineLayoutHandle());
+	m_visPipelines->m_spotBV.cmdBindResourceSets(cb);
 	m_visPipelines->m_spotBV.cmdBind(cb);
-	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
+	vkCmdPushConstants(cb, m_visPipelines->m_spotBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
 	vkCmdDraw(cb, SPOT_LIGHT_BV_VERTEX_COUNT, m_nonculledSpotLightCount, 0, 0);
 }
-void Clusterer::cmdDrawProxies(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+void Clusterer::cmdDrawProxies(VkCommandBuffer cb)
 {
 	constexpr float pcData{ 0.02 };
 
-	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_visPipelines->m_pointProxy.getResourceSets(), m_visPipelines->m_pointProxy.getResourceSetsInUse(), m_visPipelines->m_pointProxy.getPipelineLayoutHandle());
+	m_visPipelines->m_pointProxy.cmdBindResourceSets(cb);
 	VkBuffer vertexBinding[1]{ m_lightBoundingVolumeVertexData.getBufferHandle() };
 	VkDeviceSize vertexOffsets[1]{ m_lightBoundingVolumeVertexData.getOffset() };
 	vkCmdBindVertexBuffers(cb, 0, 1, vertexBinding, vertexOffsets);
 	m_visPipelines->m_pointProxy.cmdBind(cb);
-	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
+	vkCmdPushConstants(cb, m_visPipelines->m_pointProxy.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
 	vkCmdDraw(cb, POINT_LIGHT_BV_VERTEX_COUNT, m_nonculledPointLightCount, 0, 0);
 
-	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_visPipelines->m_spotProxy.getResourceSets(), m_visPipelines->m_spotProxy.getResourceSetsInUse(), m_visPipelines->m_spotProxy.getPipelineLayoutHandle());
+	m_visPipelines->m_spotProxy.cmdBindResourceSets(cb);
 	m_visPipelines->m_spotProxy.cmdBind(cb);
-	vkCmdPushConstants(cb, m_visPipelines->m_pointBV.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
+	vkCmdPushConstants(cb, m_visPipelines->m_spotProxy.getPipelineLayoutHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float), &pcData);
 	vkCmdDraw(cb, SPOT_LIGHT_BV_VERTEX_COUNT, m_nonculledSpotLightCount, 0, 0);
 }
 

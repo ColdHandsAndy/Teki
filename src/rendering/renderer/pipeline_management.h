@@ -134,6 +134,7 @@ public:
 	void setResourceInUse(uint32_t resSetIndex, uint32_t value);
 
 	void cmdBind(VkCommandBuffer cb);
+	void cmdBindResourceSets(VkCommandBuffer cb);
 
 	void initializeGraphics(const PipelineAssembler& assembler,
 		std::span<const ShaderStage> shaders,

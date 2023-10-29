@@ -85,7 +85,7 @@ public:
 	}
 
 
-	void cmdPassFXAA(VkCommandBuffer cb, DescriptorManager& descriptorManager, VkImageView outputAttachment)
+	void cmdPassFXAA(VkCommandBuffer cb, VkImageView outputAttachment)
 	{
 		VkRenderingAttachmentInfo attachmentInfo{};
 		attachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -104,8 +104,7 @@ public:
 
 		vkCmdBeginRendering(cb, &renderInfo);
 			
-			descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-				m_FXAApass.getResourceSets(), m_FXAApass.getResourceSetsInUse(), m_FXAApass.getPipelineLayoutHandle());
+			m_FXAApass.cmdBindResourceSets(cb);
 			m_FXAApass.cmdBind(cb);
 			float pcData[2]{ m_invWindowWidth, m_invWindowHeight };
 			vkCmdPushConstants(cb, m_FXAApass.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float) * 2, pcData);
@@ -114,10 +113,10 @@ public:
 		vkCmdEndRendering(cb);
 	}
 
-	void changeFramebuffer(const Image& framebuffer)
+	/*void changeFramebuffer(const Image& framebuffer)
 	{
 		m_inputImage = &framebuffer;
-	}
+	}*/
 };
 
 #endif

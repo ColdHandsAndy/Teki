@@ -107,7 +107,6 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 								ImageListContainer& loadedTextures,
 								std::vector<fs::path> filepaths,
 								std::shared_ptr<VulkanObjectHandler> vulkanObjects,
-								DescriptorManager& descriptorManager,
 								CommandBufferSet& commandBufferSet)
 {
 	cgltf_options options{};

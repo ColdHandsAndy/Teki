@@ -426,6 +426,63 @@ void Pipeline::cmdBind(VkCommandBuffer cb)
 	vkCmdBindPipeline(cb, m_bindPoint, m_pipelineHandle);
 }
 
+void Pipeline::cmdBindResourceSets(VkCommandBuffer cb)
+{
+	for (uint32_t i{ 0 }; i < m_resourceSets.size(); ++i)
+	{
+		const ResourceSet& currentSet{ m_resourceSets[i].get() };
+		uint32_t currentResIndex{ m_setsInUse[i] };
+		EASSERT(currentSet.getCopiesCount() > 1 ? (currentResIndex < currentSet.getCopiesCount()) : true, "App", "Resource index is bigger than number of resources in a resource set")
+
+			uint32_t resourceDescBufferIndex{ currentSet.getDescBufferIndex() };
+		std::vector<uint32_t>::iterator beginIter{ ResourceSet::m_descBuffersBindings.begin() };
+		std::vector<uint32_t>::iterator indexIter{ std::find(beginIter, ResourceSet::m_descBuffersBindings.end(), resourceDescBufferIndex) };
+		if (indexIter == ResourceSet::m_descBuffersBindings.end())
+		{
+			ResourceSet::m_descBuffersBindings.push_back(resourceDescBufferIndex);
+			beginIter = ResourceSet::m_descBuffersBindings.begin();
+			indexIter = ResourceSet::m_descBuffersBindings.end() - 1;
+
+			ResourceSet::m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
+			ResourceSet::m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
+		}
+		else
+		{
+			ResourceSet::m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
+			ResourceSet::m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
+		}
+	}
+	uint32_t bufferCount{ static_cast<uint32_t>(ResourceSet::m_descBuffersBindings.size()) };
+
+	VkDescriptorBufferBindingInfoEXT* bindingInfos{ new VkDescriptorBufferBindingInfoEXT[bufferCount] };
+	for (uint32_t i{ 0 }; i < bufferCount; ++i)
+	{
+		bindingInfos[i].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
+		bindingInfos[i].pNext = nullptr;
+		bindingInfos[i].address = ResourceSet::m_descriptorBuffers.m_buffers[ResourceSet::m_descBuffersBindings[i]].deviceAddress;
+		switch (ResourceSet::m_descriptorBuffers.m_buffers[ResourceSet::m_descBuffersBindings[i]].type)
+		{
+		case ResourceSet::RESOURCE_TYPE:
+			bindingInfos[i].usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+			break;
+		case ResourceSet::SAMPLER_TYPE:
+			bindingInfos[i].usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
+			break;
+		default:
+			EASSERT(false, "App", "Unknown descriptor buffer type. Should never happen.");
+		}
+	}
+
+	lvkCmdBindDescriptorBuffersEXT(cb, bufferCount, bindingInfos);
+	lvkCmdSetDescriptorBufferOffsetsEXT(cb, m_bindPoint, m_pipelineLayoutHandle, 0, ResourceSet::m_offsetsToSet.size(), ResourceSet::m_bufferIndicesToBind.data(), ResourceSet::m_offsetsToSet.data());
+
+	ResourceSet::m_descBuffersBindings.clear();
+	ResourceSet::m_bufferIndicesToBind.clear();
+	ResourceSet::m_offsetsToSet.clear();
+	delete[] bindingInfos;
+}
+
+
 void Pipeline::initializeGraphics(const PipelineAssembler& assembler,
 	std::span<const ShaderStage> shaders,
 	std::span<std::reference_wrapper<const ResourceSet>> resourceSets,

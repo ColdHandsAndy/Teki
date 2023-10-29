@@ -143,9 +143,9 @@ public:
 	}
 
 	void waitLightData();
-	void cmdPassConductTileTest(VkCommandBuffer cb, DescriptorManager& descriptorManager);
-	void cmdDrawBVs(VkCommandBuffer cb, DescriptorManager& descriptorManager);
-	void cmdDrawProxies(VkCommandBuffer cb, DescriptorManager& descriptorManager);
+	void cmdPassConductTileTest(VkCommandBuffer cb);
+	void cmdDrawBVs(VkCommandBuffer cb);
+	void cmdDrawProxies(VkCommandBuffer cb);
 
 	const BufferMapped& getSortedLights() const
 	{

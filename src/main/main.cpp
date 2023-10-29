@@ -171,8 +171,7 @@ int main()
 
 	UI ui{ window, *vulkanObjectHandler, cmdBufferSet };
 	
-	DescriptorManager descriptorManager{ *vulkanObjectHandler };
-	ResourceSetSharedData::initializeResourceManagement(*vulkanObjectHandler, descriptorManager);
+	ResourceSet::initializeDescriptorBuffers(*vulkanObjectHandler);
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
 	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, 
@@ -228,7 +227,7 @@ int main()
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 			.magFilter = VK_FILTER_LINEAR,
 			.minFilter = VK_FILTER_LINEAR,
-			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
 			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 			.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
@@ -254,7 +253,7 @@ int main()
 		rUnitOBBs,
 		materialsTextures, 
 		modelPaths,
-		vulkanObjectHandler, descriptorManager, cmdBufferSet)
+		vulkanObjectHandler, cmdBufferSet)
 	};
 	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
 	getBoundingSpheres(indirectDrawCmdData, rUnitOBBs);
@@ -401,7 +400,7 @@ int main()
 				BufferTools::cmdBufferCopy(cbDraw, culling.getDrawCountBufferHandle(), renderingData.finalDrawCount.getBufferHandle(), 1, &copy);
 			}
 
-			hbao.cmdPassCalcHBAO(cbDraw, descriptorManager, culling, vertexData, indexData);
+			hbao.cmdPassCalcHBAO(cbDraw, culling, vertexData, indexData);
 
 			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
 				{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
@@ -437,19 +436,18 @@ int main()
 			vkCmdBeginRendering(cbDraw, &renderInfo);
 			
 				if (renderingData.drawBVs)
-					clusterer.cmdDrawBVs(cbDraw, descriptorManager);
+					clusterer.cmdDrawBVs(cbDraw);
 				if (renderingData.drawLightProxies)
-					clusterer.cmdDrawProxies(cbDraw, descriptorManager);
+					clusterer.cmdDrawProxies(cbDraw);
 
-				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline.getResourceSets(), skyboxPipeline.getResourceSetsInUse(), skyboxPipeline.getPipelineLayoutHandle());
+				skyboxPipeline.cmdBindResourceSets(cbDraw);
 				VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
 				VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
 				vkCmdBindVertexBuffers(cbDraw, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
 				skyboxPipeline.cmdBind(cbDraw);
 				vkCmdDraw(cbDraw, 36, 1, 0, 0);
 				
-				descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS,
-					forwardClusteredPipeline.getResourceSets(), forwardClusteredPipeline.getResourceSetsInUse(), forwardClusteredPipeline.getPipelineLayoutHandle());
+				forwardClusteredPipeline.cmdBindResourceSets(cbDraw);
 				
 				vkCmdBindVertexBuffers(cbDraw, 0, 1, vertexBindings, vertexBindingOffsets);
 				vkCmdBindIndexBuffer(cbDraw, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
@@ -479,7 +477,7 @@ int main()
 				depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 				vkCmdBeginRendering(cbDraw, &renderInfo);
 			
-					descriptorManager.cmdSubmitPipelineResources(cbDraw, VK_PIPELINE_BIND_POINT_GRAPHICS, spaceLinesPipeline.getResourceSets(), spaceLinesPipeline.getResourceSetsInUse(), spaceLinesPipeline.getPipelineLayoutHandle());
+					spaceLinesPipeline.cmdBindResourceSets(cbDraw);
 					VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
 					VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
 					vkCmdBindVertexBuffers(cbDraw, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
@@ -520,7 +518,7 @@ int main()
 					.layerCount = 1 })}
 			});
 			
-			fxaa.cmdPassFXAA(cbPostprocessing, descriptorManager, std::get<1>(swapchainImageData));
+			fxaa.cmdPassFXAA(cbPostprocessing, std::get<1>(swapchainImageData));
 			
 			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
 			ui.begin("Settings");
@@ -548,13 +546,13 @@ int main()
 
 		VkCommandBuffer cbPreprocessing{ cmdBufferSet.beginTransientRecording() };
 
-			culling.cmdCullOccluded(cbPreprocessing, descriptorManager);
+			culling.cmdCullOccluded(cbPreprocessing);
 			clusterer.waitLightData();
 			caster.prepareDataForShadowMapRendering();
 			vkCmdBindVertexBuffers(cbPreprocessing, 0, 1, vertexBindings, vertexBindingOffsets);
 			vkCmdBindIndexBuffer(cbPreprocessing, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
-			caster.cmdRenderShadowMaps(cbPreprocessing, descriptorManager);
-			clusterer.cmdPassConductTileTest(cbPreprocessing, descriptorManager);
+			caster.cmdRenderShadowMaps(cbPreprocessing);
+			clusterer.cmdPassConductTileTest(cbPreprocessing);
 
 		cmdBufferSet.endRecording(cbPreprocessing);
 
@@ -562,7 +560,7 @@ int main()
 		currentCBindex = currentCBindex ? 0 : 1;
 		VkCommandBuffer cbCompute{ cmdBufferSet.beginInterchangeableRecording(cbSetIndex, currentCBindex)};
 
-			depthBuffer.cmdCalcHiZ(cbCompute, descriptorManager);
+			depthBuffer.cmdCalcHiZ(cbCompute);
 
 		cmdBufferSet.endRecording(cbCompute);
 
@@ -1162,12 +1160,6 @@ void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<Static
 		}
 	}
 }
-//void fillSkyboxTransformData(glm::mat4* vpMatrices, glm::mat4* skyboxTransform)
-//{
-//	skyboxTransform[0] = vpMatrices[0];
-//	skyboxTransform[0][3] = glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f };
-//	skyboxTransform[1] = vpMatrices[1];
-//}
 
 VkSampler createGeneralSampler(VkDevice device, float maxAnisotropy)
 {

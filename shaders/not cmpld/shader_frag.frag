@@ -135,7 +135,8 @@ float calcShadowingOnedir(int list, uint layer, uint viewmat, float angleCos, fl
 	
 	float bias = max(0.05 * (1.0 - NdotL), 0.005);
 	
-	return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowMapArray[list]);
+	//return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowMapArray[list]);
+	return PCF(bias, depth, uv, samplerS, shadowMapArray[list]);
 }
 float calcShadowingOmnidir(int list, uint viewmat, vec3 lightPos, float lightSize, float NdotL)
 {
@@ -146,7 +147,8 @@ float calcShadowingOmnidir(int list, uint viewmat, vec3 lightPos, float lightSiz
 	
 	float bias = max(0.05 * (1.0 - NdotL), 0.005);
 	
-	return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowCubeMapArray[list]);
+	//return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowCubeMapArray[list]);
+	return PCF(bias, depth, uv, samplerS, shadowCubeMapArray[list]);
 }
 struct MaterialData
 {

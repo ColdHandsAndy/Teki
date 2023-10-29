@@ -163,7 +163,7 @@ public:
 			std::sort(m_indicesForShadowMaps.begin(), m_indicesForShadowMaps.end(), [](auto& one, auto& two) -> bool { return one.shadowMapIndices.listIndex < two.shadowMapIndices.listIndex; });
 	}
 
-	void cmdRenderShadowMaps(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+	void cmdRenderShadowMaps(VkCommandBuffer cb)
 	{
 		if (m_newLightsAdded)
 		{
@@ -178,7 +178,7 @@ public:
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
 
 		m_shadowMapPass.cmdBind(cb);
-		descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowMapPass.getResourceSets(), m_shadowMapPass.getResourceSetsInUse(), m_shadowMapPass.getPipelineLayoutHandle());
+		m_shadowMapPass.cmdBindResourceSets(cb);
 		cmdRenderShadowOnedirMaps(cb);
 		cmdRenderShadowCubeMaps(cb);
 

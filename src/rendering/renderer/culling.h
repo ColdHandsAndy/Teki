@@ -174,7 +174,7 @@ public:
 		//
 	}
 
-	void cmdCullOccluded(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+	void cmdCullOccluded(VkCommandBuffer cb)
 	{
 		uint32_t zero{ 0 };
 		vkCmdUpdateBuffer(cb, m_drawCount.getBufferHandle(), m_drawCount.getOffset(), sizeof(zero), &zero);
@@ -187,7 +187,7 @@ public:
 
 		m_occlusionPass.cmdBind(cb);
 
-		descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_COMPUTE, m_occlusionPass.getResourceSets(), m_occlusionPass.getResourceSetsInUse(), m_occlusionPass.getPipelineLayoutHandle());
+		m_occlusionPass.cmdBindResourceSets(cb);
 		struct {uint32_t commandCount; uint32_t mipMax; float zNear;} pcData;
 		pcData.commandCount = m_frustumNonculledCount;
 		pcData.mipMax = m_hiZmipmax;

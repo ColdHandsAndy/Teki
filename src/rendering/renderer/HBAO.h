@@ -107,12 +107,12 @@ public:
 	void submitFrustum(double near, double far, double aspect, double FOV);
 	void submitViewMatrix(const glm::mat4& viewMat);
 
-	void cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
+	void cmdPassCalcHBAO(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
 
 private:
-	void cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
-	void cmdCalculateHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
-	void cmdBlurHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager);
+	void cmdCalculateLinearDepth(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
+	void cmdCalculateHBAO(VkCommandBuffer cb);
+	void cmdBlurHBAO(VkCommandBuffer cb);
 
 	void acquireDepthPassData(const BufferMapped& modelTransformData, const BufferMapped& perDrawDataIndices);
 	void fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue);

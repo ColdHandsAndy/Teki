@@ -12,11 +12,6 @@ layout(push_constant) uniform PushConstants
 
 #define COORDINATE_TRANSFORMATION_SET_INDEX 0
 #include "coordinate_transformation_set.h"
-layout(set = 0, binding = 0) uniform ViewProjMatrices
-{
-    mat4 view;
-    mat4 proj;
-} viewproj;
 
 layout(set = 1, binding = 0) buffer IndexBuffer
 {

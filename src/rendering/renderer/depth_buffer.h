@@ -113,7 +113,7 @@ public:
 		delete[] m_imageViewsHiZ;
 	}
 
-	void cmdCalcHiZ(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+	void cmdCalcHiZ(VkCommandBuffer cb)
 	{
 		BarrierOperations::cmdExecuteBarrier(cb, { 
 			{BarrierOperations::constructImageBarrier(
@@ -137,7 +137,7 @@ public:
 		m_calcHiZ.cmdBind(cb);
 
 		m_calcHiZ.setResourceInUse(0, 0);
-		descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_COMPUTE, m_calcHiZ.getResourceSets(), m_calcHiZ.getResourceSetsInUse(), m_calcHiZ.getPipelineLayoutHandle());
+		m_calcHiZ.cmdBindResourceSets(cb);
 		constexpr uint32_t groupsizeX{ 16 };
 		constexpr uint32_t groupsizeY{ 16 };
 		pushC.widthPrev = width;
@@ -164,7 +164,7 @@ public:
 		for (int i{ 1 }; i < m_hiZopCount; ++i)
 		{
 			m_calcHiZ.setResourceInUse(0, i);
-			descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_COMPUTE, m_calcHiZ.getResourceSets(), m_calcHiZ.getResourceSetsInUse(), m_calcHiZ.getPipelineLayoutHandle());
+			m_calcHiZ.cmdBindResourceSets(cb);
 			pushC.widthPrev = width;
 			pushC.heightPrev = height;
 			pushC.invPrevWidth = 1.0f / width;
@@ -217,7 +217,7 @@ public:
 		return m_samplerHiZ;
 	}
 
-	void cmdVisualizeHiZ(VkCommandBuffer cb, DescriptorManager& descriptorManager, VkImage outImage, VkImageLayout outImageLayout, uint32_t mipLevel)
+	void cmdVisualizeHiZ(VkCommandBuffer cb, VkImage outImage, VkImageLayout outImageLayout, uint32_t mipLevel)
 	{
 		BarrierOperations::cmdExecuteBarrier(cb, {
 			{BarrierOperations::constructImageBarrier(

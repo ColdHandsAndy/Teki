@@ -250,7 +250,7 @@ void HBAO::submitViewMatrix(const glm::mat4& viewMat)
 	*(reinterpret_cast<glm::mat4*>(m_viewprojexpData.getData()) + viewMatOffsetInMat4) = viewMat;
 }
 
-void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
+void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
 {
 	VkRenderingAttachmentInfo linearDepthAttachmentInfo{};
 	linearDepthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -314,7 +314,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdCalculateLinearDepth(cb, descriptorManager, culling, vertexData, indexData);
+		this->cmdCalculateLinearDepth(cb, culling, vertexData, indexData);
 
 	vkCmdEndRendering(cb);
 
@@ -334,7 +334,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdCalculateHBAO(cb, descriptorManager);
+		this->cmdCalculateHBAO(cb);
 
 	vkCmdEndRendering(cb);
 
@@ -354,7 +354,7 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdBlurHBAO(cb, descriptorManager);
+		this->cmdBlurHBAO(cb);
 
 	vkCmdEndRendering(cb);
 
@@ -367,10 +367,9 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, DescriptorManager& descriptorMana
 }
 
 
-void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descriptorManager, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
+void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
 {
-	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_linearExpandedFOVDepthPass.getResourceSets(), m_linearExpandedFOVDepthPass.getResourceSetsInUse(), m_linearExpandedFOVDepthPass.getPipelineLayoutHandle());
+	m_linearExpandedFOVDepthPass.cmdBindResourceSets(cb);
 	VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
 	VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
 	vkCmdBindVertexBuffers(cb, 0, 1, vertexBindings, vertexBindingOffsets);
@@ -378,18 +377,16 @@ void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, DescriptorManager& descri
 	m_linearExpandedFOVDepthPass.cmdBind(cb);
 	vkCmdDrawIndexedIndirectCount(cb, culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(), culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(), culling.getMaxDrawCount(), culling.getDrawCommandBufferStride());
 }
-void HBAO::cmdCalculateHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+void HBAO::cmdCalculateHBAO(VkCommandBuffer cb)
 {
-	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_HBAOpass.getResourceSets(), m_HBAOpass.getResourceSetsInUse(), m_HBAOpass.getPipelineLayoutHandle());
+	m_HBAOpass.cmdBindResourceSets(cb);
 	m_HBAOpass.cmdBind(cb);
 	vkCmdPushConstants(cb, m_HBAOpass.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(m_hbaoInfo), &m_hbaoInfo);
 	vkCmdDraw(cb, 3, 1, 0, 0);
 }
-void HBAO::cmdBlurHBAO(VkCommandBuffer cb, DescriptorManager& descriptorManager)
+void HBAO::cmdBlurHBAO(VkCommandBuffer cb)
 {
-	descriptorManager.cmdSubmitPipelineResources(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_blurHBAOpass.getResourceSets(), m_blurHBAOpass.getResourceSetsInUse(), m_blurHBAOpass.getPipelineLayoutHandle());
+	m_blurHBAOpass.cmdBindResourceSets(cb);
 	m_blurHBAOpass.cmdBind(cb);
 	glm::vec3 pcData{ m_hbaoInfo.invResolution, m_blurSharpness };
 	vkCmdPushConstants(cb, m_blurHBAOpass.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pcData), &pcData);
