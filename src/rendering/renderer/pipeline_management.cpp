@@ -459,8 +459,8 @@ void Pipeline::cmdBindResourceSets(VkCommandBuffer cb)
 	{
 		bindingInfos[i].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
 		bindingInfos[i].pNext = nullptr;
-		bindingInfos[i].address = ResourceSet::m_descriptorBuffers.m_buffers[ResourceSet::m_descBuffersBindings[i]].deviceAddress;
-		switch (ResourceSet::m_descriptorBuffers.m_buffers[ResourceSet::m_descBuffersBindings[i]].type)
+		bindingInfos[i].address = ResourceSet::m_descriptorBuffers[ResourceSet::m_descBuffersBindings[i]].deviceAddress;
+		switch (ResourceSet::m_descriptorBuffers[ResourceSet::m_descBuffersBindings[i]].type)
 		{
 		case ResourceSet::RESOURCE_TYPE:
 			bindingInfos[i].usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;

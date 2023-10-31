@@ -178,7 +178,7 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 
 	IndirectData* indirectCmdData{ reinterpret_cast<IndirectData*>(indirectDataBuffer.getData()) };
 
-	uint64_t offsetIntoVertexData{ 0 };
+	uint64_t offsetIntoVertexData{ vertexBuffer.getOffset() };
 	uint64_t offsetIntoIndexData{ indexBuffer.getOffset() };
 	uint32_t offsetIntoCmdBuffer{ 0 };
 

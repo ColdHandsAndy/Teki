@@ -11,6 +11,8 @@
 
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 
+class ResourceSet;
+
 class [[nodiscard]] MemoryManager
 {
 private:
@@ -23,16 +25,14 @@ private:
 	uint32_t m_graphicsQueueFamilyIndex{};
 	uint32_t m_computeQueueFamilyIndex{};
 	uint32_t m_transferQueueFamilyIndex{};
+	
+	void (*m_descriptorBufferDestruction)();
 
 public:
 	MemoryManager() = delete;
 	MemoryManager(const VulkanObjectHandler& vulkanObjects);
 	~MemoryManager();
 
-	
-	//create pool
-	//pool allocation
-	
 private:
 	VmaAllocator getAllocator();
 	std::list<VmaAllocation>::iterator addAllocation();
@@ -47,6 +47,7 @@ private:
 	friend class ImageMS;
 	friend class ImageList;
 	friend class ImageCubeMap;
+	friend class ResourceSet;
 };
 
 #endif

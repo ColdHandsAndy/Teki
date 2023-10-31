@@ -171,7 +171,8 @@ int main()
 
 	UI ui{ window, *vulkanObjectHandler, cmdBufferSet };
 	
-	ResourceSet::initializeDescriptorBuffers(*vulkanObjectHandler);
+	ResourceSet::initializeDescriptorBuffers(*vulkanObjectHandler, memManager);
+
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
 	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, 
@@ -180,16 +181,19 @@ int main()
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 	BufferBaseHostAccessible baseHostCachedBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
-	BufferBaseHostAccessible baseSharedBuffer{ device, 8388608ll,
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::NULL_FLAG, true };
 
 	std::vector<fs::path> modelPaths{};
 	std::vector<glm::mat4> modelMatrices{};
 	fs::path envPath{};
 	Scene::parseSceneData("internal/scene_info.json", modelPaths, modelMatrices, envPath);
 
+	
 	Buffer vertexData{ baseDeviceBuffer };
 	Buffer indexData{ baseDeviceBuffer };
+	Buffer skyboxData{ baseDeviceBuffer };
+	uploadSkyboxVertexData(skyboxData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+	Buffer spaceLinesVertexData{ baseDeviceBuffer };
+	uint32_t lineVertNum{ uploadLineVertices("internal/spaceLinesMesh/space_lines_vertices.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
 	BufferMapped indirectDrawCmdData{ baseHostCachedBuffer, sizeof(IndirectData) * MAX_INDIRECT_DRAWS };
 	BufferMapped drawData{ baseHostBuffer, sizeof(uint8_t) * 12 * MAX_INDIRECT_DRAWS };
 	BufferMapped transformMatrices{ baseHostBuffer, sizeof(glm::mat4) * MAX_TRANSFORM_MATRICES };
@@ -257,7 +261,8 @@ int main()
 	};
 	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
 	getBoundingSpheres(indirectDrawCmdData, rUnitOBBs);
-	 
+
+
 	ResourceSet transformMatricesRS{};
 	ResourceSet materialsTexturesRS{};
 	ResourceSet shadowMapsRS{};
@@ -271,22 +276,22 @@ int main()
 		skyboxLightingRS, cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance);
 	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
 	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), coordinateTransformation.getResourceSet() };
-	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 	ShadowCaster caster{ device, clusterer, shadowMaps, shadowCubeMaps, indirectDrawCmdData, transformMatrices, drawData, rUnitOBBs };
+	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, coordinateTransformation.getResourceSet(), indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex()};
+	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, transformMatrices, drawData, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
+	FXAA fxaa{ device, window.getWidth(), window.getHeight(), framebufferImage };
+	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 	LightTypes::LightBase::assignGlobalShadowCaster(caster);
+
 	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
 	dirLight.plantData(directionalLight.getData());
 	LightTypes::PointLight pLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 10.0f, 2048, 0.0);
 	LightTypes::SpotLight sLight(glm::vec3{-8.5f, 14.0f, -3.5f}, glm::vec3{0.6f, 0.5f, 0.7f}, 1000.0f, 24.0f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(25.0), glm::radians(30.0), 2048, 0.0);
 
-	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, coordinateTransformation.getResourceSet(), indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex()};
-	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, transformMatrices, drawData, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
-	FXAA fxaa{ device, window.getWidth(), window.getHeight(), framebufferImage };
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
 	createShadowMapResourceSet(device, shadowMapsRS, shadowMaps, shadowCubeMaps, caster.getShadowViewMatrices());
 	createPBRResourceSet(device, generalSampler, pbrRS, brdfLUT, hbao.getAO());
 	createDirecLightingResourceSet(device, directLightingRS, directionalLight, clusterer.getSortedLights(), clusterer.getSortedTypeData(), clusterer.getTileData(), clusterer.getZBin());
-
 
 
 	PipelineAssembler assembler{ device };
@@ -306,16 +311,11 @@ int main()
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
 	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_SKYBOX);
-	Buffer skyboxData{ baseDeviceBuffer };
-	uploadSkyboxVertexData(skyboxData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
-	BufferMapped skyboxTransformUB{ baseHostBuffer, sizeof(glm::mat4) * 2 };
 	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, coordinateTransformation.getResourceSet(), skyboxLightingRS) };
 	
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_LINE_DRAWING);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.5f);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
-	Buffer spaceLinesVertexData{ baseDeviceBuffer };
-	uint32_t lineVertNum{ uploadLineVertices("internal/spaceLinesMesh/space_lines_vertices.bin", spaceLinesVertexData, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) };
 	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, coordinateTransformation.getResourceSet()) };
 
 	//Resource filling 
@@ -327,7 +327,6 @@ int main()
 	
 	VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
 	VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
-
 
 
 	TimelineSemaphore semaphore{ device };
@@ -375,15 +374,6 @@ int main()
 		//
 
 		WorldState::refreshFrameTime();
-		
-		coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
-
-		hbao.submitViewMatrix(coordinateTransformation.getViewMatrix());
-		clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
-
-		clusterer.startClusteringProcess();
-		renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, coordinateTransformation.getViewMatrix());
-
 		if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
 		{
 			vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
@@ -392,6 +382,18 @@ int main()
 		swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
 		colorAttachmentInfo.imageView = framebufferImage.getImageView();
 		renderInfo.pColorAttachments = &colorAttachmentInfo;
+
+
+		coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
+		hbao.submitViewMatrix(coordinateTransformation.getViewMatrix());
+		clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
+
+		
+		clusterer.startClusteringProcess();
+
+		renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, coordinateTransformation.getViewMatrix());
+
+
 
 		VkCommandBuffer cbDraw{ cmdBufferSet.beginRecording(CommandBufferSet::MAIN_CB) };
 			
@@ -448,7 +450,6 @@ int main()
 				vkCmdDraw(cbDraw, 36, 1, 0, 0);
 				
 				forwardClusteredPipeline.cmdBindResourceSets(cbDraw);
-				
 				vkCmdBindVertexBuffers(cbDraw, 0, 1, vertexBindings, vertexBindingOffsets);
 				vkCmdBindIndexBuffer(cbDraw, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 				forwardClusteredPipeline.cmdBind(cbDraw);
@@ -713,6 +714,8 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
 	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(queue);
+
+	cmdBufferSet.resetAll();
 }
 
 void mouseCallback(GLFWwindow* window, double xpos, double ypos)
@@ -1019,6 +1022,8 @@ void uploadSkyboxVertexData(Buffer& skyboxData, BufferBaseHostAccessible& stagin
 	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
 	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(queue);
+
+	cmdBufferSet.resetAll();
 }
 
 Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS)
@@ -1058,7 +1063,9 @@ uint32_t uploadLineVertices(fs::path filepath, Buffer& vertexBuffer, BufferBaseH
 	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
 	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(queue);
-	
+
+	cmdBufferSet.resetAll();
+
 	return vertNum;
 }
 

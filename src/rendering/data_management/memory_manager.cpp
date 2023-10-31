@@ -21,6 +21,7 @@ MemoryManager::MemoryManager(const VulkanObjectHandler& vulkanObjects) : m_physD
 
 MemoryManager::~MemoryManager()
 {
+	m_descriptorBufferDestruction();
 	vmaDestroyAllocator(m_allocator);
 }
 

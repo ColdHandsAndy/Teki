@@ -14,7 +14,7 @@ extern PFN_vkCmdSetDescriptorBufferOffsetsEXT lvkCmdSetDescriptorBufferOffsetsEX
 extern PFN_vkGetDescriptorEXT lvkGetDescriptorEXT;
 extern PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT lvkCmdBindDescriptorBufferEmbeddedSamplersEXT;
 
-#define DESCRIPTOR_BUFFER_DEFAULT_SIZE 51200 //1024
+#define DESCRIPTOR_BUFFER_DEFAULT_SIZE 51200
 
 class ResourceSet
 {
@@ -32,7 +32,6 @@ private:
         VkDeviceAddress deviceAddress{};
         DescriptorBufferType type{};
     };
-    //should be protected from concurrent access
     struct DescriptorAllocation
     {
         VmaVirtualAllocation memProxyAlloc{};
@@ -41,23 +40,7 @@ private:
 
     inline static VkDevice m_device{};
 
-    class DescriptorBuffers
-    {
-    public:
-        DescriptorBuffers()
-        {
-
-        }
-        ~DescriptorBuffers()
-        {
-            for (auto& descBuf : m_buffers)
-            {
-                vmaClearVirtualBlock(descBuf.memoryProxy);
-                vmaDestroyVirtualBlock(descBuf.memoryProxy);
-            }
-        }
-        std::vector<DescriptorBuffer> m_buffers{};
-    } inline static m_descriptorBuffers{};
+    inline static std::vector<DescriptorBuffer> m_descriptorBuffers{};
     inline static uint32_t m_descriptorBufferAlignment;
     inline static std::array<uint32_t, 2> m_queueFamilyIndices;
 
@@ -84,8 +67,8 @@ private:
 
         bufferCI.size = DESCRIPTOR_BUFFER_DEFAULT_SIZE;
 
-        m_descriptorBuffers.m_buffers.push_back(DescriptorBuffer{ .memoryProxy = VmaVirtualBlock{}, .descriptorBuffer = BufferBaseHostAccessible{ m_device, bufferCI, BufferBase::NULL_FLAG, false, true}, .type = type });
-        DescriptorBuffer& newBuffer{ m_descriptorBuffers.m_buffers.back() };
+        m_descriptorBuffers.push_back(DescriptorBuffer{ .memoryProxy = VmaVirtualBlock{}, .descriptorBuffer = BufferBaseHostAccessible{ m_device, bufferCI, BufferBase::NULL_FLAG, false, true}, .type = type });
+        DescriptorBuffer& newBuffer{ m_descriptorBuffers.back() };
         VkBufferDeviceAddressInfo addrInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = newBuffer.descriptorBuffer.getBufferHandle() };
         newBuffer.deviceAddress = vkGetBufferDeviceAddress(m_device, &addrInfo);
         VmaVirtualBlockCreateInfo virtualBlockCI{};
@@ -102,15 +85,15 @@ private:
 
         VmaVirtualAllocation allocation{};
         uint32_t bufferIndex{};
-        auto bufferIter{ m_descriptorBuffers.m_buffers.begin() };
+        auto bufferIter{ m_descriptorBuffers.begin() };
         VkDeviceSize offset{};
         DescriptorBufferType requiredType{ containsSampledData ? SAMPLER_TYPE : RESOURCE_TYPE };
         while (bufferIter->type == requiredType ? vmaVirtualAllocate(bufferIter->memoryProxy, &allocationCI, &allocation, &offset) == VK_ERROR_OUT_OF_DEVICE_MEMORY : true)
         {
-            if (++bufferIter == m_descriptorBuffers.m_buffers.end())
+            if (++bufferIter == m_descriptorBuffers.end())
             {
                 createNewDescriptorBuffer(requiredType);
-                bufferIter = m_descriptorBuffers.m_buffers.end() - 1;
+                bufferIter = m_descriptorBuffers.end() - 1;
             }
         }
         if (allocation == VK_NULL_HANDLE)
@@ -118,7 +101,7 @@ private:
             EASSERT(false, "App", "Descriptor set allocation failed. || Should never happen.")
         }
         resourceSet.setDescBufferOffset(offset);
-        bufferIndex = static_cast<uint32_t>(bufferIter - m_descriptorBuffers.m_buffers.begin());
+        bufferIndex = static_cast<uint32_t>(bufferIter - m_descriptorBuffers.begin());
         m_descriptorSetAllocations.push_back({ allocation, bufferIndex });
         resourceSet.m_allocationIter = --m_descriptorSetAllocations.end();
 
@@ -126,12 +109,22 @@ private:
     }
     static void removeResourceSetFromBuffer(std::list<DescriptorAllocation>::const_iterator allocationIter)
     {
-        vmaVirtualFree(m_descriptorBuffers.m_buffers[allocationIter->bufferIndex].memoryProxy, allocationIter->memProxyAlloc);
+        vmaVirtualFree(m_descriptorBuffers[allocationIter->bufferIndex].memoryProxy, allocationIter->memProxyAlloc);
         m_descriptorSetAllocations.erase(allocationIter);
     }
 
+    static void destroyDescriptorBuffers()
+    {
+        for (auto& descBuf : m_descriptorBuffers)
+        {
+            //vmaClearVirtualBlock(descBuf.memoryProxy);
+            vmaDestroyVirtualBlock(descBuf.memoryProxy);
+        }
+        m_descriptorBuffers.clear();
+    }
+
 public:
-    static void initializeDescriptorBuffers(VulkanObjectHandler& vulkanObjectHandler)
+    static void initializeDescriptorBuffers(VulkanObjectHandler& vulkanObjectHandler, MemoryManager& memManager)
     {
         if (m_device != VK_NULL_HANDLE)
             return;
@@ -141,12 +134,12 @@ public:
         m_queueFamilyIndices = { vulkanObjectHandler.getGraphicsFamilyIndex(), vulkanObjectHandler.getComputeFamilyIndex() };
 
         m_device = vulkanObjectHandler.getLogicalDevice();
+        m_descriptorBufferProperties = &vulkanObjectHandler.getPhysDevDescBufferProperties();
+
         createNewDescriptorBuffer(RESOURCE_TYPE);
 
-        m_descriptorBufferProperties = &vulkanObjectHandler.getPhysDevDescBufferProperties();
+        memManager.m_descriptorBufferDestruction = &destroyDescriptorBuffers;
     }
-
-
 
 private:
     VkDescriptorSetLayout m_layout{};
