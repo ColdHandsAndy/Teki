@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/sync_operations.h"
 
 Image::Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, bool allocateMips)
 {
@@ -86,14 +86,14 @@ void Image::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayou
 
 	VkImageMemoryBarrier2 initialBarriers[2] = {
 		VkImageMemoryBarrier2{
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_READ_BIT,
 				currentImageLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				m_imageHandle,
 				VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }) },
 		VkImageMemoryBarrier2{
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_WRITE_BIT,
 				currentImageLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -102,14 +102,14 @@ void Image::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayou
 	};
 
 	VkImageMemoryBarrier2 memBarrier{
-		BarrierOperations::constructImageBarrier(
+		SyncOperations::constructImageBarrier(
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			m_imageHandle,
 			VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}) };
 
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
+	SyncOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
 
 	int mipWidth{ static_cast<int>(m_width) };
 	int mipHeight{ static_cast<int>(m_height) };
@@ -128,10 +128,10 @@ void Image::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayou
 		mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
 
 		memBarrier.subresourceRange.baseMipLevel = i;
-		BarrierOperations::cmdExecuteBarrier(cb, { {memBarrier} });
+		SyncOperations::cmdExecuteBarrier(cb, { {memBarrier} });
 	}
 
-	BarrierOperations::cmdExecuteBarrier(cb, { {BarrierOperations::constructImageBarrier(
+	SyncOperations::cmdExecuteBarrier(cb, { {SyncOperations::constructImageBarrier(
 												VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 												VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 												VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -406,8 +406,8 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 
 void ImageList::cmdTransitionLayoutFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout)
 {
-	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(
+	SyncOperations::cmdExecuteBarrier(cb,
+		{ {SyncOperations::constructImageBarrier(
 			srcStageMask, dstStageMask,
 			0, 0,
 			VK_IMAGE_LAYOUT_UNDEFINED, dstLayout,
@@ -442,14 +442,14 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 
 	VkImageMemoryBarrier2 initialBarriers[2] = {
 		VkImageMemoryBarrier2{
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_READ_BIT,
 				currentListLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				m_imageHandle,
 				VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount }) },
 		VkImageMemoryBarrier2{
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_WRITE_BIT,
 				currentListLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -458,14 +458,14 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 		};
 
 	VkImageMemoryBarrier2 memBarrier{ 
-		BarrierOperations::constructImageBarrier(
+		SyncOperations::constructImageBarrier(
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 
 			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			m_imageHandle,
 			VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount}) };
 
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
+	SyncOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
 
 	int mipWidth{ static_cast<int>(m_width) };
 	int mipHeight{ static_cast<int>(m_height) };
@@ -486,10 +486,10 @@ void ImageList::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLa
 		mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
 
 		memBarrier.subresourceRange.baseMipLevel = i;
-		BarrierOperations::cmdExecuteBarrier(cb, { {memBarrier} });
+		SyncOperations::cmdExecuteBarrier(cb, { {memBarrier} });
 	}
 
-	BarrierOperations::cmdExecuteBarrier(cb, { {BarrierOperations::constructImageBarrier(
+	SyncOperations::cmdExecuteBarrier(cb, { {SyncOperations::constructImageBarrier(
 												VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 												VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 												VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -587,8 +587,8 @@ ImageCubeMap::~ImageCubeMap()
 
 void ImageCubeMap::cmdTransitionLayoutFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout)
 {
-	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(
+	SyncOperations::cmdExecuteBarrier(cb,
+		{ {SyncOperations::constructImageBarrier(
 			srcStageMask, dstStageMask,
 			0, 0,
 			VK_IMAGE_LAYOUT_UNDEFINED, dstLayout,
@@ -697,14 +697,14 @@ void ImageListContainer::cmdTransitionLayoutsFromUndefined(VkCommandBuffer cb, V
 
 	for (int i{ 0 }; i < m_imageLists.size(); ++i)
 	{
-		barriers[i] = BarrierOperations::constructImageBarrier(
+		barriers[i] = SyncOperations::constructImageBarrier(
 			srcStageMask, dstStageMask,
 			0, 0,
 			VK_IMAGE_LAYOUT_UNDEFINED, dstLayout,
 			m_imageLists[i].list.getImageHandle(), VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_imageLists[i].list.getMipLevelCount(), .baseArrayLayer = 0, .layerCount = m_listLayerCount });
 	}
 
-	BarrierOperations::cmdExecuteBarrier(cb, { barriers, barriers + m_imageLists.size() });
+	SyncOperations::cmdExecuteBarrier(cb, { barriers, barriers + m_imageLists.size() });
 
 	delete[] barriers;
 }
@@ -722,14 +722,14 @@ void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListCont
 
 	VkImageMemoryBarrier2 initialBarriers[2] = {
 		VkImageMemoryBarrier2{
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_READ_BIT,
 				currentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				imageHandle,
 				VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = layerIndex, .layerCount = 1 }) },
 		VkImageMemoryBarrier2{
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, VK_ACCESS_TRANSFER_WRITE_BIT,
 				currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -738,14 +738,14 @@ void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListCont
 	};
 
 	VkImageMemoryBarrier2 memBarrier{
-		BarrierOperations::constructImageBarrier(
+		SyncOperations::constructImageBarrier(
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			imageHandle,
 			VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = layerIndex, .layerCount = 1}) };
 
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
+	SyncOperations::cmdExecuteBarrier(cb, std::span<VkImageMemoryBarrier2>{initialBarriers, initialBarriers + 2});
 
 	for (uint32_t i{ 1 }; i < mipCount; ++i)
 	{
@@ -762,10 +762,10 @@ void ImageListContainer::cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListCont
 		height = height > 1 ? height / 2 : 1;
 
 		memBarrier.subresourceRange.baseMipLevel = i;
-		BarrierOperations::cmdExecuteBarrier(cb, { {memBarrier} });
+		SyncOperations::cmdExecuteBarrier(cb, { {memBarrier} });
 	}
 
-	BarrierOperations::cmdExecuteBarrier(cb, { {BarrierOperations::constructImageBarrier(
+	SyncOperations::cmdExecuteBarrier(cb, { {SyncOperations::constructImageBarrier(
 												VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 												VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 												VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, currentLayout,

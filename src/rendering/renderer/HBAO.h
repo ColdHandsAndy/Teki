@@ -13,7 +13,7 @@
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
-#include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/sync_operations.h"
 #include "src/rendering/renderer/culling.h"
 
 class HBAO
@@ -35,6 +35,11 @@ private:
 	Pipeline m_linearExpandedFOVDepthPass;
 	Pipeline m_HBAOpass;
 	Pipeline m_blurHBAOpass;
+
+	VkImageMemoryBarrier2 m_imageBarriers0[2]{};
+	VkDependencyInfo m_dependencyInfo0{};
+	VkImageMemoryBarrier2 m_imageBarriers1[2]{};
+	VkDependencyInfo m_dependencyInfo1{};
 
 	static constexpr float expansionScale{ 1.1 };
 	float m_frustumFar{};
@@ -82,6 +87,14 @@ public:
 	{
 		return m_linearDepthImage.getImageView();
 	}
+	const VkDependencyInfo& getDependencyLinearDepthToCalcHBAO()
+	{
+		return m_dependencyInfo0;
+	}
+	const VkDependencyInfo& getDependencyCalcHBAOToBlur()
+	{
+		return m_dependencyInfo1;
+	}
 
 	void setRadius(float radius)
 	{
@@ -107,12 +120,11 @@ public:
 	void submitFrustum(double near, double far, double aspect, double FOV);
 	void submitViewMatrix(const glm::mat4& viewMat);
 
-	void cmdPassCalcHBAO(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
+	void cmdPassCalculateLinearDepth(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
+	void cmdPassCalculateHBAO(VkCommandBuffer cb);
+	void cmdPassBlurHBAO(VkCommandBuffer cb);
 
 private:
-	void cmdCalculateLinearDepth(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
-	void cmdCalculateHBAO(VkCommandBuffer cb);
-	void cmdBlurHBAO(VkCommandBuffer cb);
 
 	void acquireDepthPassData(const BufferMapped& modelTransformData, const BufferMapped& perDrawDataIndices);
 	void fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue);

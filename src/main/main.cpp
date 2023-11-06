@@ -27,6 +27,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 
+#include <tbb/flow_graph.h>
+
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/rendering/renderer/pipeline_management.h"
 #include "src/rendering/shader_management/shader_operations.h"
@@ -35,7 +37,7 @@
 #include "src/rendering/data_management/memory_manager.h"
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_classes.h"
-#include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/sync_operations.h"
 #include "src/rendering/renderer/timeline_semaphore.h"
 #include "src/rendering/lighting/light_types.h"
 #include "src/rendering/lighting/shadows.h"
@@ -150,6 +152,12 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos);
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 VkSampler createGeneralSampler(VkDevice device, float maxAnisotropy);
+
+void submitAndWait(VulkanObjectHandler& vulkanObjectHandler,
+	CommandBufferSet& cmdBufferSet, VkCommandBuffer cbPreprocessing, VkCommandBuffer cbDraw, VkCommandBuffer cbPostprocessing, VkCommandBuffer cbCompute,
+	uint32_t indexToCBSet, uint32_t currentCommandBufferIndex,
+	TimelineSemaphore& semaphore, TimelineSemaphore& semaphoreCompute, VkSemaphore swapchainSemaphore, VkSemaphore readyToPresentSemaphore,
+	VkPresentInfoKHR& presentInfo, uint32_t swapchainIndex, VkSwapchainKHR& swapChain);
 
 int main()
 {
@@ -318,19 +326,18 @@ int main()
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
 	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, coordinateTransformation.getResourceSet()) };
 
-	//Resource filling 
+
 	fillFrustumData(coordinateTransformation, window, clusterer, hbao, frustumInfo, caster);
 	fillModelMatrices(transformMatrices, modelMatrices);
 	fillDrawData(drawData, staticMeshes, drawCount);
-	//end   
 
 	
+
 	VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
 	VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
 
-
 	TimelineSemaphore semaphore{ device };
-	TimelineSemaphore semaphoreHiZ{ device };
+	TimelineSemaphore semaphoreCompute{ device };
 	VkSemaphore swapchainSemaphore{};
 	VkSemaphore readyToPresentSemaphore{};
 	VkSemaphoreCreateInfo semCI{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -347,6 +354,11 @@ int main()
 	depthAttachmentInfo.imageView = depthBuffer.getImageView();
 	depthAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 	depthAttachmentInfo.clearValue = { .depthStencil = {.depth = 0.0f, .stencil = 0} };
+	
+	colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
 	VkRenderingInfo renderInfo{};
 	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -363,95 +375,150 @@ int main()
 	presentInfo.pWaitSemaphores = &readyToPresentSemaphore;
 	std::tuple<VkImage, VkImageView, uint32_t> swapchainImageData{};
 
-	uint32_t cbSetIndex{ cmdBufferSet.createInterchangeableSet(2, CommandBufferSet::ASYNC_COMPUTE_CB) };
-
-	vkDeviceWaitIdle(device);
-	WorldState::initialize();
-	while (!glfwWindowShouldClose(window))
-	{
-		//
-		TIME_MEASURE_START(100, 0);
-		//
-
-		WorldState::refreshFrameTime();
-		if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
-		{
-			vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
-			swapChains[0] = vulkanObjectHandler->getSwapchain();
-		}
-		swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
-		colorAttachmentInfo.imageView = framebufferImage.getImageView();
-		renderInfo.pColorAttachments = &colorAttachmentInfo;
-
-
-		coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
-		hbao.submitViewMatrix(coordinateTransformation.getViewMatrix());
-		clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
-
-		
-		clusterer.startClusteringProcess();
-
-		renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, coordinateTransformation.getViewMatrix());
-
-
-
-		VkCommandBuffer cbDraw{ cmdBufferSet.beginRecording(CommandBufferSet::MAIN_CB) };
-			
-			{
-				VkBufferCopy copy{ .srcOffset = culling.getDrawCountBufferOffset(), .dstOffset = renderingData.finalDrawCount.getOffset(), .size = renderingData.finalDrawCount.getSize() };
-				BufferTools::cmdBufferCopy(cbDraw, culling.getDrawCountBufferHandle(), renderingData.finalDrawCount.getBufferHandle(), 1, &copy);
-			}
-
-			hbao.cmdPassCalcHBAO(cbDraw, culling, vertexData, indexData);
-
-			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
-				{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT)}
-			});
-			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
-				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	SyncOperations::EventHolder<3> events{ device };
+	VkDependencyInfo drawAndDepthAttachmentsTransition0{ SyncOperations::createDependencyInfo(std::span<const VkImageMemoryBarrier2>{
+				{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					framebufferImage.getImageHandle(),
+					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1}),
+					SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+					0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+					depthBuffer.getImageHandle(),
+						{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1})}}) };
+	VkDependencyInfo drawAndDepthAttachmentsTransition1{ SyncOperations::createDependencyInfo(std::span<const VkImageMemoryBarrier2>{
+				{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_NONE,
+					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+					VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					framebufferImage.getImageHandle(),
+					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1})}}) };
+	VkImageMemoryBarrier2 swapchainImageTransition0{ 
+		SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					VkImage{},
 					{
 					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 					.baseMipLevel = 0,
 					.levelCount = 1,
 					.baseArrayLayer = 0,
-					.layerCount = 1 }),
-				BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-				0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-				depthBuffer.getImageHandle(),
+					.layerCount = 1 }) };
+	VkImageMemoryBarrier2 swapchainImageTransition1{
+		SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_NONE,
+					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+					VkImage{},
 					{
-					.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 					.baseMipLevel = 0,
 					.levelCount = 1,
 					.baseArrayLayer = 0,
-					.layerCount = 1 })}
-			});
-			
-			colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+					.layerCount = 1 }) };
+
+
+	VkCommandBuffer cbPreprocessing{};
+	VkCommandBuffer cbDraw{};
+	VkCommandBuffer cbPostprocessing{};
+	VkCommandBuffer cbCompute{};
+	uint32_t cbSetIndex{ cmdBufferSet.createInterchangeableSet(2, CommandBufferSet::ASYNC_COMPUTE_CB) };
+	uint32_t currentCBindex{ 1 };
+
+	typedef oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg> node_t;
+	typedef const oneapi::tbb::flow::continue_msg& msg_t;
+	oneapi::tbb::flow::graph flowGraph{};
+	node_t nodeAcquireSwapchainUpdateViewMatrices{ flowGraph, [&](msg_t)
+		{
+			if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
+			{
+				vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex);
+				swapChains[0] = vulkanObjectHandler->getSwapchain();
+			}
+			swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
+			colorAttachmentInfo.imageView = framebufferImage.getImageView();
+			renderInfo.pColorAttachments = &colorAttachmentInfo;
+
+			coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
+			hbao.submitViewMatrix(coordinateTransformation.getViewMatrix());
+			clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
+		} };
+	node_t nodeFrustumCulling{ flowGraph, [&](msg_t)
+		{
+			renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, coordinateTransformation.getViewMatrix());
+		} };
+	node_t nodePreprocessCB1{ flowGraph, [&](msg_t)
+		{
+			cbPreprocessing = cmdBufferSet.beginPerThreadRecording(0);
+
+			culling.cmdTransferSetDrawCountToZero(cbPreprocessing);
+			SyncOperations::cmdExecuteBarrier(cbPreprocessing, culling.getDependency());
+			culling.cmdDispatchCullOccluded(cbPreprocessing);
+			events.cmdSet(cbPreprocessing, 0, culling.getDependency()); //Event 0 set
+			clusterer.cmdTransferClearTileBuffer(cbPreprocessing);
+			events.cmdSet(cbPreprocessing, 1, clusterer.getDependency()); //Event 1 set
+		} };
+	node_t nodePrepareDataForShadowMapRender{ flowGraph, [&](msg_t)
+		{
+			caster.prepareDataForShadowMapRendering();
+		} };
+	node_t nodePreprocessCB2{ flowGraph, [&](msg_t)
+		{
+			caster.cmdRenderShadowMaps(cbPreprocessing, vertexData, indexData);
+			uint32_t indices[]{ 1 };
+			events.cmdWait(cbPreprocessing, 1, indices, &clusterer.getDependency()); //Event 1 wait
+		} };
+	node_t nodePreprocessCB3{ flowGraph, [&](msg_t)
+		{
+			clusterer.cmdPassConductTileTest(cbPreprocessing);
+		} };
+	node_t nodePreprocessCB4{ flowGraph, [&](msg_t)
+		{
+			uint32_t indices[]{ 0 };
+			events.cmdWait(cbPreprocessing, 1, indices, &culling.getDependency()); //Event 0 wait
+			hbao.cmdPassCalculateLinearDepth(cbPreprocessing, culling, vertexData, indexData);
+			SyncOperations::cmdExecuteBarrier(cbPreprocessing, hbao.getDependencyLinearDepthToCalcHBAO()); //Pipeline barrier 0
+			hbao.cmdPassCalculateHBAO(cbPreprocessing);
+			SyncOperations::cmdExecuteBarrier(cbPreprocessing, hbao.getDependencyCalcHBAOToBlur()); //Pipeline barrier 1
+			hbao.cmdPassBlurHBAO(cbPreprocessing);
+			VkBufferCopy copy{.srcOffset = culling.getDrawCountBufferOffset(), .dstOffset = renderingData.finalDrawCount.getOffset(), .size = renderingData.finalDrawCount.getSize() };
+			BufferTools::cmdBufferCopy(cbPreprocessing, culling.getDrawCountBufferHandle(), renderingData.finalDrawCount.getBufferHandle(), 1, &copy);
+
+			cmdBufferSet.endRecording(cbPreprocessing);
+		} };
+	node_t nodeDrawCB{ flowGraph, [&](msg_t)
+		{
+			cbDraw = cmdBufferSet.beginPerThreadRecording(1);
+
+			SyncOperations::cmdExecuteBarrier(cbDraw, drawAndDepthAttachmentsTransition0);
 			vkCmdBeginRendering(cbDraw, &renderInfo);
-			
+
 				if (renderingData.drawBVs)
 					clusterer.cmdDrawBVs(cbDraw);
 				if (renderingData.drawLightProxies)
 					clusterer.cmdDrawProxies(cbDraw);
 
-				skyboxPipeline.cmdBindResourceSets(cbDraw);
 				VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
 				VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
 				vkCmdBindVertexBuffers(cbDraw, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
+				skyboxPipeline.cmdBindResourceSets(cbDraw);
 				skyboxPipeline.cmdBind(cbDraw);
 				vkCmdDraw(cbDraw, 36, 1, 0, 0);
-				
-				forwardClusteredPipeline.cmdBindResourceSets(cbDraw);
+
 				vkCmdBindVertexBuffers(cbDraw, 0, 1, vertexBindings, vertexBindingOffsets);
 				vkCmdBindIndexBuffer(cbDraw, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
+				forwardClusteredPipeline.cmdBindResourceSets(cbDraw);
 				forwardClusteredPipeline.cmdBind(cbDraw);
 				struct { glm::vec3 camInfo{}; float binWidth{}; glm::vec2 resolutionAO{}; uint32_t widthTiles{}; float nearPlane{}; } pushConstData;
 				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{window.getWidth(), window.getHeight()}, clusterer.getWidthInTiles(), NEAR_PLANE };
@@ -460,67 +527,36 @@ int main()
 					culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(),
 					culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(),
 					culling.getMaxDrawCount(), culling.getDrawCommandBufferStride());
-			
-			
-			vkCmdEndRendering(cbDraw);
-			
-			if (renderingData.drawSpaceLines)
-			{
-				BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkMemoryBarrier2>{
-					{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-						VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-						VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT)}
-				});
-			
-				colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-				colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-				depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-				depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-				vkCmdBeginRendering(cbDraw, &renderInfo);
-			
-					spaceLinesPipeline.cmdBindResourceSets(cbDraw);
+
+				if (renderingData.drawSpaceLines)
+				{
 					VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
 					VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
 					vkCmdBindVertexBuffers(cbDraw, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
+					spaceLinesPipeline.cmdBindResourceSets(cbDraw);
 					spaceLinesPipeline.cmdBind(cbDraw);
 					vkCmdPushConstants(cbDraw, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
 					vkCmdDraw(cbDraw, lineVertNum, 1, 0, 0);
-			
-				vkCmdEndRendering(cbDraw);
-			}
-			
-			BarrierOperations::cmdExecuteBarrier(cbDraw, std::span<const VkImageMemoryBarrier2>{
-				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
-					VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-					framebufferImage.getImageHandle(),
-					{
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1 })}
-			});
+				}
 
-		cmdBufferSet.endRecording(cbDraw);
+			vkCmdEndRendering(cbDraw);
+			SyncOperations::cmdExecuteBarrier(cbDraw, drawAndDepthAttachmentsTransition1);
 
-		VkCommandBuffer cbPostprocessing{ cmdBufferSet.beginTransientRecording() };
+			cmdBufferSet.endRecording(cbDraw);
+		} };
+	node_t nodePostprocessCB{ flowGraph, [&](msg_t)
+		{
+			cbPostprocessing = cmdBufferSet.beginPerThreadRecording(2);
 
-			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
-				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					std::get<0>(swapchainImageData),
-					{
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1 })}
-			});
-			
+			swapchainImageTransition0.image = std::get<0>(swapchainImageData);
+			SyncOperations::cmdExecuteBarrier(cbPostprocessing, std::array{ swapchainImageTransition0 });
+
 			fxaa.cmdPassFXAA(cbPostprocessing, std::get<1>(swapchainImageData));
-			
+
+			SyncOperations::cmdExecuteBarrier(cbPostprocessing,
+				{{SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)}});
+
 			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
 			ui.begin("Settings");
 			ui.stats(renderingData, drawCount);
@@ -528,118 +564,53 @@ int main()
 			ui.misc(renderingData);
 			ui.end();
 			ui.endUIPass(cbPostprocessing);
-			
-			
-			BarrierOperations::cmdExecuteBarrier(cbPostprocessing, std::span<const VkImageMemoryBarrier2>{
-				{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
-					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-					std::get<0>(swapchainImageData),
-					{
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1 })}
-			});
-			
-		cmdBufferSet.endRecording(cbPostprocessing);
 
-		VkCommandBuffer cbPreprocessing{ cmdBufferSet.beginTransientRecording() };
+			swapchainImageTransition1.image = std::get<0>(swapchainImageData);
+			SyncOperations::cmdExecuteBarrier(cbPostprocessing, std::array{ swapchainImageTransition1 });
 
-			culling.cmdCullOccluded(cbPreprocessing);
-			clusterer.waitLightData();
-			caster.prepareDataForShadowMapRendering();
-			vkCmdBindVertexBuffers(cbPreprocessing, 0, 1, vertexBindings, vertexBindingOffsets);
-			vkCmdBindIndexBuffer(cbPreprocessing, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
-			caster.cmdRenderShadowMaps(cbPreprocessing);
-			clusterer.cmdPassConductTileTest(cbPreprocessing);
-
-		cmdBufferSet.endRecording(cbPreprocessing);
-
-		static uint32_t currentCBindex{ 1 };
-		currentCBindex = currentCBindex ? 0 : 1;
-		VkCommandBuffer cbCompute{ cmdBufferSet.beginInterchangeableRecording(cbSetIndex, currentCBindex)};
+			cmdBufferSet.endRecording(cbPostprocessing);
+		} };
+	node_t nodeComputeCB{ flowGraph, [&](msg_t)
+		{
+			currentCBindex = currentCBindex ? 0 : 1;
+			cbCompute = cmdBufferSet.beginInterchangeableRecording(cbSetIndex, currentCBindex);
 
 			depthBuffer.cmdCalcHiZ(cbCompute);
 
-		cmdBufferSet.endRecording(cbCompute);
+			cmdBufferSet.endRecording(cbCompute);
+		} };
 
-		{
-			VkSubmitInfo submitInfos[4]{};
-			VkTimelineSemaphoreSubmitInfo semaphoreSubmit[4]{};
-			uint64_t timelineVal{ semaphore.getValue() };
-			uint64_t timelineValHiZ{ semaphoreHiZ.getValue() };
+	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodePostprocessCB);
+	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeComputeCB);
+	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeFrustumCulling);
+	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeDrawCB);
+	oneapi::tbb::flow::make_edge(nodeFrustumCulling, nodePreprocessCB1);
+	oneapi::tbb::flow::make_edge(nodePreprocessCB1, nodePreprocessCB2);
+	oneapi::tbb::flow::make_edge(nodePrepareDataForShadowMapRender, nodePreprocessCB2);
+	oneapi::tbb::flow::make_edge(nodePreprocessCB2, nodePreprocessCB3);
+	oneapi::tbb::flow::make_edge(nodePreprocessCB3, nodePreprocessCB4);
+	clusterer.connectToFlowGraph(flowGraph, nodeAcquireSwapchainUpdateViewMatrices, nodePrepareDataForShadowMapRender, nodePreprocessCB3);
 
-			uint64_t waitValues0[]{ timelineValHiZ };
-			uint64_t signalValues0[]{ ++timelineVal };
-			VkSemaphore waitSemaphores0[]{ semaphoreHiZ.getHandle()};
-			VkSemaphore signalSemaphores0[]{ semaphore.getHandle() };
-			VkPipelineStageFlags stageFlags0[]{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
-			semaphoreSubmit[0] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues0), waitValues0, ARRAYSIZE(signalValues0), signalValues0);
-			submitInfos[0] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit,
-				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores0), .pWaitSemaphores = waitSemaphores0, .pWaitDstStageMask = stageFlags0,
-				.commandBufferCount = 1, .pCommandBuffers = &cbPreprocessing,
-				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores0), .pSignalSemaphores = signalSemaphores0 };
-			static bool firstIt{ true }; if (firstIt) { firstIt = false; submitInfos[0].waitSemaphoreCount = 0; }
+	vkDeviceWaitIdle(device);
+	WorldState::initialize();
+	while (!glfwWindowShouldClose(window))
+	{
+		TIME_MEASURE_START(100, 0);
 
-			uint64_t waitValues1[]{ timelineVal };
-			uint64_t signalValues1[]{ ++timelineVal };
-			VkSemaphore waitSemaphores1[]{ semaphore.getHandle() };
-			VkSemaphore signalSemaphores1[]{ semaphore.getHandle() };
-			VkPipelineStageFlags stageFlags1[]{ VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
-			semaphoreSubmit[1] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues1), waitValues1, ARRAYSIZE(signalValues1), signalValues1);
-			submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 1,
-				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores1), .pWaitSemaphores = waitSemaphores1, .pWaitDstStageMask = stageFlags1,
-				.commandBufferCount = 1, .pCommandBuffers = &cbDraw,
-				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores1), .pSignalSemaphores = signalSemaphores1 };
+		WorldState::refreshFrameTime();
 
-			uint64_t waitValues2[]{ timelineVal, 0 };
-			uint64_t signalValues2[]{ ++timelineVal, 0 };
-			VkSemaphore waitSemaphores2[]{ semaphore.getHandle(), swapchainSemaphore };
-			VkSemaphore signalSemaphores2[]{ semaphore.getHandle(), readyToPresentSemaphore };
-			VkPipelineStageFlags stageFlags2[]{ VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
-			semaphoreSubmit[2] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues2), waitValues2, ARRAYSIZE(signalValues2), signalValues2);
-			submitInfos[2] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 2,
-				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores2), .pWaitSemaphores = waitSemaphores2, .pWaitDstStageMask = stageFlags2,
-				.commandBufferCount = 1, .pCommandBuffers = &cbPostprocessing,
-				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores2), .pSignalSemaphores = signalSemaphores2 };
+		nodeAcquireSwapchainUpdateViewMatrices.try_put(oneapi::tbb::flow::continue_msg{});
+		flowGraph.wait_for_all();
 
-
-			uint64_t waitValues3[]{ waitValues1[0]};
-			uint64_t signalValues3[]{ ++timelineValHiZ };
-			VkSemaphore waitSemaphores3[]{ semaphore.getHandle() };
-			VkSemaphore signalSemaphores3[]{ semaphoreHiZ.getHandle()};
-			VkPipelineStageFlags stageFlags3{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
-			semaphoreSubmit[3] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues3), waitValues3, ARRAYSIZE(signalValues3), signalValues3);
-			submitInfos[3] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 3,
-				.waitSemaphoreCount = ARRAYSIZE(waitSemaphores3), .pWaitSemaphores = waitSemaphores3, .pWaitDstStageMask = &stageFlags3,
-				.commandBufferCount = 1, .pCommandBuffers = &cbCompute,
-				.signalSemaphoreCount = ARRAYSIZE(signalSemaphores3), .pSignalSemaphores = signalSemaphores3 };
-
-
-			clusterer.waitClusteringProcess();
-			vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 3, submitInfos, VK_NULL_HANDLE);
-			vkQueueSubmit(vulkanObjectHandler->getQueue(VulkanObjectHandler::COMPUTE_QUEUE_TYPE), 1, submitInfos + 3, VK_NULL_HANDLE);
-
-			presentInfo.pImageIndices = &std::get<2>(swapchainImageData);
-
-			if (!vulkanObjectHandler->checkSwapchain(vkQueuePresentKHR(vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), &presentInfo)))
-				swapChains[0] = vulkanObjectHandler->getSwapchain();
-
-			semaphore.wait(timelineVal);
-			semaphore.newValue(timelineVal);
-			semaphoreHiZ.newValue(timelineValHiZ);
-		}
-		cmdBufferSet.resetPool(CommandBufferSet::MAIN_POOL);
-		cmdBufferSet.resetPool(CommandBufferSet::TRANSIENT_POOL);
-		cmdBufferSet.resetInterchangeable(cbSetIndex, currentCBindex ? 0 : 1);
+		submitAndWait(*vulkanObjectHandler, 
+			cmdBufferSet, cbPreprocessing, cbDraw, cbPostprocessing, cbCompute, cbSetIndex, currentCBindex, 
+			semaphore, semaphoreCompute, swapchainSemaphore, readyToPresentSemaphore, 
+			presentInfo, 
+			std::get<2>(swapchainImageData), swapChains[0]);
 
 		glfwPollEvents();
 
-		//
 		TIME_MEASURE_END(100, 0);
-		//
 	}
 	
 	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
@@ -649,7 +620,6 @@ int main()
 	glfwTerminate();
 	return 0;
 }
-
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window)
 {
@@ -681,8 +651,8 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 
 	VkCommandBuffer cb{ cmdBufferSet.beginTransientRecording() };
 
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
-		{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	SyncOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
+		{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
 			0, VK_ACCESS_TRANSFER_WRITE_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -695,8 +665,8 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 			.layerCount = 4 })}
 	});
 	imageLists.cmdCopyDataFromBuffer(cb, 0, staging.getBufferHandle(), 4, offsets, layerIndices);
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
-		{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
+	SyncOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
+		{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 			0, 0,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1190,4 +1160,65 @@ VkSampler createGeneralSampler(VkDevice device, float maxAnisotropy)
 	VkSampler sampler{};
 	vkCreateSampler(device, &samplerCI, nullptr, &sampler);
 	return sampler;
+}
+
+void submitAndWait(VulkanObjectHandler& vulkanObjectHandler,
+	CommandBufferSet& cmdBufferSet, VkCommandBuffer cbPreprocessing, VkCommandBuffer cbDraw, VkCommandBuffer cbPostprocessing, VkCommandBuffer cbCompute,
+	uint32_t indexToCBSet, uint32_t currentCommandBufferIndex,
+	TimelineSemaphore& semaphore, TimelineSemaphore& semaphoreCompute, VkSemaphore swapchainSemaphore, VkSemaphore readyToPresentSemaphore,
+	VkPresentInfoKHR& presentInfo, uint32_t swapchainIndex, VkSwapchainKHR& swapChain)
+{
+	VkSubmitInfo submitInfos[3]{};
+	VkTimelineSemaphoreSubmitInfo semaphoreSubmit[3]{};
+	uint64_t timelineVal{ semaphore.getValue() };
+	uint64_t timelineValCompute{ semaphoreCompute.getValue() };
+
+	uint64_t waitValues0[]{ timelineValCompute };
+	uint64_t signalValues0[]{ ++timelineVal };
+	VkSemaphore waitSemaphores0[]{ semaphoreCompute.getHandle() };
+	VkSemaphore signalSemaphores0[]{ semaphore.getHandle() };
+	VkPipelineStageFlags stageFlags0[]{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+	VkCommandBuffer cbs0[]{ cbPreprocessing, cbDraw };
+	semaphoreSubmit[0] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues0), waitValues0, ARRAYSIZE(signalValues0), signalValues0);
+	submitInfos[0] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit,
+		.waitSemaphoreCount = ARRAYSIZE(waitSemaphores0), .pWaitSemaphores = waitSemaphores0, .pWaitDstStageMask = stageFlags0,
+		.commandBufferCount = ARRAYSIZE(cbs0),.pCommandBuffers = cbs0,
+		.signalSemaphoreCount = ARRAYSIZE(signalSemaphores0), .pSignalSemaphores = signalSemaphores0 };
+	static bool firstIt{ true }; if (firstIt) { firstIt = false; submitInfos[0].waitSemaphoreCount = 0; }
+
+	uint64_t signalValues1[]{ ++timelineVal, 0 };
+	VkSemaphore waitSemaphores1[]{ swapchainSemaphore };
+	VkSemaphore signalSemaphores1[]{ semaphore.getHandle(), readyToPresentSemaphore };
+	VkPipelineStageFlags stageFlags1[]{ VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
+	semaphoreSubmit[1] = TimelineSemaphore::getSubmitInfo(0, nullptr, ARRAYSIZE(signalValues1), signalValues1);
+	submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 1,
+		.waitSemaphoreCount = ARRAYSIZE(waitSemaphores1), .pWaitSemaphores = waitSemaphores1, .pWaitDstStageMask = stageFlags1,
+		.commandBufferCount = 1, .pCommandBuffers = &cbPostprocessing,
+		.signalSemaphoreCount = ARRAYSIZE(signalSemaphores1), .pSignalSemaphores = signalSemaphores1 };
+
+
+	uint64_t waitValues3[]{ signalValues0[0] };
+	uint64_t signalValues3[]{ ++timelineValCompute };
+	VkSemaphore waitSemaphores3[]{ semaphore.getHandle() };
+	VkSemaphore signalSemaphores3[]{ semaphoreCompute.getHandle() };
+	VkPipelineStageFlags stageFlags3{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+	semaphoreSubmit[2] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues3), waitValues3, ARRAYSIZE(signalValues3), signalValues3);
+	submitInfos[2] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 2,
+		.waitSemaphoreCount = ARRAYSIZE(waitSemaphores3), .pWaitSemaphores = waitSemaphores3, .pWaitDstStageMask = &stageFlags3,
+		.commandBufferCount = 1, .pCommandBuffers = &cbCompute,
+		.signalSemaphoreCount = ARRAYSIZE(signalSemaphores3), .pSignalSemaphores = signalSemaphores3 };
+
+	vkQueueSubmit(vulkanObjectHandler.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 2, submitInfos, VK_NULL_HANDLE);
+	vkQueueSubmit(vulkanObjectHandler.getQueue(VulkanObjectHandler::COMPUTE_QUEUE_TYPE), 1, submitInfos + 2, VK_NULL_HANDLE);
+
+	presentInfo.pImageIndices = &swapchainIndex;
+	if (!vulkanObjectHandler.checkSwapchain(vkQueuePresentKHR(vulkanObjectHandler.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), &presentInfo)))
+		swapChain = vulkanObjectHandler.getSwapchain();
+
+	semaphore.wait(timelineVal);
+	semaphore.newValue(timelineVal);
+	semaphoreCompute.newValue(timelineValCompute);
+
+	cmdBufferSet.resetPoolsOnThreads();
+	cmdBufferSet.resetInterchangeable(indexToCBSet, currentCommandBufferIndex ? 0 : 1);
 }

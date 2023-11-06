@@ -29,11 +29,15 @@ Clusterer::Clusterer(VkDevice device, CommandBufferSet& cmdBufferSet, VkQueue qu
 	createTileTestObjects(viewprojRS);
 	uploadBuffersData(cmdBufferSet, queue);
 
-	createVisualizationPipelines(viewprojRS, windowWidth, windowHeight);
+	m_memBarrier = SyncOperations::constructMemoryBarrier(
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_ACCESS_SHADER_WRITE_BIT);
+	m_dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	m_dependencyInfo.memoryBarrierCount = 1;
+	m_dependencyInfo.pMemoryBarriers = &m_memBarrier;
 
-	oneapi::tbb::flow::make_edge(m_cullNode, m_sortNode);
-	oneapi::tbb::flow::make_edge(m_sortNode, m_fillBuffersNode);
-	oneapi::tbb::flow::make_edge(m_sortNode, m_fillBinsNode);
+	createVisualizationPipelines(viewprojRS, windowWidth, windowHeight);
 }
 Clusterer::~Clusterer()
 {
@@ -111,10 +115,6 @@ void Clusterer::fillLightBuffers()
 			*(reinterpret_cast<uint16_t*>(m_instanceSpotLightIndexData.getData()) + m_nonculledSpotLightCount++) = static_cast<uint16_t>(i);
 		}
 	}
-	
-	std::lock_guard<std::mutex> lock{m_mutex};
-	m_countDataReady = true;
-	m_cv.notify_one();
 }
 void Clusterer::fillZBins()
 {
@@ -148,12 +148,13 @@ void Clusterer::fillZBins()
 			minMax[1] = max;
 		}, ap);
 }
-void Clusterer::waitLightData()
+void Clusterer::cmdTransferClearTileBuffer(VkCommandBuffer cb)
 {
-	//Waiting until light counts are ready
-	std::unique_lock<std::mutex> lock{m_mutex};
-	m_cv.wait(lock, [this] { return m_countDataReady; });
-	m_countDataReady = false;
+	vkCmdFillBuffer(cb, m_tileData.getBufferHandle(), m_tileData.getOffset(), VK_WHOLE_SIZE/*We can use it here, because this buffer is not suballocated.*/, 0);
+}
+const VkDependencyInfo& Clusterer::getDependency()
+{
+	return m_dependencyInfo;
 }
 void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb)
 {
@@ -162,14 +163,6 @@ void Clusterer::cmdPassConductTileTest(VkCommandBuffer cb)
 	renderInfo.renderArea = { .offset{0,0}, .extent{.width = m_widthInTiles, .height = m_heightInTiles} };
 	renderInfo.layerCount = 1;
 	renderInfo.colorAttachmentCount = 0;
-
-	vkCmdFillBuffer(cb, m_tileData.getBufferHandle(), m_tileData.getOffset(), VK_WHOLE_SIZE/*We can use it here, because this buffer is not suballocated.*/, 0);
-
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<const VkMemoryBarrier2>{
-		{BarrierOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_TRANSFER_WRITE_BIT,
-			VK_ACCESS_SHADER_WRITE_BIT)}
-	});
 
 	vkCmdBeginRendering(cb, &renderInfo);
 		

@@ -12,7 +12,7 @@
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/data_abstraction/BB.h"
-#include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/sync_operations.h"
 #include "src/rendering/renderer/depth_buffer.h"
 #include "src/tools/comp_s.h"
 
@@ -50,6 +50,8 @@ private:
 	uint32_t m_maxDrawCount{};
 	float m_zNear{};
 
+	VkMemoryBarrier2 m_memBarrier{};
+	VkDependencyInfo m_dependencyInfo{};
 public:
 	Culling(VkDevice device,
 		uint32_t drawCommandsMax,
@@ -64,6 +66,14 @@ public:
 			VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 
 			{{graphicsQueueIndex, computeQueueIndex}}, BufferBase::NULL_FLAG }
 	{
+		m_memBarrier = SyncOperations::constructMemoryBarrier(
+			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_ACCESS_TRANSFER_WRITE_BIT,
+			VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+		m_dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+		m_dependencyInfo.memoryBarrierCount = 1;
+		m_dependencyInfo.pMemoryBarriers = &m_memBarrier;
+
 		m_hiZmipmax = depthBuffer.getMipLevelCountHiZ();
 		m_zNear = zNearProjPlane;
 		m_maxDrawCount = drawCommandsMax;
@@ -174,19 +184,20 @@ public:
 		//
 	}
 
-	void cmdCullOccluded(VkCommandBuffer cb)
+	void cmdTransferSetDrawCountToZero(VkCommandBuffer cb)
 	{
 		uint32_t zero{ 0 };
 		vkCmdUpdateBuffer(cb, m_drawCount.getBufferHandle(), m_drawCount.getOffset(), sizeof(zero), &zero);
+	}
 
-		BarrierOperations::cmdExecuteBarrier(cb, {{BarrierOperations::constructMemoryBarrier(
-				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_ACCESS_TRANSFER_WRITE_BIT,
-				VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)}
-		});
+	const VkDependencyInfo& getDependency()
+	{
+		return m_dependencyInfo;
+	}
 
+	void cmdDispatchCullOccluded(VkCommandBuffer cb)
+	{
 		m_occlusionPass.cmdBind(cb);
-
 		m_occlusionPass.cmdBindResourceSets(cb);
 		struct {uint32_t commandCount; uint32_t mipMax; float zNear;} pcData;
 		pcData.commandCount = m_frustumNonculledCount;

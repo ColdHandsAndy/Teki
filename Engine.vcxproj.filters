@@ -51,7 +51,7 @@
     <ClCompile Include="src\rendering\renderer\pipeline_management.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\rendering\renderer\barrier_operations.cpp">
+    <ClCompile Include="src\rendering\renderer\sync_operations.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\rendering\renderer\clusterer.cpp">
@@ -119,7 +119,7 @@
     <ClInclude Include="src\tools\alignment.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\rendering\renderer\barrier_operations.h">
+    <ClInclude Include="src\rendering\renderer\sync_operations.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\shader_management\shader_operations.h">

@@ -168,10 +168,7 @@ void CommandBufferSet::resetAll()
 	}
 	vkResetCommandPool(m_device, m_transientPool, 0);
 
-	for (auto& pool : m_threadCommandPools)
-	{
-		vkResetCommandPool(m_device, pool, 0);
-	}
+	resetPoolsOnThreads();
 
 	m_interchangeableCBs.clear();
 
@@ -210,6 +207,11 @@ void CommandBufferSet::resetPool(CommandPoolType type)
 		EASSERT(false, "App", "Unknown command buffer type. || Should never happen.");
 	}
 	vkResetCommandPool(m_device, pool, 0);
+}
+void CommandBufferSet::resetPoolsOnThreads()
+{
+	for (auto& pool : m_threadCommandPools)
+		vkResetCommandPool(m_device, pool, 0);
 }
 
 

@@ -1,7 +1,7 @@
 { 
 	"models" : 
 		[
-			{"path" : "A:/Models/gltf/villa/scene.gltf", "model index" : 2}
+			{"path" : "A:/Models/gltf/whscene/scene.gltf", "model index" : 0}
 		],
 
 	"environment" : "A:/materials/distant_probes_cubemaps/room",

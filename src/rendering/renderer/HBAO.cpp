@@ -84,6 +84,25 @@ HBAO::HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight, con
 		{ { VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(glm::vec3)}} });
 
 
+	m_imageBarriers0[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		m_linearDepthImage.getImageHandle(), m_linearDepthImage.getSubresourceRange());
+	m_imageBarriers0[1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		0, VK_ACCESS_SHADER_WRITE_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		m_AOImage.getImageHandle(), m_AOImage.getSubresourceRange());
+	m_imageBarriers1[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		m_AOImage.getImageHandle(), m_AOImage.getSubresourceRange());
+	m_imageBarriers1[1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+		0, VK_ACCESS_SHADER_WRITE_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		m_blurredAOImage.getImageHandle(), m_blurredAOImage.getSubresourceRange());
+	m_dependencyInfo0 = SyncOperations::createDependencyInfo(m_imageBarriers0);
+	m_dependencyInfo1 = SyncOperations::createDependencyInfo(m_imageBarriers1);
+
 
 	m_hbaoInfo.invResolution = glm::vec2{ 1.0 / m_aoRenderWidth, 1.0 / m_aoRenderHeight };
 	m_hbaoInfo.resolution = glm::vec2{ m_aoRenderWidth, m_aoRenderHeight };
@@ -185,8 +204,8 @@ void HBAO::fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue
 		texdata[i * 4 + 3] = (signed short)(shortScale * empty);
 	}
 
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
-		{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+	SyncOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
+		{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
 			0, VK_ACCESS_TRANSFER_WRITE_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -199,8 +218,8 @@ void HBAO::fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue
 			.layerCount = 1 })}
 	});
 	m_randTex.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), staging.getOffset(), 0, 0, RANDOM_TEXTURE_SIZE, RANDOM_TEXTURE_SIZE);
-	BarrierOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
-		{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
+	SyncOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
+		{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 			0, 0,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -250,7 +269,7 @@ void HBAO::submitViewMatrix(const glm::mat4& viewMat)
 	*(reinterpret_cast<glm::mat4*>(m_viewprojexpData.getData()) + viewMatOffsetInMat4) = viewMat;
 }
 
-void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
+void HBAO::cmdPassCalculateLinearDepth(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
 {
 	VkRenderingAttachmentInfo linearDepthAttachmentInfo{};
 	linearDepthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -259,20 +278,6 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, Culling& culling, const Buffer& v
 	linearDepthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	linearDepthAttachmentInfo.clearValue = VkClearValue{ .color{.float32{m_frustumFar, m_frustumFar, m_frustumFar}} };
 	linearDepthAttachmentInfo.imageView = m_linearDepthImage.getImageView();
-	VkRenderingAttachmentInfo hbaoCalcAttachmentInfo{};
-	hbaoCalcAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	hbaoCalcAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	hbaoCalcAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	hbaoCalcAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	hbaoCalcAttachmentInfo.clearValue = VkClearValue{ .color{.float32{1.0f}} };
-	hbaoCalcAttachmentInfo.imageView = m_AOImage.getImageView();
-	VkRenderingAttachmentInfo hbaoBlurAttachmentInfo{};
-	hbaoBlurAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	hbaoBlurAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	hbaoBlurAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	hbaoBlurAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	hbaoBlurAttachmentInfo.clearValue = VkClearValue{ .color{.float32{1.0f}} };
-	hbaoBlurAttachmentInfo.imageView = m_blurredAOImage.getImageView();
 	VkRenderingAttachmentInfo depthBufferAttachmentInfo{};
 	depthBufferAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	depthBufferAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
@@ -281,24 +286,20 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, Culling& culling, const Buffer& v
 	depthBufferAttachmentInfo.clearValue = VkClearValue{ .depthStencil{.depth = 0.0f} };
 	depthBufferAttachmentInfo.imageView = m_depthBuffer.getImageView();
 
-	VkRenderingAttachmentInfo attachments[3]{ linearDepthAttachmentInfo, hbaoCalcAttachmentInfo, hbaoBlurAttachmentInfo };
-
 	VkRenderingInfo renderInfo{};
 	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 	renderInfo.renderArea = { .offset{0,0}, .extent{.width = m_aoRenderWidth, .height = m_aoRenderHeight} };
 	renderInfo.layerCount = 1;
 	renderInfo.pDepthAttachment = &depthBufferAttachmentInfo;
-
-
 	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments = attachments + 0;
+	renderInfo.pColorAttachments = &linearDepthAttachmentInfo;
 
-	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	SyncOperations::cmdExecuteBarrier(cb,
+		{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 			m_linearDepthImage.getImageHandle(), m_linearDepthImage.getSubresourceRange()),
-		BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
 			0,
 			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
@@ -314,81 +315,89 @@ void HBAO::cmdPassCalcHBAO(VkCommandBuffer cb, Culling& culling, const Buffer& v
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdCalculateLinearDepth(cb, culling, vertexData, indexData);
+		m_linearExpandedFOVDepthPass.cmdBindResourceSets(cb);
+		VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
+		VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
+		vkCmdBindVertexBuffers(cb, 0, 1, vertexBindings, vertexBindingOffsets);
+		vkCmdBindIndexBuffer(cb, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
+		m_linearExpandedFOVDepthPass.cmdBind(cb);
+		vkCmdDrawIndexedIndirectCount(cb, culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(), culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(), culling.getMaxDrawCount(), culling.getDrawCommandBufferStride());
 
 	vkCmdEndRendering(cb);
+}
+void HBAO::cmdPassCalculateHBAO(VkCommandBuffer cb)
+{
+	VkRenderingAttachmentInfo hbaoCalcAttachmentInfo{};
+	hbaoCalcAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	hbaoCalcAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	hbaoCalcAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	hbaoCalcAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	hbaoCalcAttachmentInfo.clearValue = VkClearValue{ .color{.float32{1.0f}} };
+	hbaoCalcAttachmentInfo.imageView = m_AOImage.getImageView();
+	VkRenderingAttachmentInfo depthBufferAttachmentInfo{};
+	depthBufferAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	depthBufferAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	depthBufferAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthBufferAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depthBufferAttachmentInfo.clearValue = VkClearValue{ .depthStencil{.depth = 0.0f} };
+	depthBufferAttachmentInfo.imageView = m_depthBuffer.getImageView();
 
-	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			m_linearDepthImage.getImageHandle(), m_linearDepthImage.getSubresourceRange()),
-		BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			0, VK_ACCESS_SHADER_WRITE_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			m_AOImage.getImageHandle(), m_AOImage.getSubresourceRange())}
-		});
-
+	VkRenderingInfo renderInfo{};
+	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	renderInfo.renderArea = { .offset{0,0}, .extent{.width = m_aoRenderWidth, .height = m_aoRenderHeight} };
+	renderInfo.layerCount = 1;
+	renderInfo.pDepthAttachment = &depthBufferAttachmentInfo;
 	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments = attachments + 1;
+	renderInfo.pColorAttachments = &hbaoCalcAttachmentInfo;
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdCalculateHBAO(cb);
+		m_HBAOpass.cmdBindResourceSets(cb);
+		m_HBAOpass.cmdBind(cb);
+		vkCmdPushConstants(cb, m_HBAOpass.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(m_hbaoInfo), &m_hbaoInfo);
+		vkCmdDraw(cb, 3, 1, 0, 0);
 
 	vkCmdEndRendering(cb);
+}
+void HBAO::cmdPassBlurHBAO(VkCommandBuffer cb)
+{
+	VkRenderingAttachmentInfo hbaoBlurAttachmentInfo{};
+	hbaoBlurAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	hbaoBlurAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	hbaoBlurAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	hbaoBlurAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	hbaoBlurAttachmentInfo.clearValue = VkClearValue{ .color{.float32{1.0f}} };
+	hbaoBlurAttachmentInfo.imageView = m_blurredAOImage.getImageView();
+	VkRenderingAttachmentInfo depthBufferAttachmentInfo{};
+	depthBufferAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	depthBufferAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	depthBufferAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthBufferAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depthBufferAttachmentInfo.clearValue = VkClearValue{ .depthStencil{.depth = 0.0f} };
+	depthBufferAttachmentInfo.imageView = m_depthBuffer.getImageView();
 
-	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			m_AOImage.getImageHandle(), m_AOImage.getSubresourceRange()),
-		BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-			0, VK_ACCESS_SHADER_WRITE_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			m_blurredAOImage.getImageHandle(), m_blurredAOImage.getSubresourceRange())}
-		});
-
+	VkRenderingInfo renderInfo{};
+	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	renderInfo.renderArea = { .offset{0,0}, .extent{.width = m_aoRenderWidth, .height = m_aoRenderHeight} };
+	renderInfo.layerCount = 1;
+	renderInfo.pDepthAttachment = &depthBufferAttachmentInfo;
 	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments = attachments + 2;
+	renderInfo.pColorAttachments = &hbaoBlurAttachmentInfo;
 
 	vkCmdBeginRendering(cb, &renderInfo);
 
-		this->cmdBlurHBAO(cb);
+		m_blurHBAOpass.cmdBindResourceSets(cb);
+		m_blurHBAOpass.cmdBind(cb);
+		glm::vec3 pcData{ m_hbaoInfo.invResolution, m_blurSharpness };
+		vkCmdPushConstants(cb, m_blurHBAOpass.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pcData), &pcData);
+		vkCmdDraw(cb, 3, 1, 0, 0);
 
 	vkCmdEndRendering(cb);
 
-	BarrierOperations::cmdExecuteBarrier(cb,
-		{ {BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	SyncOperations::cmdExecuteBarrier(cb,
+		{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			m_blurredAOImage.getImageHandle(), m_blurredAOImage.getSubresourceRange())}
 		});
-}
-
-
-void HBAO::cmdCalculateLinearDepth(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData)
-{
-	m_linearExpandedFOVDepthPass.cmdBindResourceSets(cb);
-	VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
-	VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
-	vkCmdBindVertexBuffers(cb, 0, 1, vertexBindings, vertexBindingOffsets);
-	vkCmdBindIndexBuffer(cb, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
-	m_linearExpandedFOVDepthPass.cmdBind(cb);
-	vkCmdDrawIndexedIndirectCount(cb, culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(), culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(), culling.getMaxDrawCount(), culling.getDrawCommandBufferStride());
-}
-void HBAO::cmdCalculateHBAO(VkCommandBuffer cb)
-{
-	m_HBAOpass.cmdBindResourceSets(cb);
-	m_HBAOpass.cmdBind(cb);
-	vkCmdPushConstants(cb, m_HBAOpass.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(m_hbaoInfo), &m_hbaoInfo);
-	vkCmdDraw(cb, 3, 1, 0, 0);
-}
-void HBAO::cmdBlurHBAO(VkCommandBuffer cb)
-{
-	m_blurHBAOpass.cmdBindResourceSets(cb);
-	m_blurHBAOpass.cmdBind(cb);
-	glm::vec3 pcData{ m_hbaoInfo.invResolution, m_blurSharpness };
-	vkCmdPushConstants(cb, m_blurHBAOpass.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pcData), &pcData);
-	vkCmdDraw(cb, 3, 1, 0, 0);
 }

@@ -20,7 +20,7 @@
 #include "src/rendering/renderer/pipeline_management.h"
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/renderer/descriptor_management.h"
-#include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/sync_operations.h"
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 
@@ -102,16 +102,11 @@ private:
 	uint32_t m_nonculledSpotLightCount{ 0 };
 	BufferMapped m_instanceSpotLightIndexData{};
 
+	VkMemoryBarrier2 m_memBarrier{};
+	VkDependencyInfo m_dependencyInfo{};
+
 	glm::mat4 m_currentViewMat{};
 	std::array<glm::vec4, 5> m_frustumPlanes{};
-
-	typedef oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg> node_t;
-	typedef const oneapi::tbb::flow::continue_msg& msg_t;
-	oneapi::tbb::flow::graph m_flowGraph{};
-	node_t m_cullNode{ m_flowGraph, [this](msg_t) { cullLights(); } };
-	node_t m_sortNode{ m_flowGraph, [this](msg_t) { sortLights(); } };
-	node_t m_fillBuffersNode{ m_flowGraph, [this](msg_t) { fillLightBuffers(); } };
-	node_t m_fillBinsNode{ m_flowGraph, [this](msg_t) { fillZBins(); } };
 
 	bool m_countDataReady{ false };
 
@@ -133,16 +128,26 @@ public:
 	void submitFrustum(double near, double far, double aspect, double FOV);
 	void submitViewMatrix(const glm::mat4& viewMat);
 
-	void startClusteringProcess()
+	void connectToFlowGraph(oneapi::tbb::flow::graph& flowGraph, oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg>& rootNode,
+		oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg>& nodeDependsOnLightsReady, oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg>& nodeDependsOnLightTypeCountsReady)
 	{
-		m_cullNode.try_put(oneapi::tbb::flow::continue_msg());
-	}
-	void waitClusteringProcess()
-	{
-		m_flowGraph.wait_for_all();
+		typedef oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg> node_t;
+		typedef const oneapi::tbb::flow::continue_msg& msg_t;
+		static node_t m_cullNode{ flowGraph, [this](msg_t) { cullLights(); } };
+		static node_t m_sortNode{ flowGraph, [this](msg_t) { sortLights(); } };
+		static node_t m_fillBuffersNode{ flowGraph, [this](msg_t) { fillLightBuffers(); } };
+		static node_t m_fillBinsNode{ flowGraph, [this](msg_t) { fillZBins(); } };
+
+		oneapi::tbb::flow::make_edge(rootNode, m_cullNode);
+		oneapi::tbb::flow::make_edge(m_cullNode, m_sortNode);
+		oneapi::tbb::flow::make_edge(m_sortNode, m_fillBuffersNode);
+		oneapi::tbb::flow::make_edge(m_sortNode, m_fillBinsNode);
+		oneapi::tbb::flow::make_edge(m_sortNode, nodeDependsOnLightsReady);
+		oneapi::tbb::flow::make_edge(m_fillBuffersNode, nodeDependsOnLightTypeCountsReady);
 	}
 
-	void waitLightData();
+	void cmdTransferClearTileBuffer(VkCommandBuffer cb);
+	const VkDependencyInfo& getDependency();
 	void cmdPassConductTileTest(VkCommandBuffer cb);
 	void cmdDrawBVs(VkCommandBuffer cb);
 	void cmdDrawProxies(VkCommandBuffer cb);

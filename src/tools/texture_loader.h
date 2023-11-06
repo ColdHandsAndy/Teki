@@ -13,7 +13,7 @@
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_classes.h"
-#include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/sync_operations.h"
 #include "src/tools/asserter.h"
 #include "src/tools/logging.h"
 
@@ -61,7 +61,7 @@ namespace TextureLoaders
 		ImageCubeMap cubemap{ vulkanObjects->getLogicalDevice(), format, static_cast<uint32_t>(sideLength), VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, static_cast<int>(mipLevelCount) };
 
 		VkCommandBuffer cb{ commandBufferSet.beginTransientRecording() };
-		BarrierOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
 													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 													.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 													.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -76,7 +76,7 @@ namespace TextureLoaders
 														.layerCount = cubemapFaceCount }}}
 			});
 		cubemap.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), sideLength, stagingOffsets.size(), stagingOffsets.data(), faceIndices.data(), mipIndices.data());
-		BarrierOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
 													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 													.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
 													.dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -127,7 +127,7 @@ namespace TextureLoaders
 
 		Image image{ vulkanObjects->getLogicalDevice(), vulkanFormat, static_cast<uint32_t>(spec.width), static_cast<uint32_t>(spec.height), usageFlags, VK_IMAGE_ASPECT_COLOR_BIT, genMipmap };
 		VkCommandBuffer cb{ commandBufferSet.beginTransientRecording() };
-		BarrierOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
 													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 													.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 													.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -142,7 +142,7 @@ namespace TextureLoaders
 														.layerCount = 1 }}}
 			});
 		image.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), staging.getOffset(), 0, 0, image.getWidth(), image.getHeight());
-		BarrierOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
 													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 													.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
 													.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -160,7 +160,7 @@ namespace TextureLoaders
 			image.cmdCreateMipmaps(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		else
 		{
-			BarrierOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+			SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
 													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 													.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
 													.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,

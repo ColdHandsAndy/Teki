@@ -68,6 +68,7 @@ public:
 	void resetInterchangeable(uint32_t indexToSet, uint32_t commandBufferIndex);
 	void resetAll();
 	void resetPool(CommandPoolType type);
+	void resetPoolsOnThreads();
 
 	CommandBufferSet() = delete;
 	void operator=(CommandBufferSet) = delete;

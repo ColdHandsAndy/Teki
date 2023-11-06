@@ -6,7 +6,7 @@
 #include "src/rendering/renderer/pipeline_management.h"
 #include "src/rendering/renderer/descriptor_management.h"
 #include "src/rendering/renderer/command_management.h"
-#include "src/rendering/renderer/barrier_operations.h"
+#include "src/rendering/renderer/sync_operations.h"
 #include "src/rendering/data_management/image_classes.h"
 #include "src/tools/comp_s.h"
 
@@ -115,14 +115,14 @@ public:
 
 	void cmdCalcHiZ(VkCommandBuffer cb)
 	{
-		BarrierOperations::cmdExecuteBarrier(cb, { 
-			{BarrierOperations::constructImageBarrier(
+		SyncOperations::cmdExecuteBarrier(cb, { 
+			{SyncOperations::constructImageBarrier(
 					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 					0, 0,
 					VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 					m_depthImage.getImageHandle(),
 					{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }),
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 					0, 0,
 					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
@@ -152,14 +152,14 @@ public:
 		vkCmdDispatch(cb, DISPATCH_SIZE(width, groupsizeX), DISPATCH_SIZE(height, groupsizeY), 1);
 
 		VkImageMemoryBarrier2 barrier{ 
-			BarrierOperations::constructImageBarrier(
+			SyncOperations::constructImageBarrier(
 					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 					VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 					VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 					m_hierarchicalZ.getImageHandle(),
 					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }) };
 
-		BarrierOperations::cmdExecuteBarrier(cb, { {barrier} });
+		SyncOperations::cmdExecuteBarrier(cb, { {barrier} });
 		
 		for (int i{ 1 }; i < m_hiZopCount; ++i)
 		{
@@ -178,11 +178,11 @@ public:
 		
 			barrier.subresourceRange.baseMipLevel = i;
 		
-			BarrierOperations::cmdExecuteBarrier(cb, { {barrier} });
+			SyncOperations::cmdExecuteBarrier(cb, { {barrier} });
 		}
 
-		BarrierOperations::cmdExecuteBarrier(cb, {
-			{BarrierOperations::constructImageBarrier(
+		SyncOperations::cmdExecuteBarrier(cb, {
+			{SyncOperations::constructImageBarrier(
 					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 					0, 0,
 					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
@@ -219,14 +219,14 @@ public:
 
 	void cmdVisualizeHiZ(VkCommandBuffer cb, VkImage outImage, VkImageLayout outImageLayout, uint32_t mipLevel)
 	{
-		BarrierOperations::cmdExecuteBarrier(cb, {
-			{BarrierOperations::constructImageBarrier(
+		SyncOperations::cmdExecuteBarrier(cb, {
+			{SyncOperations::constructImageBarrier(
 				VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, 0,
 				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				m_hierarchicalZ.getImageHandle(),
 				{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = static_cast<uint32_t>(m_hiZopCount), .baseArrayLayer = 0, .layerCount = 1 }),
-			BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+			SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, 0,
 				outImageLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				outImage,
@@ -245,8 +245,8 @@ public:
 
 		vkCmdBlitImage(cb, m_hierarchicalZ.getImageHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, outImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
 
-		BarrierOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
-			{BarrierOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+		SyncOperations::cmdExecuteBarrier(cb, std::span<const VkImageMemoryBarrier2>{
+			{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 				0, 0,
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, outImageLayout,
 				outImage,

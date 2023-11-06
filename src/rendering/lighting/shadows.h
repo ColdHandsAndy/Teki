@@ -163,13 +163,13 @@ public:
 			std::sort(m_indicesForShadowMaps.begin(), m_indicesForShadowMaps.end(), [](auto& one, auto& two) -> bool { return one.shadowMapIndices.listIndex < two.shadowMapIndices.listIndex; });
 	}
 
-	void cmdRenderShadowMaps(VkCommandBuffer cb)
+	void cmdRenderShadowMaps(VkCommandBuffer cb, const Buffer& vertexData, const Buffer& indexData)
 	{
 		if (m_newLightsAdded)
 		{
-			m_shadowMaps.cmdTransitionLayoutsFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			m_shadowMaps.cmdTransitionLayoutsFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			for (auto& shadowCubeMap : m_shadowCubeMaps)
-				shadowCubeMap.cmdTransitionLayoutFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+				shadowCubeMap.cmdTransitionLayoutFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			m_newLightsAdded = false;
 		}
 		 
@@ -177,6 +177,10 @@ public:
 			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
 
+		VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
+		VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
+		vkCmdBindVertexBuffers(cb, 0, 1, vertexBindings, vertexBindingOffsets);
+		vkCmdBindIndexBuffer(cb, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
 		m_shadowMapPass.cmdBind(cb);
 		m_shadowMapPass.cmdBindResourceSets(cb);
 		cmdRenderShadowOnedirMaps(cb);
@@ -332,7 +336,7 @@ private:
 			VkImageSubresourceRange range{ m_shadowMaps.getImageListSubresourceRange(m_indicesForShadowMaps[i].shadowMapIndices.listIndex) };
 			range.baseArrayLayer = m_indicesForShadowMaps[i].shadowMapIndices.layerIndex;
 			range.layerCount = 1;
-			barriers.push_back(BarrierOperations::constructImageBarrier(
+			barriers.push_back(SyncOperations::constructImageBarrier(
 				srcStages, dstStages,
 				0, 0,
 				srcLayout, dstLayout,
@@ -340,14 +344,14 @@ private:
 		}
 		for (int i{ 0 }; i < m_indicesForShadowCubeMaps.size(); ++i)
 		{
-			barriers.push_back(BarrierOperations::constructImageBarrier(
+			barriers.push_back(SyncOperations::constructImageBarrier(
 				srcStages, dstStages, 
 				0, 0,
 				srcLayout, dstLayout, 
 				m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getImageHandle(), m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getSubresourceRange()));
 		}
 
-		BarrierOperations::cmdExecuteBarrier(cb, barriers);
+		SyncOperations::cmdExecuteBarrier(cb, barriers);
 		barriers.clear();
 	}
 
