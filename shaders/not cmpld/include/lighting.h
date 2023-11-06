@@ -3,6 +3,9 @@
 
 #include "rand.h"
 
+#extension GL_EXT_samplerless_texture_functions : enable
+
+
 #define PCF_NUM_SAMPLES 16
 #define BLOCKER_SEARCH_NUM_SAMPLES 16
 vec2 poissonDisc[16] = {

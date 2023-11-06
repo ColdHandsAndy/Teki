@@ -458,6 +458,10 @@ int main()
 		{
 			renderingData.frustumCulledCount = culling.cullAgainstFrustum(rUnitOBBs, frustumInfo, coordinateTransformation.getViewMatrix());
 		} };
+	node_t nodePrepareDataForShadowMapRender{ flowGraph, [&](msg_t)
+		{
+			caster.prepareDataForShadowMapRendering();
+		} };
 	node_t nodePreprocessCB1{ flowGraph, [&](msg_t)
 		{
 			cbPreprocessing = cmdBufferSet.beginPerThreadRecording(0);
@@ -468,10 +472,6 @@ int main()
 			events.cmdSet(cbPreprocessing, 0, culling.getDependency()); //Event 0 set
 			clusterer.cmdTransferClearTileBuffer(cbPreprocessing);
 			events.cmdSet(cbPreprocessing, 1, clusterer.getDependency()); //Event 1 set
-		} };
-	node_t nodePrepareDataForShadowMapRender{ flowGraph, [&](msg_t)
-		{
-			caster.prepareDataForShadowMapRendering();
 		} };
 	node_t nodePreprocessCB2{ flowGraph, [&](msg_t)
 		{
@@ -500,6 +500,10 @@ int main()
 	node_t nodeDrawCB{ flowGraph, [&](msg_t)
 		{
 			cbDraw = cmdBufferSet.beginPerThreadRecording(1);
+
+			SyncOperations::cmdExecuteBarrier(cbDraw,
+				{ {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+					VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT)} });
 
 			SyncOperations::cmdExecuteBarrier(cbDraw, drawAndDepthAttachmentsTransition0);
 			vkCmdBeginRendering(cbDraw, &renderInfo);
@@ -547,6 +551,10 @@ int main()
 	node_t nodePostprocessCB{ flowGraph, [&](msg_t)
 		{
 			cbPostprocessing = cmdBufferSet.beginPerThreadRecording(2);
+
+			SyncOperations::cmdExecuteBarrier(cbPostprocessing,
+				{ {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+					VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT)} });
 
 			swapchainImageTransition0.image = std::get<0>(swapchainImageData);
 			SyncOperations::cmdExecuteBarrier(cbPostprocessing, std::array{ swapchainImageTransition0 });
