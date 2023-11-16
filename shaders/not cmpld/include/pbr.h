@@ -6,7 +6,7 @@ vec3 F_Schlick(vec3 F0, float F90, float NdotX)
 	return F0 + (F90 - F0) * pow(1.0 - NdotX, 5.0);
 }
 float V_SmithGGXCorrelated(float NdotL, float NdotV, float alpha2)
-{
+{ 
 	float Lambda_GGXV = NdotL * sqrt((-NdotV * alpha2 + NdotV) * NdotV + alpha2);
 	float Lambda_GGXL = NdotV * sqrt((-NdotL * alpha2 + NdotL) * NdotL + alpha2);
 	

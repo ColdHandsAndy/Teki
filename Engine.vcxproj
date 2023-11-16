@@ -199,6 +199,7 @@
     <ClCompile Include="src\rendering\renderer\descriptor_management.cpp" />
     <ClCompile Include="src\rendering\renderer\HBAO.cpp" />
     <ClCompile Include="src\rendering\renderer\pipeline_management.cpp" />
+    <ClCompile Include="src\rendering\renderer\deferred_lighting.cpp" />
     <ClCompile Include="src\rendering\vulkan_object_handling\vulkan_object_handler.cpp" />
     <ClCompile Include="src\window\window.cpp" />
   </ItemGroup>
@@ -221,6 +222,8 @@
       </ExcludedFromBuild>
     </Text>
     <Text Include="shaders\not cmpld\include\coordinate_transformation_set.h" />
+    <Text Include="shaders\not cmpld\include\tang_frame.h" />
+    <Text Include="shaders\not cmpld\include\tonemap.h" />
     <ClInclude Include="src\rendering\data_abstraction\BB.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
     <ClInclude Include="src\rendering\data_abstraction\mesh.h" />
@@ -235,11 +238,12 @@
     <ClInclude Include="src\rendering\renderer\command_management.h" />
     <ClInclude Include="src\rendering\renderer\culling.h" />
     <ClInclude Include="src\rendering\renderer\descriptor_management.h" />
-    <ClInclude Include="src\rendering\renderer\FXAA.h" />
+    <ClInclude Include="src\rendering\renderer\TAA.h" />
     <ClInclude Include="src\rendering\renderer\HBAO.h" />
     <ClInclude Include="src\rendering\renderer\pipeline_management.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="src\rendering\renderer\timeline_semaphore.h" />
+    <ClInclude Include="src\rendering\renderer\deferred_lighting.h" />
     <ClInclude Include="src\rendering\renderer\world_transform.h" />
     <ClInclude Include="src\rendering\scene\parse_scene.h" />
     <ClInclude Include="src\rendering\shader_management\shader_operations.h" />
@@ -261,19 +265,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs" />
-    <CustomBuild Include="shaders\shader_frag.frag">
-      <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\shader_vert.vert">
-      <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\shader_frag.frag">
-      <FileType>Document</FileType>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
-    </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_skybox_frag.frag">
       <FileType>Document</FileType>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
@@ -287,6 +278,8 @@
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shader_space_lines_frag.frag">
       <FileType>Document</FileType>
@@ -301,78 +294,81 @@
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\shader_vert.vert">
-      <FileType>Document</FileType>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_frag.frag">
-      <FileType>Document</FileType>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_vert.vert">
-      <FileType>Document</FileType>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\color_frag.frag">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\cone_light_mesh_vert.vert">
       <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\raster_tile_frag.frag">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\raster_tile_point_light_vert.vert">
       <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\raster_tile_spot_light_vert.vert">
       <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\point_light_mesh_vert.vert">
       <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\fullscreen_vert.vert">
-      <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\hbao_frag.frag">
-      <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\lin_depth_frag.frag">
-      <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\lin_depth_vert.vert">
-      <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\hbao_blur_frag.frag">
-      <FileType>Document</FileType>
-    </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\fxaa_frag.frag">
-      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/lighting.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\calc_hi_z_comp.comp">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\occlusion_culling_comp.comp">
       <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shadow_pass_vert.vert">
       <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/misc.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/misc.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\shadow_pass_frag.frag">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\simple_proj_vert.vert">
       <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\lighting_pass_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\uv_buffer_frag.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\uv_buffer_vert.vert">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/misc.h</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/misc.h</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\hbao_blur_comp.comp">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\hbao_comp.comp">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\taa_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/tonemap.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/tonemap.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />
   </ItemGroup>

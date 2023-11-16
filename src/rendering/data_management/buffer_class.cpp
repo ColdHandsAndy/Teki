@@ -30,12 +30,14 @@ BufferBase::BufferBase(VkDevice device, const VkBufferCreateInfo& bufferCI, bool
 		allocCI.flags = allocFlags | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 		allocCI.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 		allocCI.usage = VMA_MEMORY_USAGE_AUTO;
+		allocCI.memoryTypeBits = m_memoryManager->m_sharedMemoryTypeMask;
 	}
 	else
 	{
 		allocCI.flags = allocFlags;
 		allocCI.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 		allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+		allocCI.memoryTypeBits = m_memoryManager->m_sharedMemoryTypeMask;
 	}
 
 	VmaVirtualBlockCreateInfo virtBlockCI{};

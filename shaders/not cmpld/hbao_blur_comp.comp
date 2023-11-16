@@ -1,0 +1,46 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive						: enable
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+
+layout(set = 0, binding = 0) uniform sampler2D AO;
+layout(set = 0, binding = 1, r16) uniform writeonly image2D blurredAO;
+
+layout(push_constant) uniform PushConstants 
+{
+	vec2  invResolution;
+	uvec2 resolution;
+} pushConstants;
+
+void main()
+{
+	ivec2 screenCoord = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+	if (screenCoord.x >= pushConstants.resolution.x || screenCoord.y >= pushConstants.resolution.y)
+		return;
+		
+	vec2 uv = screenCoord * pushConstants.invResolution;
+
+	const float twopi = 6.28318530718;
+    
+    const float directions = 8.0; // BLUR DIRECTIONS (Default 16.0 - More is better but slower)
+    const float quality = 3.0; // BLUR QUALITY (Default 4.0 - More is better but slower)
+    const float size = 4.0; // BLUR SIZE (Radius)
+   
+    vec2 radius = size * pushConstants.invResolution;
+    
+    float result = texture(AO, uv).x;
+    
+    for (float d = 0.0; d < twopi; d += twopi / directions)
+    {
+		for (float i = 1.0 / quality; i <= 1.0; i += 1.0 / quality)
+        {
+			result += texture(AO, uv + vec2(cos(d),sin(d)) * radius * i).x;		
+        }
+    }
+    
+    result /= quality * directions - (directions - 1.0);
+
+    imageStore(blurredAO, screenCoord, vec4(result));
+}

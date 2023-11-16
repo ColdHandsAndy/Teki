@@ -67,7 +67,8 @@ public:
 	void setMultisamplingState(StatePresets preset, VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT);
 	void setRasterizationState(StatePresets preset, float lineWidth = 1.0f, VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT);
 	void setDepthStencilState(StatePresets preset, VkCompareOp cmpOp = VK_COMPARE_OP_GREATER_OR_EQUAL);
-	void setColorBlendState(StatePresets preset, VkColorComponentFlags writeMask = 0xFFFFFFFF);
+	void setColorBlendState(StatePresets preset, uint32_t attachmentCount = 1);
+	void setPipelineRenderingState(StatePresets preset, VkFormat* colorAttachmentFormats, uint32_t attachmentsCount);
 	void setPipelineRenderingState(StatePresets preset, VkFormat colorAttachmentFormat = VK_FORMAT_B8G8R8A8_UNORM);
 
 	const VkPipelineDynamicStateCreateInfo& getDynamicState() const;
@@ -94,8 +95,8 @@ private:
 	VkPipelineRasterizationStateCreateInfo		 m_rasterizationState{};
 	VkPipelineDepthStencilStateCreateInfo		 m_depthStencilState{};
 	VkPipelineColorBlendStateCreateInfo			 m_colorBlendingState{};
-	VkPipelineColorBlendAttachmentState			 m_colorBlendAttachment{};
-	VkFormat									 m_colorAttachmentFormat{};
+	VkPipelineColorBlendAttachmentState			 m_colorBlendAttachments[8]{};
+	VkFormat									 m_colorAttachmentFormats[8]{};
 	VkPipelineRenderingCreateInfo				 m_pipelineRenderingState{};
 };
 
@@ -132,6 +133,12 @@ public:
 	const std::vector<std::reference_wrapper<const ResourceSet>>& getResourceSets() const;
 	const std::vector<uint32_t>& getResourceSetsInUse() const;
 	void setResourceInUse(uint32_t resSetIndex, uint32_t value);
+	void rewriteDescriptor(uint32_t setIndex, uint32_t bindingIndex, uint32_t copyIndex, uint32_t arrayIndex, const VkDescriptorDataEXT& descriptorData)
+	{
+		EASSERT(setIndex < m_resourceSets.size(), "App", "Incorrect set index.");
+
+		m_resourceSets[setIndex].get().rewriteDescriptor(bindingIndex, copyIndex, arrayIndex, descriptorData);
+	}
 
 	void cmdBind(VkCommandBuffer cb);
 	void cmdBindResourceSets(VkCommandBuffer cb);

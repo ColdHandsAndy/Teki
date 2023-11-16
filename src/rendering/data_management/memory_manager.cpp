@@ -17,6 +17,17 @@ MemoryManager::MemoryManager(const VulkanObjectHandler& vulkanObjects) : m_physD
 	m_graphicsQueueFamilyIndex = vulkanObjects.getGraphicsFamilyIndex();
 	m_computeQueueFamilyIndex = vulkanObjects.getComputeFamilyIndex();
 	m_transferQueueFamilyIndex = vulkanObjects.getTransferFamilyIndex();
+
+	VkPhysicalDeviceMemoryProperties memProperties{};
+	vkGetPhysicalDeviceMemoryProperties(vulkanObjects.getPhysicalDevice(), &memProperties);
+	for (int i{ 0 }; i < memProperties.memoryTypeCount; ++i)
+	{
+		if ((memProperties.memoryTypes[i].propertyFlags & (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) == (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+		{
+			m_sharedMemoryTypeMask = UINT32_MAX ^ (1 << i);
+			break;
+		}
+	}
 }
 
 MemoryManager::~MemoryManager()

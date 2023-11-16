@@ -24,47 +24,41 @@ private:
 	uint32_t m_aoRenderWidth{};
 	uint32_t m_aoRenderHeight{};
 
-	Image m_linearDepthImage;
+	Image m_randTex;
 	Image m_AOImage;
 	Image m_blurredAOImage;
-	Image m_randTex;
-	Image m_depthBuffer;
 
-	std::array<ResourceSet, 3> m_resSets{};
+	std::array<ResourceSet, 2> m_resSets{};
 
-	Pipeline m_linearExpandedFOVDepthPass;
 	Pipeline m_HBAOpass;
 	Pipeline m_blurHBAOpass;
 
-	VkImageMemoryBarrier2 m_imageBarriers0[2]{};
-	VkDependencyInfo m_dependencyInfo0{};
-	VkImageMemoryBarrier2 m_imageBarriers1[2]{};
-	VkDependencyInfo m_dependencyInfo1{};
+	VkImageMemoryBarrier2 m_imageBarriers[2]{};
+	VkDependencyInfo m_dependencyInfo{};
 
-	static constexpr float expansionScale{ 1.1 };
 	float m_frustumFar{};
 	float m_frustumFOV{};
 	struct
 	{
-		glm::vec4 uvTransformData;
+		glm::vec4 projectionData;
 
 		glm::vec2 invResolution;
-		glm::vec2 resolution;
+		glm::uvec2 resolution;
 
 		float radius;
 		float aoExponent;
 		float angleBias;
 		float negInvR2;
-	} m_hbaoInfo;
-	float m_blurSharpness{};
 
-	BufferBaseHostAccessible m_viewprojexpData{ m_device, sizeof(glm::mat4) * 2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
+		float farPlane;
+		float nearPlane;
+	} m_hbaoInfo;
 
 	VkSampler m_hbaoSampler{};
 	VkSampler m_randSampler{};
 
 public:
-	HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight, const BufferMapped& modelTransformData, const BufferMapped& perDrawDataIndices, CommandBufferSet& cmdBufferSet, VkQueue queue);
+	HBAO(VkDevice device, uint32_t aoRenderWidth, uint32_t aoRenderHeight, const DepthBuffer& depthBuffer, CommandBufferSet& cmdBufferSet, VkQueue queue);
 	~HBAO();
 
 	uint32_t getAOImageWidth()
@@ -75,25 +69,13 @@ public:
 	{
 		return m_aoRenderHeight;
 	}
-	const Image& getAO()
+	const Image& getAO() const
 	{
 		return m_blurredAOImage;
 	}
-	const Image& getLinearDepthImage()
+	const VkDependencyInfo& getDependency()
 	{
-		return m_linearDepthImage;
-	}
-	const VkImageView getLinearDepthImageView()
-	{
-		return m_linearDepthImage.getImageView();
-	}
-	const VkDependencyInfo& getDependencyLinearDepthToCalcHBAO()
-	{
-		return m_dependencyInfo0;
-	}
-	const VkDependencyInfo& getDependencyCalcHBAOToBlur()
-	{
-		return m_dependencyInfo1;
+		return m_dependencyInfo;
 	}
 
 	void setRadius(float radius)
@@ -109,24 +91,18 @@ public:
 	{
 		m_hbaoInfo.angleBias = bias;
 	}
-	void setBlurSharpness(float sharpness)
-	{
-		m_blurSharpness = sharpness;
-	}
 
-	void setHBAOsettings(float radius, float aoExponent, float angleBias, float sharpness);
+	void setHBAOsettings(float radius, float aoExponent, float angleBias);
 
 
 	void submitFrustum(double near, double far, double aspect, double FOV);
-	void submitViewMatrix(const glm::mat4& viewMat);
 
-	void cmdPassCalculateLinearDepth(VkCommandBuffer cb, Culling& culling, const Buffer& vertexData, const Buffer& indexData);
-	void cmdPassCalculateHBAO(VkCommandBuffer cb);
-	void cmdPassBlurHBAO(VkCommandBuffer cb);
+	void cmdTransferClearBuffers(VkCommandBuffer cb);
+
+	void cmdDispatchHBAO(VkCommandBuffer cb);
+	void cmdDispatchHBAOBlur(VkCommandBuffer cb);
 
 private:
-
-	void acquireDepthPassData(const BufferMapped& modelTransformData, const BufferMapped& perDrawDataIndices);
 	void fiilRandomRotationImage(CommandBufferSet& cmdBufferSet, VkQueue queue);
 };
 

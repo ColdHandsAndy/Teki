@@ -1,0 +1,185 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive						: enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8     : enable
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define SQRT_2 1.41421356237309
+ 
+#include "misc.h"
+#include "tonemap.h"
+
+layout(push_constant) uniform PushConsts 
+{
+	uvec2 resolution;
+	vec2 invResolution;
+	vec2 jitterValue;
+	vec2 jitterValuePrev;
+    float smoothingFactor;
+} pushConstants;
+
+#define COORDINATE_TRANSFORMATION_SET_INDEX 0
+#include "coordinate_transformation_set.h"
+
+layout(set = 1, binding = 0) uniform sampler2D inputImage;
+layout(set = 1, binding = 1) uniform sampler2D depthImage;
+layout(set = 1, binding = 2, rgba8) uniform writeonly image2D outputImage;
+
+layout(set = 2, binding = 0) uniform sampler2D oldHistoryBuffer;
+layout(set = 2, binding = 1, rgba16f) uniform writeonly image2D newHistoryBuffer;
+
+ 
+
+void reprojectUVandDepth(vec2 uv, float depth, out vec2 reprojectedUV, out float reprojectedDepth)
+{
+    vec3 worldPos = getWorldPositionFromDepth(coordTransformData.worldFromNdc, uv, depth);
+    float ndcX = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][0], coordTransformData.ndcFromWorldPrev[1][0], coordTransformData.ndcFromWorldPrev[2][0])) + coordTransformData.ndcFromWorldPrev[3][0];
+    float ndcY = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][1], coordTransformData.ndcFromWorldPrev[1][1], coordTransformData.ndcFromWorldPrev[2][1])) + coordTransformData.ndcFromWorldPrev[3][1];
+    float ndcW = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][3], coordTransformData.ndcFromWorldPrev[1][3], coordTransformData.ndcFromWorldPrev[2][3])) + coordTransformData.ndcFromWorldPrev[3][3];
+    ndcX /= ndcW;
+    ndcY /= ndcW;
+    reprojectedDepth = (dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][2], coordTransformData.ndcFromWorldPrev[1][2], coordTransformData.ndcFromWorldPrev[2][2])) + coordTransformData.ndcFromWorldPrev[3][2]) / ndcW;
+    reprojectedUV = vec2(ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5);
+}
+
+vec3 clipToAABB(vec3 cOld, vec3 cNew, vec3 center, vec3 halfSize)
+{
+    vec3 r = cOld - cNew;
+    vec3 m = (center + halfSize) - cNew;
+    vec3 n = (center - halfSize) - cNew;
+    
+    const float eps = 1e-4;
+
+    if (r.x > m.x + eps)
+		r *= (m.x / r.x);
+	if (r.y > m.y + eps)
+		r *= (m.y / r.y);
+	if (r.z > m.z + eps)
+		r *= (m.z / r.z);
+
+	if (r.x < n.x - eps)
+		r *= (n.x / r.x);
+	if (r.y < n.y - eps)
+		r *= (n.y / r.y);
+	if (r.z < n.z - eps)
+		r *= (n.z / r.z);
+
+	return cNew + r;
+}
+void varianceClipping(inout vec3 historySample, sampler2D inputImage, ivec2 screenCoords, vec3 inputSample)
+{
+    vec3 old = RGBtoYCoCg(historySample);
+    vec3 new = RGBtoYCoCg(inputSample);
+    vec3 avg = new;
+    vec3 var = new * new;
+    
+    const uint offsetCount = 4;
+    const ivec2 offsets[offsetCount] = ivec2[offsetCount](
+ 	ivec2(1,  0), ivec2( 0, -1), 
+	ivec2(0,  1), ivec2(-1,  0));
+
+    for (int i = 0; i < offsetCount; ++i)
+    {
+        vec3 tex = RGBtoYCoCg(texelFetch(inputImage, screenCoords + offsets[i], 0).rgb);
+    
+        avg += tex;
+        var += tex * tex;
+    }
+    avg /= float(offsetCount + 1);
+    var /= float(offsetCount + 1);
+
+    vec3 sig = sqrt(max(var - avg * avg, vec3(0)));
+    
+    const float g = 1.0;
+    vec3 cmin = avg - sig * g;
+    vec3 cmax = avg + sig * g;
+    
+    vec3 clip = clipToAABB(old, clamp(avg, cmin, cmax), avg, sig);
+    
+    historySample = YCoCgToRGB(mix(old, clip, 1.0));
+}
+
+vec4 CatmullRomSample(sampler2D sampledTexture, vec2 uv, vec2 texSize)
+{
+    vec2 samplePos = uv * texSize;
+    vec2 texPos1 = floor(samplePos - 0.5f) + 0.5f;
+
+    vec2 f = samplePos - texPos1;
+
+    vec2 w0 = f * (-0.5f + f * (1.0f - 0.5f * f));
+    vec2 w1 = 1.0f + f * f * (-2.5f + 1.5f * f);
+    vec2 w2 = f * (0.5f + f * (2.0f - 1.5f * f));
+    vec2 w3 = f * f * (-0.5f + 0.5f * f);
+
+    vec2 w12 = w1 + w2;
+    vec2 offset12 = w2 / (w1 + w2);
+
+    vec2 texPos0 = texPos1 - 1;
+    vec2 texPos3 = texPos1 + 2;
+    vec2 texPos12 = texPos1 + offset12;
+
+    texPos0 /= texSize;
+    texPos3 /= texSize;
+    texPos12 /= texSize;
+
+    vec4 result = vec4(0.0);
+    result += texture(sampledTexture, vec2(texPos0.x, texPos0.y)) * w0.x * w0.y;
+    result += texture(sampledTexture, vec2(texPos12.x, texPos0.y)) * w12.x * w0.y;
+    result += texture(sampledTexture, vec2(texPos3.x, texPos0.y)) * w3.x * w0.y;
+
+    result += texture(sampledTexture, vec2(texPos0.x, texPos12.y)) * w0.x * w12.y;
+    result += texture(sampledTexture, vec2(texPos12.x, texPos12.y)) * w12.x * w12.y;
+    result += texture(sampledTexture, vec2(texPos3.x, texPos12.y)) * w3.x * w12.y;
+
+    result += texture(sampledTexture, vec2(texPos0.x, texPos3.y)) * w0.x * w3.y;
+    result += texture(sampledTexture, vec2(texPos12.x, texPos3.y)) * w12.x * w3.y;
+    result += texture(sampledTexture, vec2(texPos3.x, texPos3.y)) * w3.x * w3.y;
+
+    return result;
+}
+
+void depthRejection(sampler2D historyBuffer, vec2 uvUnjit, vec2 uvReprojUnjit, float reprojectedDepth, out bool depthRejected)
+{   
+    const float eps = 0.001;
+    bool depthOnEdge = all(lessThan(abs(uvUnjit - uvReprojUnjit), (pushConstants.invResolution) * SQRT_2));
+    depthRejected = (((texture(historyBuffer, uvReprojUnjit).w - reprojectedDepth) > eps)) && (!depthOnEdge);
+}
+void reprojectedUVRejection(vec2 reprojectedUV, out bool uvRejected)
+{  
+    uvRejected = (reprojectedUV.x < 0.0 || reprojectedUV.x > 1.0 || reprojectedUV.y < 0.0 || reprojectedUV.y > 1.0);
+}
+
+void main()
+{
+    ivec2 screenCoords = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+	if (screenCoords.x >= pushConstants.resolution.x || screenCoords.y >= pushConstants.resolution.y)
+		return;
+
+	vec2 uv = (vec2(screenCoords) + vec2(0.5, 0.5)) * pushConstants.invResolution;
+    float depth = texture(depthImage, uv).x;
+
+    vec2 reprojectedUV;
+    float reprojectedDepth;
+    reprojectUVandDepth(uv, depth, reprojectedUV, reprojectedDepth);
+    vec2 uvUnjit = uv - pushConstants.jitterValue;
+    vec2 uvReprojUnjit = reprojectedUV - pushConstants.jitterValuePrev;
+
+    bool depthRejected;
+    depthRejection(oldHistoryBuffer, uvUnjit, uvReprojUnjit, reprojectedDepth, depthRejected);
+    bool uvRejected;
+    reprojectedUVRejection(reprojectedUV, uvRejected);
+
+    vec3 currentVal = texelFetch(inputImage, screenCoords, 0).xyz;
+
+    vec3 historyVal = CatmullRomSample(oldHistoryBuffer, reprojectedUV, vec2(pushConstants.resolution)).xyz;
+    varianceClipping(historyVal, inputImage, screenCoords, currentVal);
+
+    if (!(depthRejected || uvRejected))
+        currentVal = currentVal * pushConstants.smoothingFactor + (1.0 - pushConstants.smoothingFactor) * historyVal;
+
+    imageStore(newHistoryBuffer, screenCoords, vec4(clamp(currentVal, 0.0, 60000.0), depth));
+    imageStore(outputImage, screenCoords, vec4(TimothyTonemapper(currentVal), 1.0));
+
+
+}

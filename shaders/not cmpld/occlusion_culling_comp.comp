@@ -97,7 +97,7 @@ bool testOcclusion(vec3 pos, float rad)
 	
 	uint n = clamp(uint(-log2(max(bvWidth, bvHeight))), 0, pushConstants.mipMax);
 	
-	uint levelHiZ = pushConstants.mipMax - n - 1;
+	uint levelHiZ = pushConstants.mipMax - n;
 
 	return textureLod(hierarchicalZ, sampleDepth, levelHiZ).x > depth;
 }

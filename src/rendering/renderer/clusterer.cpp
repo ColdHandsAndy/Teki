@@ -88,7 +88,7 @@ void Clusterer::sortLights()
 		if (m_nonculledLightsData[i].back > m_currentFurthestLight)
 			m_currentFurthestLight = m_nonculledLightsData[i].back;
 	}
-	m_currentFurthestLight = std::max(20.0f, m_currentFurthestLight);
+	m_currentFurthestLight = std::max(100.0f, m_currentFurthestLight);
 	oneapi::tbb::parallel_sort(m_nonculledLightsData, m_nonculledLightsData + m_nonculledLightsCount, [](const CulledLightData& data1, const CulledLightData& data2) -> bool { return data1.front < data2.front; });
 }
 void Clusterer::fillLightBuffers()

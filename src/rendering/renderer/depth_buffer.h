@@ -190,6 +190,11 @@ public:
 					{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }) } });
 	}
 
+	VkImageSubresourceRange getDepthBufferSubresourceRange() const
+	{
+		return m_depthImage.getSubresourceRange();
+	}
+
 	uint32_t getMipLevelCountHiZ() const
 	{
 		return m_hiZopCount;

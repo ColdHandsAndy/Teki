@@ -1,7 +1,7 @@
 #ifndef RAND_HEADER
 #define RAND_HEADER
 
-uint hash( uint x ) 
+uint hash( uint x )  
 {
     x += ( x << 10u );
     x ^= ( x >>  6u );

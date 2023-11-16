@@ -22,6 +22,8 @@ private:
 	VkDevice m_device{};
 	const VkPhysicalDeviceLimits& m_physDevLimits{};
 
+	uint32_t m_sharedMemoryTypeMask{ 0 };
+
 	uint32_t m_graphicsQueueFamilyIndex{};
 	uint32_t m_computeQueueFamilyIndex{};
 	uint32_t m_transferQueueFamilyIndex{};

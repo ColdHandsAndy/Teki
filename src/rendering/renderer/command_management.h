@@ -69,6 +69,7 @@ public:
 	void resetAll();
 	void resetPool(CommandPoolType type);
 	void resetPoolsOnThreads();
+	void resetAllTransient();
 
 	CommandBufferSet() = delete;
 	void operator=(CommandBufferSet) = delete;

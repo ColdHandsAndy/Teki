@@ -81,6 +81,7 @@ public:
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayout);
 
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, VkDeviceSize bufferOffset, int xOffset, int yOffset, uint32_t width, uint32_t height, uint32_t mipLevel = 0);
+	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t mipCount, VkDeviceSize* bufferOffset);
 
 };
 
@@ -131,6 +132,7 @@ public:
 
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
+	void cmdCopyDataFromBufferAllMips(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t dstImageLayerIndex, uint32_t regionCount, VkDeviceSize* bufferOffset);
 
 	void cmdTransitionLayoutFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout);
 
@@ -211,6 +213,7 @@ public:
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentLayout);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
+	void cmdCopyDataFromBufferAllMips(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t dstImageLayerIndex, uint32_t regionCount, VkDeviceSize* bufferOffset);
 
 };
 

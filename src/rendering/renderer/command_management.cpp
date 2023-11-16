@@ -213,6 +213,15 @@ void CommandBufferSet::resetPoolsOnThreads()
 	for (auto& pool : m_threadCommandPools)
 		vkResetCommandPool(m_device, pool, 0);
 }
+void CommandBufferSet::resetAllTransient()
+{
+	while (!m_buffersToResetIndices.empty())
+	{
+		m_transientFreeIndices.push(m_buffersToResetIndices.top());
+		m_buffersToResetIndices.pop();
+	}
+	vkResetCommandPool(m_device, m_transientPool, 0);
+}
 
 
 VkCommandPool CommandBufferSet::createCommandPool(VkDevice deviceHandle, VkCommandPoolCreateFlags flags, uint32_t queueFamilyIndex)

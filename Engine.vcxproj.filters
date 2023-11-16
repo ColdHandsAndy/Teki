@@ -66,6 +66,9 @@
     <ClCompile Include="src\rendering\renderer\depth_buffer.h">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\rendering\renderer\deferred_lighting.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\rendering\data_management\image_classes.h">
@@ -152,7 +155,7 @@
     <ClInclude Include="src\rendering\data_abstraction\BB.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\rendering\renderer\FXAA.h">
+    <ClInclude Include="src\rendering\renderer\TAA.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rendering\UI\UI.h">
@@ -182,6 +185,9 @@
     <ClInclude Include="src\rendering\renderer\world_transform.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\renderer\deferred_lighting.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -192,33 +198,27 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="shaders\shader_vert.vert" />
-    <CustomBuild Include="shaders\shader_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_space_lines_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\shader_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_skybox_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\shader_skybox_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\shader_space_lines_frag.frag" />
-    <CustomBuild Include="shaders\not cmpld\shader_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_frag.frag" />
-    <CustomBuild Include="shaders\not cmpld\pbr_spheres_test_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\cone_light_mesh_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\color_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\raster_tile_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\raster_tile_point_light_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\raster_tile_spot_light_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\point_light_mesh_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\fullscreen_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\hbao_frag.frag" />
-    <CustomBuild Include="shaders\not cmpld\lin_depth_frag.frag" />
-    <CustomBuild Include="shaders\not cmpld\lin_depth_vert.vert" />
-    <CustomBuild Include="shaders\not cmpld\hbao_blur_frag.frag" />
-    <CustomBuild Include="shaders\not cmpld\fxaa_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\calc_hi_z_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\occlusion_culling_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\shadow_pass_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\shadow_pass_frag.frag" />
     <CustomBuild Include="shaders\not cmpld\simple_proj_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\uv_buffer_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\uv_buffer_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\lighting_pass_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\hbao_blur_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\hbao_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\taa_comp.comp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="shaders\not cmpld\include\pbr.h">
@@ -234,6 +234,12 @@
       <Filter>Header Files</Filter>
     </Text>
     <Text Include="shaders\not cmpld\include\coordinate_transformation_set.h">
+      <Filter>Header Files</Filter>
+    </Text>
+    <Text Include="shaders\not cmpld\include\tang_frame.h">
+      <Filter>Header Files</Filter>
+    </Text>
+    <Text Include="shaders\not cmpld\include\tonemap.h">
       <Filter>Header Files</Filter>
     </Text>
   </ItemGroup>

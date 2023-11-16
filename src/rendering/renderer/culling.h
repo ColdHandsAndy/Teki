@@ -235,7 +235,7 @@ public:
 		return m_targetDrawDataIndices;
 	}
 
-	uint32_t getMaxDrawCount()
+	uint32_t getMaxDrawCount() const
 	{
 		return m_maxDrawCount;
 	}

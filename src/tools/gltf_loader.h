@@ -43,15 +43,12 @@ struct MaterialURIs
 	std::string emURI{};
 };
 
-
-void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
-	uint64_t& stagingCurrentSize,
-	uint32_t stagingBufferAlignment,
-	std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>>& texDataTransfersData,	//staging offset, staging size, list index, layer index
+void loadTextures(const VulkanObjectHandler& vulkanObjects,
+	CommandBufferSet& commandBufferSet,
+	BufferBaseHostAccessible& staging,
 	ImageListContainer& loadedTextures,
 	std::vector<StaticMesh>& meshes,
-	std::vector<MaterialURIs>& meshesMaterialURIs,
-	oneapi::tbb::task_group& taskGroup);
+	std::vector<MaterialURIs>& meshesMaterialURIs);
 inline void processMeshData(cgltf_data* model,
 	cgltf_scene& scene,
 	const fs::path& workPath,
@@ -97,7 +94,6 @@ inline void formIndexChunk(cgltf_data* model,
 	oneapi::tbb::task_group& taskGroup);
 
 
-
 inline std::vector<StaticMesh> loadStaticMeshes(
 								Buffer& vertexBuffer,
 								Buffer& indexBuffer,
@@ -106,23 +102,24 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 								OBBs& rUnitOBBs,
 								ImageListContainer& loadedTextures,
 								std::vector<fs::path> filepaths,
-								std::shared_ptr<VulkanObjectHandler> vulkanObjects,
+								const VulkanObjectHandler& vulkanObjects,
 								CommandBufferSet& commandBufferSet)
 {
 	cgltf_options options{};
 	int modelCount = filepaths.size();
 	cgltf_data** modelsData{ new cgltf_data*[modelCount]};
 
-	std::vector<StaticMesh> meshes{};
+	std::vector<StaticMesh> meshes{}; 
 	std::vector<MaterialURIs> meshesMaterialURIs{};
 
 	oneapi::tbb::task_group taskGroup{};
 
-	BufferBaseHostAccessible resourceStaging{ vulkanObjects->getLogicalDevice(),
+	BufferBaseHostAccessible resourceStaging{ vulkanObjects.getLogicalDevice(),
 		3221225472ll, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT };
 	uint32_t stagingBufferAlignment{ static_cast<uint32_t>(resourceStaging.getAlignment()) };
 	uint64_t stagingCurrentSize{ 0 };
 	uint8_t* const stagingDataPtr{ reinterpret_cast<uint8_t*>(resourceStaging.getData()) };
+
 	for (int i{ 0 }; i < modelCount; ++i)
 	{
 		cgltf_result result1 = cgltf_parse_file(&options, filepaths[i].generic_string().c_str(), &(modelsData[i]));
@@ -212,76 +209,39 @@ inline std::vector<StaticMesh> loadStaticMeshes(
 			offsetIntoIndexData += indexBufSize;
 		}
 	}
-
-	//staging offset, staging size, list index, layer index
-	std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>> texDataTransfersData{};
-	loadTexturesIntoStaging(stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, texDataTransfersData, loadedTextures, meshes, meshesMaterialURIs, taskGroup);
-
-	std::vector<VkImageMemoryBarrier> memBarriers{};
-	for (uint32_t i{ 1 }; i < loadedTextures.getImageListCount(); ++i)
-	{
-		memBarriers.push_back(VkImageMemoryBarrier{ .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-													.srcAccessMask = 0,
-													.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-													.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-													.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-													.image = loadedTextures.getImageHandle(i),
-													.subresourceRange = loadedTextures.getImageListSubresourceRange(i) });
-	}
 	VkCommandBuffer CB{ commandBufferSet.beginRecording(CommandBufferSet::MAIN_CB) };
 	{
 		BufferTools::cmdBufferCopy(CB, resourceStaging.getBufferHandle(), vertexBuffer.getBufferHandle(), copyRegionsVertexBuf.size(), copyRegionsVertexBuf.data());
 		BufferTools::cmdBufferCopy(CB, resourceStaging.getBufferHandle(), indexBuffer.getBufferHandle(), copyRegionsIndexBuf.size(), copyRegionsIndexBuf.data());
-
-		vkCmdPipelineBarrier(CB, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, memBarriers.size(), memBarriers.data());
-		
-		for (uint32_t i{ 0 }; i < texDataTransfersData.size(); ++i)
-		{
-			auto& op{ texDataTransfersData[i] };
-			loadedTextures.cmdCopyDataFromBuffer(CB, std::get<2>(op), resourceStaging.getBufferHandle(), 1, &std::get<0>(op), &std::get<3>(op));
-		}
-		
-		for (auto& barrier : memBarriers)
-		{
-			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			barrier.dstAccessMask = 0;
-			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		}
-		vkCmdPipelineBarrier(CB, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, memBarriers.size(), memBarriers.data());
-		loadedTextures.cmdCreateMipmaps(CB, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
 	commandBufferSet.endRecording(CB);
 
 	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &CB };
-	EASSERT(vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
-	EASSERT(vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
+	EASSERT(vkQueueSubmit(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS, "Vulkan", "Queue submission failed");
+	EASSERT(vkQueueWaitIdle(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE)) == VK_SUCCESS, "Vulkan", "Wait idle failed");
 
 	commandBufferSet.resetPool(CommandBufferSet::MAIN_POOL);
+
+	loadTextures(vulkanObjects, commandBufferSet, resourceStaging, loadedTextures, meshes, meshesMaterialURIs);
 
 	return meshes;
 }
 
-void loadTexturesIntoStaging(uint8_t* const stagingDataPtr, 
-	uint64_t& stagingCurrentSize, 
-	uint32_t stagingBufferAlignment,
-	std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>>& texDataTransfersData,	//staging offset, staging size, list index, layer index
+void loadTextures(const VulkanObjectHandler& vulkanObjects,
+	CommandBufferSet& commandBufferSet,
+	BufferBaseHostAccessible& staging,
 	ImageListContainer& loadedTextures, 
 	std::vector<StaticMesh>& meshes,
-	std::vector<MaterialURIs>& meshesMaterialURIs,
-	oneapi::tbb::task_group& taskGroup)
+	std::vector<MaterialURIs>& meshesMaterialURIs)
 {
 	auto genImageList{ [](int materialTypeInd, 
 						  const std::string& path,
 						  ImageListContainer& loadedTextures,
 						  std::map<std::string, std::pair<uint16_t, uint16_t>>& texPathsAndIndices,
-						  RUnit& currentRUnit, 
-						  std::vector<std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>>& texDataTransfersData,
-						  uint8_t* const stagingDataPtr,
-						  uint64_t& stagingCurrentSize,
-						  uint32_t stagingBufferAlignment,
-						  std::vector<std::unique_ptr<OIIO::ImageInput>>& images,
-						  oneapi::tbb::task_group& taskGroup)
+						  RUnit& currentRUnit,
+						  const VulkanObjectHandler& vulkanObjects,
+						  CommandBufferSet& commandBufferSet,
+						  BufferBaseHostAccessible& staging)
 		{
 			if (texPathsAndIndices.contains(path))
 			{
@@ -298,55 +258,18 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 					return;
 				}
 
+				ImageListContainer::ImageListContainerIndices indices{ TextureLoaders::loadTexture(vulkanObjects, commandBufferSet, staging, loadedTextures, std::filesystem::path(path)) };
 
-				auto imageIndex{ images.size() };
-				images.push_back(OIIO::ImageInput::open(path));
-				VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
-				uint32_t width = images.back()->spec().width;
-				uint32_t height = images.back()->spec().height;
-
-				/*if (images.back()->spec().nchannels == 3)
-				{
-					taskGroup.run([width, height, stagingDataPtr, stagingCurrentSize]()
-						{
-							uint64_t offset{ stagingCurrentSize + 3 };
-							for (uint64_t i{ 0 }; i < width * height; ++i)
-							{
-								*(stagingDataPtr + offset) = static_cast<uint8_t>(255);
-								offset += 4;
-							}
-						});
-				}*/
-				taskGroup.run([&images, imageIndex, stagingDataPtr, stagingCurrentSize]()
-					{
-						EASSERT(images[imageIndex]->read_image(0, -1, OIIO::TypeDesc::UINT8, stagingDataPtr + stagingCurrentSize, sizeof(uint8_t) * 4) == true, "OIIO", "Could not load image.");
-					});
-
-
-				ImageListContainer::ImageListContainerIndices indices{ loadedTextures.getNewImage(width, height, format) };
-				texDataTransfersData.emplace_back();
-				std::tuple<uint64_t, uint64_t, uint32_t, uint32_t>& transferData{ texDataTransfersData.back() };
-				std::get<0>(transferData) = stagingCurrentSize;
-				std::get<1>(transferData) = width * height * sizeof(uint8_t) * 4;
-				std::get<2>(transferData) = indices.listIndex;
-				std::get<3>(transferData) = indices.layerIndex;
+				texPathsAndIndices.emplace(path, std::pair<uint16_t, uint16_t>{ indices.listIndex, indices.layerIndex });
 
 				auto& matIndices{ currentRUnit.getMaterialIndices() };
 				matIndices[materialTypeInd].first = indices.listIndex;
 				matIndices[materialTypeInd].second = indices.layerIndex;
-
-				texPathsAndIndices.emplace(path, std::pair<uint16_t, uint16_t>{ indices.listIndex, indices.layerIndex });
-
-				stagingCurrentSize += std::get<1>(transferData);
-				stagingCurrentSize = ALIGNED_SIZE(stagingCurrentSize, stagingBufferAlignment);
 			}
 		} 
 	};
 
 	std::map<std::string, std::pair<uint16_t, uint16_t>> texPathsAndIndices{};
-
-	std::vector<std::unique_ptr<OIIO::ImageInput>> images{};
-	images.reserve(meshesMaterialURIs.size() * 4);
 
 	for (int i{ 0 }, matInd{ 0 }; i < meshes.size(); ++i)
 	{
@@ -356,13 +279,12 @@ void loadTexturesIntoStaging(uint8_t* const stagingDataPtr,
 		{
 			RUnit& currentRUnit{ rUnits[j] };
 			MaterialURIs uris{ meshesMaterialURIs[matInd++] };
-			genImageList(0, uris.bcURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
-			genImageList(1, uris.nmURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
-			genImageList(2, uris.mrURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
-			genImageList(3, uris.emURI, loadedTextures, texPathsAndIndices, currentRUnit, texDataTransfersData, stagingDataPtr, stagingCurrentSize, stagingBufferAlignment, images, taskGroup);
+			genImageList(0, uris.bcURI, loadedTextures, texPathsAndIndices, currentRUnit, vulkanObjects, commandBufferSet, staging);
+			genImageList(1, uris.nmURI, loadedTextures, texPathsAndIndices, currentRUnit, vulkanObjects, commandBufferSet, staging);
+			genImageList(2, uris.mrURI, loadedTextures, texPathsAndIndices, currentRUnit, vulkanObjects, commandBufferSet, staging);
+			genImageList(3, uris.emURI, loadedTextures, texPathsAndIndices, currentRUnit, vulkanObjects, commandBufferSet, staging);
 		}
 	}
-	taskGroup.wait();
 }
 
 inline void processMeshData(cgltf_data* model,
@@ -514,10 +436,19 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 		{
 			StaticVertex* vertexDataPtr{ reinterpret_cast<StaticVertex*>(stagingDataPtr + stagingCurrentSize) };
 
-			const uint8_t* posData{ reinterpret_cast<uint8_t*>(posAtrrib.data->buffer_view->buffer->data) + posAtrrib.data->buffer_view->offset + posAtrrib.data->offset };
-			const uint8_t* normData{ flagcheck & 2 ? reinterpret_cast<uint8_t*>(normAtrrib.data->buffer_view->buffer->data) + normAtrrib.data->buffer_view->offset + normAtrrib.data->offset : nullptr };
-			const uint8_t* tangData{ flagcheck & 4 ? reinterpret_cast<uint8_t*>(tangAtrrib.data->buffer_view->buffer->data) + tangAtrrib.data->buffer_view->offset + tangAtrrib.data->offset : nullptr };
-			const uint8_t* texCoordData{ flagcheck & 8 ? reinterpret_cast<uint8_t*>(texcAtrrib.data->buffer_view->buffer->data) + texcAtrrib.data->buffer_view->offset + texcAtrrib.data->offset : nullptr };
+			const uint8_t* posData{};
+			const uint8_t* normData{};
+			const uint8_t* tangData{};
+			const uint8_t* texCoordData{};
+
+			posData = reinterpret_cast<uint8_t*>(posAtrrib.data->buffer_view->buffer->data) + posAtrrib.data->buffer_view->offset + posAtrrib.data->offset;
+			
+			normData = flagcheck & 2 ? reinterpret_cast<uint8_t*>(normAtrrib.data->buffer_view->buffer->data) + normAtrrib.data->buffer_view->offset + normAtrrib.data->offset : nullptr;
+			
+			tangData = flagcheck & 4 ? reinterpret_cast<uint8_t*>(tangAtrrib.data->buffer_view->buffer->data) + tangAtrrib.data->buffer_view->offset + tangAtrrib.data->offset : nullptr;
+			
+			texCoordData = flagcheck & 8 ? reinterpret_cast<uint8_t*>(texcAtrrib.data->buffer_view->buffer->data) + texcAtrrib.data->buffer_view->offset + texcAtrrib.data->offset : nullptr;
+
 			for (uint64_t i{ 0 }; i < attrCount; ++i)
 			{
 				const float* posDataTyped{ reinterpret_cast<const float*>(posData) };
@@ -610,9 +541,16 @@ inline void formIndexChunk(cgltf_data* model,
 	RUnit& renderUnit,
 	oneapi::tbb::task_group& taskGroup)
 {
-	uint64_t count{ indexAccessor->count };
-	uint64_t offset{ indexAccessor->buffer_view->offset + indexAccessor->offset };
-	uint32_t stride{ static_cast<uint32_t>(indexAccessor->stride) };
+	uint64_t count{};
+	uint64_t offset{};
+	uint32_t stride{};
+
+	uint8_t* buffer{};
+
+	count = indexAccessor->count;
+	offset = indexAccessor->buffer_view->offset + indexAccessor->offset;
+	stride = indexAccessor->buffer_view->stride;
+	buffer = reinterpret_cast<uint8_t*>(indexAccessor->buffer_view->buffer->data) + offset;
 
 	uint64_t chunkSize{ sizeof(uint32_t) * count };
 	uint32_t* indexDataPtr{ reinterpret_cast<uint32_t*>(stagingDataPtr + stagingCurrentSize) };
@@ -624,7 +562,7 @@ inline void formIndexChunk(cgltf_data* model,
 	{
 	case cgltf_component_type_r_32u:
 	{
-		const uint32_t* buf = reinterpret_cast<const uint32_t*>(&(reinterpret_cast<uint8_t*>(indexAccessor->buffer_view->buffer->data)[offset]));
+		const uint32_t* buf = reinterpret_cast<const uint32_t*>(buffer);
 
 		for (uint64_t i{ 0 }; i < count; ++i)
 		{
@@ -634,7 +572,7 @@ inline void formIndexChunk(cgltf_data* model,
 	}
 	case cgltf_component_type_r_16u:
 	{
-		const uint16_t* buf = reinterpret_cast<const uint16_t*>(&(reinterpret_cast<uint8_t*>(indexAccessor->buffer_view->buffer->data)[offset]));
+		const uint16_t* buf = reinterpret_cast<const uint16_t*>(buffer);
 		for (uint64_t i{ 0 }; i < count; ++i)
 		{
 			*(indexDataPtr++) = buf[i];
@@ -643,7 +581,7 @@ inline void formIndexChunk(cgltf_data* model,
 	}
 	case cgltf_component_type_r_8u:
 	{
-		const uint8_t* buf = reinterpret_cast<const uint8_t*>(&(reinterpret_cast<uint8_t*>(indexAccessor->buffer_view->buffer->data)[offset]));
+		const uint8_t* buf = reinterpret_cast<const uint8_t*>(buffer);
 		for (uint64_t i{ 0 }; i < count; ++i)
 		{
 			*(indexDataPtr++) = buf[i];

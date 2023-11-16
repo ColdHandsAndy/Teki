@@ -166,9 +166,9 @@ public:
                     static glm::vec3 color{};
                     bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
                     float power{ 1.0f };
-                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 5000.0f);
+                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 30000.0f);
                     static float lightSize{ 0.1f };
-                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 5.0f);
+                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
                     static float cutoff{ 22.5f };
                     bool cf = ImGui::SliderFloat("Cutoff", &cutoff, 0.0f, 90.0f);
                     static float falloff{ 20.0f };
@@ -203,9 +203,9 @@ public:
                     static glm::vec3 color{};
                     bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
                     float power{ 1.0f };
-                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 5000.0f);
+                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 30000.0f);
                     static float lightSize{};
-                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 5.0f);
+                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
 
                     if (pw)
                         pLight.changePower(power);

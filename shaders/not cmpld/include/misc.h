@@ -5,8 +5,8 @@
 vec3 getTexArrayCoordinateFromDirection(vec3 v)
 {
 	vec3 vAbs = abs(v);
-	float ma;
-	vec2 coord;
+	float ma; 
+	vec2 coord; 
 	float layer;
 	if(vAbs.z >= vAbs.x && vAbs.z >= vAbs.y)
 	{
@@ -69,6 +69,21 @@ void projectSphere(vec3 p, float r, float proj00, float proj11, out float bvWidt
 	bvWidth  = abs(projMaxX - projMinX);
 	bvHeight = abs(projMaxY - projMinY);
 	bvCenter = clamp(vec2(projMinX + bvWidth * 0.5, projMinY + bvHeight * 0.5), 0.0, 1.0);
+}
+
+vec3 getWorldPositionFromDepth(mat4 worldFromNdc, vec2 uv, float depth)
+{
+	vec4 res = worldFromNdc * vec4(uv * 2.0 - 1.0, depth, 1.0);
+	return res.xyz / res.w;
+}
+
+vec3 RGBtoYCoCg(vec3 c)
+{
+	return mat3(0.25, 0.5, -0.25, 0.5, 0, 0.5, 0.25, -0.5, -0.25) * c;
+}
+vec3 YCoCgToRGB(vec3 c)
+{
+	return mat3(1, 1, 1, 1, 0, -1, -1, 1, -1) * c;
 }
 
 #endif

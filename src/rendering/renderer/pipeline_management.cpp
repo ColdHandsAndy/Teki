@@ -3,6 +3,7 @@
 #include "src/rendering/shader_management/shader_operations.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/tools/asserter.h"
+#include "src/tools/arraysize.h"
 
 
 PipelineAssembler::PipelineAssembler(VkDevice device)
@@ -232,7 +233,7 @@ void PipelineAssembler::setDepthStencilState(StatePresets preset, VkCompareOp cm
 			break;
 	}
 }
-void PipelineAssembler::setColorBlendState(StatePresets preset, VkColorComponentFlags writeMask)
+void PipelineAssembler::setColorBlendState(StatePresets preset, uint32_t attachmentCount)
 {
 	switch (preset)
 	{
@@ -240,29 +241,36 @@ void PipelineAssembler::setColorBlendState(StatePresets preset, VkColorComponent
 		m_colorBlendingState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 		m_colorBlendingState.logicOpEnable = VK_FALSE;
 		m_colorBlendingState.logicOp = VK_LOGIC_OP_COPY;
-		m_colorBlendingState.attachmentCount = 1;
-		m_colorBlendAttachment.colorWriteMask = writeMask;
-		m_colorBlendAttachment.blendEnable = VK_FALSE;
-		m_colorBlendingState.pAttachments = &m_colorBlendAttachment;
+		m_colorBlendingState.attachmentCount = attachmentCount;
+		for (int i{ 0 }; i < attachmentCount; ++i)
+		{
+			m_colorBlendAttachments[i].colorWriteMask = 0xFFFFFFFF;
+			m_colorBlendAttachments[i].blendEnable = VK_FALSE;
+		}
+		m_colorBlendingState.pAttachments = m_colorBlendAttachments;
 		m_colorBlendingState.blendConstants[0] = 0.0f;
 		m_colorBlendingState.blendConstants[1] = 0.0f;
 		m_colorBlendingState.blendConstants[2] = 0.0f;
 		m_colorBlendingState.blendConstants[3] = 0.0f;
 		break;
 	case COLOR_BLEND_STATE_DEFAULT:
+		EASSERT(attachmentCount == 1, "App", "Multiple attachments for blending are not implemented.");
 		m_colorBlendingState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 		m_colorBlendingState.logicOpEnable = VK_FALSE;
 		m_colorBlendingState.logicOp = VK_LOGIC_OP_COPY;
 		m_colorBlendingState.attachmentCount = 1;
-		m_colorBlendAttachment.blendEnable = VK_TRUE;
-		m_colorBlendAttachment.colorWriteMask = writeMask;
-		m_colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-		m_colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-		m_colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-		m_colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-		m_colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-		m_colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-		m_colorBlendingState.pAttachments = &m_colorBlendAttachment;
+		for (int i{ 0 }; i < attachmentCount; ++i)
+		{
+			m_colorBlendAttachments[i].blendEnable = VK_TRUE;
+			m_colorBlendAttachments[i].colorWriteMask = 0xFFFFFFFF;
+			m_colorBlendAttachments[i].srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+			m_colorBlendAttachments[i].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			m_colorBlendAttachments[i].colorBlendOp = VK_BLEND_OP_ADD;
+			m_colorBlendAttachments[i].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+			m_colorBlendAttachments[i].dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+			m_colorBlendAttachments[i].alphaBlendOp = VK_BLEND_OP_ADD;
+		}
+		m_colorBlendingState.pAttachments = m_colorBlendAttachments;
 		m_colorBlendingState.blendConstants[0] = 1.0f;
 		m_colorBlendingState.blendConstants[1] = 1.0f;
 		m_colorBlendingState.blendConstants[2] = 1.0f;
@@ -273,16 +281,17 @@ void PipelineAssembler::setColorBlendState(StatePresets preset, VkColorComponent
 			break;
 	}
 }
-
-void PipelineAssembler::setPipelineRenderingState(StatePresets preset, VkFormat colorAttachmentFormat)
+void PipelineAssembler::setPipelineRenderingState(StatePresets preset, VkFormat* colorAttachmentFormats, uint32_t attachmentsCount)
 {
+	EASSERT(attachmentsCount <= ARRAYSIZE(m_colorAttachmentFormats), "App", "Too many attachments.");
 	switch (preset)
 	{
 	case PIPELINE_RENDERING_STATE_DEFAULT:
 		m_pipelineRenderingState.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-		m_pipelineRenderingState.colorAttachmentCount = 1;
-		m_colorAttachmentFormat = colorAttachmentFormat;
-		m_pipelineRenderingState.pColorAttachmentFormats = &m_colorAttachmentFormat;
+		m_pipelineRenderingState.colorAttachmentCount = attachmentsCount;
+		for (int i{ 0 }; i < attachmentsCount; ++i)
+			m_colorAttachmentFormats[i] = colorAttachmentFormats[i];
+		m_pipelineRenderingState.pColorAttachmentFormats = m_colorAttachmentFormats;
 		m_pipelineRenderingState.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
 		break;
 	case PIPELINE_RENDERING_STATE_DEPTH_ATTACHMENT_ONLY:
@@ -299,7 +308,11 @@ void PipelineAssembler::setPipelineRenderingState(StatePresets preset, VkFormat 
 			break;
 	}
 }
-
+void PipelineAssembler::setPipelineRenderingState(StatePresets preset, VkFormat colorAttachmentFormat)
+{
+	VkFormat formats[1]{ colorAttachmentFormat };
+	setPipelineRenderingState(preset, formats, 1);
+}
 
 const VkPipelineDynamicStateCreateInfo& PipelineAssembler::getDynamicState() const
 {

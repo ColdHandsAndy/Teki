@@ -34,6 +34,7 @@
 #include "src/rendering/shader_management/shader_operations.h"
 #include "src/rendering/renderer/command_management.h"
 #include "src/rendering/renderer/descriptor_management.h"
+#include "src/rendering/renderer/deferred_lighting.h"
 #include "src/rendering/data_management/memory_manager.h"
 #include "src/rendering/data_management/buffer_class.h"
 #include "src/rendering/data_management/image_classes.h"
@@ -49,7 +50,7 @@
 #include "src/rendering/data_abstraction/runit.h"
 #include "src/rendering/renderer/depth_buffer.h"
 #include "src/rendering/renderer/HBAO.h"
-#include "src/rendering/renderer/FXAA.h"
+#include "src/rendering/renderer/TAA.h"
 #include "src/rendering/data_abstraction/BB.h"
 #include "src/rendering/renderer/world_transform.h"
 #include "src/rendering/UI/UI.h"
@@ -59,32 +60,31 @@
 
 #include "src/tools/tools.h"
 
-#define WINDOW_WIDTH_DEFAULT  1280
-#define WINDOW_HEIGHT_DEFAULT 720
-#define HBAO_WIDTH_DEFAULT  1280
-#define HBAO_HEIGHT_DEFAULT 720
+#define WINDOW_WIDTH_DEFAULT  1920u
+#define WINDOW_HEIGHT_DEFAULT 1080u
+#define HBAO_WIDTH_DEFAULT  1280u
+#define HBAO_HEIGHT_DEFAULT 720u
 
-#define MAX_INDIRECT_DRAWS 128
-#define MAX_TRANSFORM_MATRICES 1024
+#define MAX_INDIRECT_DRAWS 512
+#define MAX_TRANSFORM_MATRICES 64
 
 #define NEAR_PLANE 0.1
 #define FAR_PLANE  10000.0
 
 #define GENERAL_BUFFER_DEFAULT_SIZE 134217728ll
 #define SHARED_BUFFER_DEFAULT_SIZE 8388608ll
-#define DEVICE_BUFFER_DEFAULT_SIZE  268435456ll
+#define DEVICE_BUFFER_DEFAULT_SIZE 268435456ll * 2
 
 namespace fs = std::filesystem;
 
 struct CamInfo
 {
-	//glm::vec3 camPos{ 9.305, 3.871, 0.228 };
-	//glm::vec3 camFront{ -0.997, -0.077, 0.02 };
 	glm::vec3 camPos{ 0.0, 0.0, -10.0 };
 	glm::vec3 camFront{ 0.0, 0.0, 1.0 };
 	double speed{ 10.0 };
 	double sensetivity{ 1.9 };
 	glm::vec2 lastCursorP{};
+	bool camPosChanged{ false };
 } camInfo;
 
 struct InputAccessedData
@@ -94,15 +94,6 @@ struct InputAccessedData
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
 
-Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
-	const ResourceSet& viewprojRS,
-	const ResourceSet& transformMatricesRS,
-	const ResourceSet& materialsTexturesRS,
-	const ResourceSet& shadowMapsRS,
-	const ResourceSet& skyboxLightingRS,
-	const ResourceSet& drawDataRS,
-	const ResourceSet& pbrRS,
-	const ResourceSet& directLightingRS);
 Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS, const ResourceSet& skyboxLightingRS);
 Pipeline createSpaceLinesPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS);
 
@@ -144,7 +135,7 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices);
 void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBoxes);
 
-void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster);
+void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster, DeferredLighting& deferredLighting);
 void fillModelMatrices(const BufferMapped& modelTransformDataSSBO, const std::vector<glm::mat4>& modelMatrices);
 void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
 
@@ -163,7 +154,7 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
+	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", true };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetCursorPosCallback(window, mouseCallback);
 	glfwSetKeyCallback(window, keyCallback);
@@ -207,15 +198,14 @@ int main()
 	BufferMapped transformMatrices{ baseHostBuffer, sizeof(glm::mat4) * MAX_TRANSFORM_MATRICES };
 	BufferMapped directionalLight{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
 	VkSampler generalSampler{ createGeneralSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
-	Image framebufferImage{ device, vulkanObjectHandler->getSwapchainFormat(), window.getWidth(), window.getHeight(), VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT };
 	Image brdfLUT{ TextureLoaders::loadImage(vulkanObjectHandler, cmdBufferSet, baseHostBuffer,
 											 "internal/brdfLUT/brdfLUT.exr",
 											 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
 											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
-	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
-	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance/radiance.ktx2") };
-	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance/irradiance.ktx2") };
-	ImageListContainer materialsTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true,
+	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
+	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance/radiance.ktx2") };
+	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance/irradiance.ktx2") };
+	ImageListContainer materialsTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true,
 		VkSamplerCreateInfo{ 
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, 
 			.magFilter = VK_FILTER_LINEAR, 
@@ -259,13 +249,14 @@ int main()
 	UiData renderingData{};
 	renderingData.finalDrawCount.initialize(baseHostBuffer, sizeof(uint32_t));
 	CoordinateTransformation coordinateTransformation{ device, baseHostCachedBuffer };
+	coordinateTransformation.updateScreenDimensions(window.getWidth(), window.getHeight());
 
 	std::vector<StaticMesh> staticMeshes{ loadStaticMeshes(vertexData, indexData, 
 		indirectDrawCmdData, drawCount,
 		rUnitOBBs,
 		materialsTextures, 
 		modelPaths,
-		vulkanObjectHandler, cmdBufferSet)
+		*vulkanObjectHandler, cmdBufferSet)
 	};
 	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
 	getBoundingSpheres(indirectDrawCmdData, rUnitOBBs);
@@ -285,23 +276,31 @@ int main()
 	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
 	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), coordinateTransformation.getResourceSet() };
 	ShadowCaster caster{ device, clusterer, shadowMaps, shadowCubeMaps, indirectDrawCmdData, transformMatrices, drawData, rUnitOBBs };
-	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, coordinateTransformation.getResourceSet(), indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex()};
-	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, transformMatrices, drawData, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
-	FXAA fxaa{ device, window.getWidth(), window.getHeight(), framebufferImage };
 	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 	LightTypes::LightBase::assignGlobalShadowCaster(caster);
 
 	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
 	dirLight.plantData(directionalLight.getData());
-	LightTypes::PointLight pLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 10.0f, 2048, 0.0);
+	LightTypes::PointLight pLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 10.0f, 1024, 0.0);
 	LightTypes::SpotLight sLight(glm::vec3{-8.5f, 14.0f, -3.5f}, glm::vec3{0.6f, 0.5f, 0.7f}, 1000.0f, 24.0f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(25.0), glm::radians(30.0), 2048, 0.0);
 
+	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, coordinateTransformation.getResourceSet(), indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex()};
+	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, depthBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
 	createShadowMapResourceSet(device, shadowMapsRS, shadowMaps, shadowCubeMaps, caster.getShadowViewMatrices());
 	createPBRResourceSet(device, generalSampler, pbrRS, brdfLUT, hbao.getAO());
 	createDirecLightingResourceSet(device, directLightingRS, directionalLight, clusterer.getSortedLights(), clusterer.getSortedTypeData(), clusterer.getTileData(), clusterer.getZBin());
+	DeferredLighting deferredLighting{device, window.getWidth(), window.getHeight(), 
+		depthBuffer, 
+		hbao,
+		coordinateTransformation.getResourceSet(), transformMatricesRS, 
+		materialsTexturesRS, shadowMapsRS, skyboxLightingRS, 
+		drawDataRS, pbrRS, directLightingRS, generalSampler};
+	deferredLighting.updateTileWidth(clusterer.getWidthInTiles());
+	TAA taa{ device, depthBuffer, deferredLighting.getFramebuffer(), coordinateTransformation.getResourceSet(), cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
 
-
+	 
+	 
 	PipelineAssembler assembler{ device };
 	
 	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
@@ -309,25 +308,21 @@ int main()
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_DEFAULT);
 	assembler.setTesselationState(PipelineAssembler::TESSELATION_STATE_DEFAULT);
 	assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
-	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT);
-	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
-	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
-	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
-
-	Pipeline forwardClusteredPipeline( createForwardClusteredPipeline(assembler, coordinateTransformation.getResourceSet(), transformMatricesRS, materialsTexturesRS, shadowMapsRS, skyboxLightingRS, drawDataRS, pbrRS, directLightingRS));
-
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
-	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_SKYBOX);
+	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_SKYBOX, VK_COMPARE_OP_EQUAL);
+	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT, VK_FORMAT_R16G16B16A16_SFLOAT);
 	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, coordinateTransformation.getResourceSet(), skyboxLightingRS) };
 	
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_LINE_DRAWING);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.5f);
 	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DEFAULT);
+	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
+	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, coordinateTransformation.getResourceSet()) };
 
 
-	fillFrustumData(coordinateTransformation, window, clusterer, hbao, frustumInfo, caster);
+	fillFrustumData(coordinateTransformation, window, clusterer, hbao, frustumInfo, caster, deferredLighting);
 	fillModelMatrices(transformMatrices, modelMatrices);
 	fillDrawData(drawData, staticMeshes, drawCount);
 
@@ -345,27 +340,7 @@ int main()
 	vkCreateSemaphore(device, &semCI, nullptr, &readyToPresentSemaphore);
 	
 	uint32_t swapchainIndex{};
-	VkRenderingAttachmentInfo colorAttachmentInfo{};
-	colorAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	colorAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttachmentInfo.clearValue = VkClearValue{ .color{.float32{0.4f, 1.0f, 0.8f}} };
-	VkRenderingAttachmentInfo depthAttachmentInfo{};
-	depthAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-	depthAttachmentInfo.imageView = depthBuffer.getImageView();
-	depthAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-	depthAttachmentInfo.clearValue = { .depthStencil = {.depth = 0.0f, .stencil = 0} };
-	
-	colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	depthAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	depthAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-	VkRenderingInfo renderInfo{};
-	renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-	renderInfo.renderArea = { .offset{0,0}, .extent{.width = window.getWidth(), .height = window.getHeight()} };
-	renderInfo.layerCount = 1;
-	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pDepthAttachment = &depthAttachmentInfo;
 	VkPresentInfoKHR presentInfo{};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	VkSwapchainKHR swapChains[] = { vulkanObjectHandler->getSwapchain() };
@@ -376,58 +351,6 @@ int main()
 	std::tuple<VkImage, VkImageView, uint32_t> swapchainImageData{};
 
 	SyncOperations::EventHolder<3> events{ device };
-	VkDependencyInfo drawAndDepthAttachmentsTransition0{ SyncOperations::createDependencyInfo(std::span<const VkImageMemoryBarrier2>{
-				{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					framebufferImage.getImageHandle(),
-					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1}),
-					SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-					0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-					depthBuffer.getImageHandle(),
-						{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-						.baseMipLevel = 0,
-						.levelCount = 1,
-						.baseArrayLayer = 0,
-						.layerCount = 1})}}) };
-	VkDependencyInfo drawAndDepthAttachmentsTransition1{ SyncOperations::createDependencyInfo(std::span<const VkImageMemoryBarrier2>{
-				{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_NONE,
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
-					VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-					framebufferImage.getImageHandle(),
-					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1})}}) };
-	VkImageMemoryBarrier2 swapchainImageTransition0{ 
-		SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					VkImage{},
-					{
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1 }) };
-	VkImageMemoryBarrier2 swapchainImageTransition1{
-		SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_NONE,
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
-					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-					VkImage{},
-					{
-					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
-					.baseArrayLayer = 0,
-					.layerCount = 1 }) };
-
 
 	VkCommandBuffer cbPreprocessing{};
 	VkCommandBuffer cbDraw{};
@@ -435,7 +358,7 @@ int main()
 	VkCommandBuffer cbCompute{};
 	uint32_t cbSetIndex{ cmdBufferSet.createInterchangeableSet(2, CommandBufferSet::ASYNC_COMPUTE_CB) };
 	uint32_t currentCBindex{ 1 };
-
+	
 	typedef oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg> node_t;
 	typedef const oneapi::tbb::flow::continue_msg& msg_t;
 	oneapi::tbb::flow::graph flowGraph{};
@@ -447,11 +370,11 @@ int main()
 				swapChains[0] = vulkanObjectHandler->getSwapchain();
 			}
 			swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
-			colorAttachmentInfo.imageView = framebufferImage.getImageView();
-			renderInfo.pColorAttachments = &colorAttachmentInfo;
 
+			deferredLighting.updateCameraPosition(camInfo.camPos);
+
+			coordinateTransformation.updateProjectionMatrixJitter();
 			coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
-			hbao.submitViewMatrix(coordinateTransformation.getViewMatrix());
 			clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
 		} };
 	node_t nodeFrustumCulling{ flowGraph, [&](msg_t)
@@ -469,14 +392,14 @@ int main()
 			culling.cmdTransferSetDrawCountToZero(cbPreprocessing);
 			SyncOperations::cmdExecuteBarrier(cbPreprocessing, culling.getDependency());
 			culling.cmdDispatchCullOccluded(cbPreprocessing);
-			events.cmdSet(cbPreprocessing, 0, culling.getDependency()); //Event 0 set
 			clusterer.cmdTransferClearTileBuffer(cbPreprocessing);
-			events.cmdSet(cbPreprocessing, 1, clusterer.getDependency()); //Event 1 set
+			events.cmdSet(cbPreprocessing, 0, clusterer.getDependency()); //Event 1 set
 		} };
 	node_t nodePreprocessCB2{ flowGraph, [&](msg_t)
 		{
+			hbao.cmdTransferClearBuffers(cbPreprocessing);
 			caster.cmdRenderShadowMaps(cbPreprocessing, vertexData, indexData);
-			uint32_t indices[]{ 1 };
+			uint32_t indices[]{ 0 };
 			events.cmdWait(cbPreprocessing, 1, indices, &clusterer.getDependency()); //Event 1 wait
 		} };
 	node_t nodePreprocessCB3{ flowGraph, [&](msg_t)
@@ -485,13 +408,6 @@ int main()
 		} };
 	node_t nodePreprocessCB4{ flowGraph, [&](msg_t)
 		{
-			uint32_t indices[]{ 0 };
-			events.cmdWait(cbPreprocessing, 1, indices, &culling.getDependency()); //Event 0 wait
-			hbao.cmdPassCalculateLinearDepth(cbPreprocessing, culling, vertexData, indexData);
-			SyncOperations::cmdExecuteBarrier(cbPreprocessing, hbao.getDependencyLinearDepthToCalcHBAO()); //Pipeline barrier 0
-			hbao.cmdPassCalculateHBAO(cbPreprocessing);
-			SyncOperations::cmdExecuteBarrier(cbPreprocessing, hbao.getDependencyCalcHBAOToBlur()); //Pipeline barrier 1
-			hbao.cmdPassBlurHBAO(cbPreprocessing);
 			VkBufferCopy copy{.srcOffset = culling.getDrawCountBufferOffset(), .dstOffset = renderingData.finalDrawCount.getOffset(), .size = renderingData.finalDrawCount.getSize() };
 			BufferTools::cmdBufferCopy(cbPreprocessing, culling.getDrawCountBufferHandle(), renderingData.finalDrawCount.getBufferHandle(), 1, &copy);
 
@@ -505,46 +421,59 @@ int main()
 				{ {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 					VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT)} });
 
-			SyncOperations::cmdExecuteBarrier(cbDraw, drawAndDepthAttachmentsTransition0);
-			vkCmdBeginRendering(cbDraw, &renderInfo);
+				
+				deferredLighting.cmdPassDrawToUVBuffer(cbDraw, culling, vertexData, indexData);
 
-				if (renderingData.drawBVs)
-					clusterer.cmdDrawBVs(cbDraw);
-				if (renderingData.drawLightProxies)
-					clusterer.cmdDrawProxies(cbDraw);
+				SyncOperations::cmdExecuteBarrier(cbDraw,
+					{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+						VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+						VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+						depthBuffer.getImageHandle(), depthBuffer.getDepthBufferSubresourceRange())} });
 
-				VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
-				VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
-				vkCmdBindVertexBuffers(cbDraw, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
-				skyboxPipeline.cmdBindResourceSets(cbDraw);
-				skyboxPipeline.cmdBind(cbDraw);
-				vkCmdDraw(cbDraw, 36, 1, 0, 0);
+				hbao.cmdDispatchHBAO(cbDraw);
+				SyncOperations::cmdExecuteBarrier(cbDraw, hbao.getDependency());
+				hbao.cmdDispatchHBAOBlur(cbDraw);
 
-				vkCmdBindVertexBuffers(cbDraw, 0, 1, vertexBindings, vertexBindingOffsets);
-				vkCmdBindIndexBuffer(cbDraw, indexData.getBufferHandle(), indexData.getOffset(), VK_INDEX_TYPE_UINT32);
-				forwardClusteredPipeline.cmdBindResourceSets(cbDraw);
-				forwardClusteredPipeline.cmdBind(cbDraw);
-				struct { glm::vec3 camInfo{}; float binWidth{}; glm::vec2 resolutionAO{}; uint32_t widthTiles{}; float nearPlane{}; } pushConstData;
-				pushConstData = { glm::vec3(camInfo.camPos.x, camInfo.camPos.y, camInfo.camPos.z), clusterer.getCurrentBinWidth(), glm::vec2{window.getWidth(), window.getHeight()}, clusterer.getWidthInTiles(), NEAR_PLANE };
-				vkCmdPushConstants(cbDraw, forwardClusteredPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstData), &pushConstData);
-				vkCmdDrawIndexedIndirectCount(cbDraw,
-					culling.getDrawCommandBufferHandle(), culling.getDrawCommandBufferOffset(),
-					culling.getDrawCountBufferHandle(), culling.getDrawCountBufferOffset(),
-					culling.getMaxDrawCount(), culling.getDrawCommandBufferStride());
+				SyncOperations::cmdExecuteBarrier(cbDraw, deferredLighting.getDependency());
 
-				if (renderingData.drawSpaceLines)
-				{
-					VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
-					VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
-					vkCmdBindVertexBuffers(cbDraw, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
-					spaceLinesPipeline.cmdBindResourceSets(cbDraw);
-					spaceLinesPipeline.cmdBind(cbDraw);
-					vkCmdPushConstants(cbDraw, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
-					vkCmdDraw(cbDraw, lineVertNum, 1, 0, 0);
-				}
-
-			vkCmdEndRendering(cbDraw);
-			SyncOperations::cmdExecuteBarrier(cbDraw, drawAndDepthAttachmentsTransition1);
+				deferredLighting.updateLightBinWidth(clusterer.getCurrentBinWidth());
+				deferredLighting.cmdDispatchLightingCompute(cbDraw);
+				
+				SyncOperations::cmdExecuteBarrier(cbDraw, 
+					{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+						VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+						VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+						depthBuffer.getImageHandle(), depthBuffer.getDepthBufferSubresourceRange())} });
+				
+				VkRenderingAttachmentInfo colorAttachmentInfoSkybox{};
+				colorAttachmentInfoSkybox.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+				colorAttachmentInfoSkybox.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				colorAttachmentInfoSkybox.clearValue = VkClearValue{ .color{.float32{0.4f, 1.0f, 0.8f}} };
+				colorAttachmentInfoSkybox.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+				colorAttachmentInfoSkybox.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				colorAttachmentInfoSkybox.imageView = deferredLighting.getFramebufferImageView();
+				VkRenderingAttachmentInfo depthAttachmentInfoSkybox{};
+				depthAttachmentInfoSkybox.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+				depthAttachmentInfoSkybox.imageView = depthBuffer.getImageView();
+				depthAttachmentInfoSkybox.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+				depthAttachmentInfoSkybox.clearValue = { .depthStencil = {.depth = 0.0f, .stencil = 0} };
+				depthAttachmentInfoSkybox.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+				depthAttachmentInfoSkybox.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				VkRenderingInfo renderInfoSkybox{};
+				renderInfoSkybox.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+				renderInfoSkybox.renderArea = { .offset{0,0}, .extent{.width = window.getWidth(), .height = window.getHeight()} };
+				renderInfoSkybox.layerCount = 1;
+				renderInfoSkybox.colorAttachmentCount = 1;
+				renderInfoSkybox.pColorAttachments = &colorAttachmentInfoSkybox;
+				renderInfoSkybox.pDepthAttachment = &depthAttachmentInfoSkybox;
+				vkCmdBeginRendering(cbDraw, &renderInfoSkybox);
+					VkBuffer skyboxVertexBinding[1]{ skyboxData.getBufferHandle() };
+					VkDeviceSize skyboxVertexOffsets[1]{ skyboxData.getOffset() };
+					vkCmdBindVertexBuffers(cbDraw, 0, 1, skyboxVertexBinding, skyboxVertexOffsets);
+					skyboxPipeline.cmdBindResourceSets(cbDraw);
+					skyboxPipeline.cmdBind(cbDraw);
+					vkCmdDraw(cbDraw, 36, 1, 0, 0);
+				vkCmdEndRendering(cbDraw);
 
 			cmdBufferSet.endRecording(cbDraw);
 		} };
@@ -556,14 +485,64 @@ int main()
 				{ {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 					VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT)} });
 
-			swapchainImageTransition0.image = std::get<0>(swapchainImageData);
-			SyncOperations::cmdExecuteBarrier(cbPostprocessing, std::array{ swapchainImageTransition0 });
+			SyncOperations::cmdExecuteBarrier(cbPostprocessing, 
+				{{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					0, VK_ACCESS_SHADER_WRITE_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+					std::get<0>(swapchainImageData),
+					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1 })} });
 
-			fxaa.cmdPassFXAA(cbPostprocessing, std::get<1>(swapchainImageData));
-
+			taa.adjustSmoothingFactor(WorldState::deltaTime, camInfo.speed, camInfo.camPosChanged);
+			taa.updateJitterValue(coordinateTransformation.getCurrentJitter());
+			taa.cmdDispatchTAA(cbPostprocessing, std::get<1>(swapchainImageData));
+			
 			SyncOperations::cmdExecuteBarrier(cbPostprocessing,
-				{{SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)}});
+				{{SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+					VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)}});
+
+			VkRenderingAttachmentInfo colorAttachmentInfoDirectDraw{};
+			colorAttachmentInfoDirectDraw.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			colorAttachmentInfoDirectDraw.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+			colorAttachmentInfoDirectDraw.clearValue = VkClearValue{ .color{.float32{0.4f, 1.0f, 0.8f}} };
+			colorAttachmentInfoDirectDraw.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			colorAttachmentInfoDirectDraw.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			colorAttachmentInfoDirectDraw.imageView = std::get<1>(swapchainImageData);
+			VkRenderingAttachmentInfo depthAttachmentInfoDirectDraw{};
+			depthAttachmentInfoDirectDraw.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			depthAttachmentInfoDirectDraw.imageView = depthBuffer.getImageView();
+			depthAttachmentInfoDirectDraw.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			depthAttachmentInfoDirectDraw.clearValue = { .depthStencil = {.depth = 0.0f, .stencil = 0} };
+			depthAttachmentInfoDirectDraw.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			depthAttachmentInfoDirectDraw.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			VkRenderingInfo renderInfoDirectDraw{};
+			renderInfoDirectDraw.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			renderInfoDirectDraw.renderArea = { .offset{0,0}, .extent{.width = window.getWidth(), .height = window.getHeight()} };
+			renderInfoDirectDraw.layerCount = 1;
+			renderInfoDirectDraw.colorAttachmentCount = 1;
+			renderInfoDirectDraw.pColorAttachments = &colorAttachmentInfoDirectDraw;
+			renderInfoDirectDraw.pDepthAttachment = &depthAttachmentInfoDirectDraw;
+			vkCmdBeginRendering(cbPostprocessing, &renderInfoDirectDraw);
+				if (renderingData.drawBVs)
+					clusterer.cmdDrawBVs(cbPostprocessing);
+				if (renderingData.drawLightProxies)
+					clusterer.cmdDrawProxies(cbPostprocessing);
+
+				if (renderingData.drawSpaceLines)
+				{
+					VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
+					VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
+					vkCmdBindVertexBuffers(cbPostprocessing, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
+					spaceLinesPipeline.cmdBindResourceSets(cbPostprocessing);
+					spaceLinesPipeline.cmdBind(cbPostprocessing);
+					vkCmdPushConstants(cbPostprocessing, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
+					vkCmdDraw(cbPostprocessing, lineVertNum, 1, 0, 0);
+				}
+			vkCmdEndRendering(cbPostprocessing);
+
 
 			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
 			ui.begin("Settings");
@@ -573,8 +552,16 @@ int main()
 			ui.end();
 			ui.endUIPass(cbPostprocessing);
 
-			swapchainImageTransition1.image = std::get<0>(swapchainImageData);
-			SyncOperations::cmdExecuteBarrier(cbPostprocessing, std::array{ swapchainImageTransition1 });
+			SyncOperations::cmdExecuteBarrier(cbPostprocessing, 
+				{{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_NONE,
+					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0,
+					VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+					std::get<0>(swapchainImageData),
+					{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1 })}});
 
 			cmdBufferSet.endRecording(cbPostprocessing);
 		} };
@@ -641,7 +628,7 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 	uint8_t data[16]
 	{
 		uint8_t(0), uint8_t(0), uint8_t(0), uint8_t(255), //BaseColor	
-		uint8_t(127), uint8_t(255), uint8_t(127), uint8_t(0), //Normal	
+		uint8_t(127), uint8_t(127), uint8_t(255), uint8_t(0), //Normal	
 		uint8_t(255), uint8_t(127), uint8_t(10), uint8_t(0),  //AO_Rough_Met 
 		uint8_t(0), uint8_t(0), uint8_t(0), uint8_t(0)		  //Emissive
 	};
@@ -739,19 +726,25 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos)
 			camInfo->camFront = newFront;
 	}
 
+	bool sideMoved{ false };
 	int stateR = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
 	if (stateR == GLFW_PRESS && mouseWasCaptured != true)
 	{
 		camInfo->camPos += static_cast<float>(-xOffs * camInfo->speed) * sideVec + static_cast<float>(yOffs * camInfo->speed) * upRelVec;
+		sideMoved = true;
 	}
 
+	bool frontMoved{ false };
 	int stateM = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
 	if (stateM == GLFW_PRESS && mouseWasCaptured != true)
 	{
 		camInfo->camPos += static_cast<float>(-yOffs * camInfo->speed) * camInfo->camFront;
+		frontMoved = true;
 	}
 
 	camInfo->lastCursorP = {xpos, ypos};
+
+	camInfo->camPosChanged = sideMoved || frontMoved;
 
 	mouseWasCaptured = false;
 }
@@ -769,7 +762,7 @@ void createResourceSets(VkDevice device,
 	const ImageCubeMap& radiance,
 	const ImageCubeMap& irradiance)
 {
-	VkDescriptorSetLayoutBinding transformMatricesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding transformMatricesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT transformMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = transformMatrices.getDeviceAddress(), .range = transformMatrices.getSize() };
 	transformMatricesRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
 		std::array{ transformMatricesBinding },
@@ -777,7 +770,7 @@ void createResourceSets(VkDevice device,
 		std::vector<std::vector<VkDescriptorDataEXT>>{ std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &transformMatricesAddressInfo} } },
 		false);
 
-	VkDescriptorSetLayoutBinding imageListsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding imageListsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	std::vector<VkDescriptorImageInfo> storageImageData(imageLists.getImageListCount());
 	std::vector<VkDescriptorDataEXT> imageListsDescData(imageLists.getImageListCount());
 	for (uint32_t i{ 0 }; i < imageListsDescData.size(); ++i)
@@ -791,11 +784,11 @@ void createResourceSets(VkDevice device,
 		std::vector<std::vector<VkDescriptorDataEXT>>{ imageListsDescData },
 		true);
 
-	VkDescriptorSetLayoutBinding skyboxBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding skyboxBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo skyboxImageInfo{ .sampler = skybox.getSampler(), .imageView = skybox.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding radianceBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding radianceBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo radianceImageInfo{ .sampler = radiance.getSampler(), .imageView = radiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding irradianceBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding irradianceBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo irradianceImageInfo{ .sampler = irradiance.getSampler(), .imageView = irradiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	skyboxLightingRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
 		std::array{ skyboxBinding, radianceBinding, irradianceBinding },
@@ -812,7 +805,7 @@ void createDrawDataResourceSet(VkDevice device,
 	const BufferMapped& drawData,
 	const Buffer& drawDataIndices)
 {
-	VkDescriptorSetLayoutBinding drawDataBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding drawDataBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT drawDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawData.getDeviceAddress(), .range = drawData.getSize() };
 	VkDescriptorSetLayoutBinding drawDataIndicesBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
 	VkDescriptorAddressInfoEXT drawDataIndicesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = drawDataIndices.getDeviceAddress(), .range = drawDataIndices.getSize() };
@@ -831,7 +824,7 @@ void createShadowMapResourceSet(VkDevice device,
 	const std::vector<ImageList>& shadowCubeMapLists, 
 	const BufferBaseHostAccessible& shadowMapViewMatrices)
 {
-	VkDescriptorSetLayoutBinding shadowMapsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding shadowMapsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	std::vector<VkDescriptorImageInfo> shadowMapsImageData(shadowMapLists.getImageListCount());
 	std::vector<VkDescriptorDataEXT> shadowMapsDescData(shadowMapLists.getImageListCount());
 	for (uint32_t i{ 0 }; i < shadowMapsDescData.size(); ++i)
@@ -839,7 +832,7 @@ void createShadowMapResourceSet(VkDevice device,
 		shadowMapsImageData[i] = { .imageView = shadowMapLists.getImageViewHandle(i), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		shadowMapsDescData[i].pSampledImage = &shadowMapsImageData[i];
 	}
-	VkDescriptorSetLayoutBinding shadowCubeMapsBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding shadowCubeMapsBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	std::vector<VkDescriptorImageInfo> shadowCubeMapsImageData(shadowCubeMapLists.size());
 	std::vector<VkDescriptorDataEXT> shadowCubeMapsDescData(shadowCubeMapLists.size());
 	for (uint32_t i{ 0 }; i < shadowCubeMapsDescData.size(); ++i)
@@ -847,9 +840,9 @@ void createShadowMapResourceSet(VkDevice device,
 		shadowCubeMapsImageData[i] = { .imageView = shadowCubeMapLists[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		shadowCubeMapsDescData[i].pSampledImage = &shadowCubeMapsImageData[i];
 	}
-	VkDescriptorSetLayoutBinding samplerBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding samplerBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkSampler samplerData{ shadowMapLists.getSampler() };
-	VkDescriptorSetLayoutBinding viewMatricesBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding viewMatricesBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT viewMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = shadowMapViewMatrices.getDeviceAddress(), .range = shadowMapViewMatrices.getSize() };
 
 	shadowMapsRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
@@ -869,9 +862,9 @@ void createPBRResourceSet(VkDevice device,
 	const Image& brdfLUT,
 	const Image& aoImage)
 {
-	VkDescriptorSetLayoutBinding lutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding lutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo lutImageInfo{ .sampler = generalSampler, .imageView = brdfLUT.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding aoImageBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding aoImageBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo aoImageInfo{ .sampler = generalSampler, .imageView = aoImage.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	pbrRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
 		std::array{ lutBinding, aoImageBinding },
@@ -890,15 +883,15 @@ void createDirecLightingResourceSet(VkDevice device,
 	const BufferBaseHostInaccessible& tileData,
 	const BufferMapped& zBinData)
 {
-	VkDescriptorSetLayoutBinding directionalLightBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding directionalLightBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT directionalLightAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = directionalLight.getDeviceAddress(), .range = directionalLight.getSize() };
-	VkDescriptorSetLayoutBinding sortedLightsBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding sortedLightsBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT sortedLightsAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = sortedLightsData.getDeviceAddress(), .range = sortedLightsData.getSize() };
-	VkDescriptorSetLayoutBinding typesBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding typesBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT typesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = typeData.getDeviceAddress(), .range = typeData.getSize() };
-	VkDescriptorSetLayoutBinding tileDataBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding tileDataBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT tileDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = tileData.getDeviceAddress(), .range = tileData.getSize() };
-	VkDescriptorSetLayoutBinding zBinDataBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT };
+	VkDescriptorSetLayoutBinding zBinDataBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT zBinDataAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = zBinData.getDeviceAddress(), .range = zBinData.getSize() };
 	directLightingRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
 		std::array{ directionalLightBinding, sortedLightsBinding, typesBinding, tileDataBinding, zBinDataBinding },
@@ -910,26 +903,6 @@ void createDirecLightingResourceSet(VkDevice device,
 			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &tileDataAddressInfo} },
 			std::vector<VkDescriptorDataEXT>{ {.pStorageBuffer = &zBinDataAddressInfo} }},
 		false);
-}
-
-Pipeline createForwardClusteredPipeline(PipelineAssembler& assembler,
-	const ResourceSet& viewprojRS,
-	const ResourceSet& transformMatricesRS,
-	const ResourceSet& materialsTexturesRS,
-	const ResourceSet& shadowMapsRS,
-	const ResourceSet& skyboxLightingRS,
-	const ResourceSet& drawDataRS,
-	const ResourceSet& pbrRS,
-	const ResourceSet& directLightingRS)
-{
-	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSets{ viewprojRS, transformMatricesRS, materialsTexturesRS, shadowMapsRS, skyboxLightingRS, drawDataRS, pbrRS, directLightingRS };
-	return	Pipeline{ assembler,
-		{{ShaderStage{VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shader_vert.spv"},
-		ShaderStage{VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shader_frag.spv"}}},
-		resourceSets,
-		{{StaticVertex::getBindingDescription()}},
-		{StaticVertex::getAttributeDescriptions()},
-		{{VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(glm::vec3) + sizeof(float) + sizeof(glm::vec2) + sizeof(uint32_t) + sizeof(float)}}} };
 }
 
 Pipeline createSkyboxPipeline(PipelineAssembler& assembler, const ResourceSet& viewprojRS, const ResourceSet& skyboxLightingRS)
@@ -1070,7 +1043,7 @@ void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBo
 	}
 }
 
-void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster)
+void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster, DeferredLighting& deferredLighting)
 {
 	float nearPlane{ NEAR_PLANE };
 	float farPlane{ FAR_PLANE };
@@ -1081,6 +1054,7 @@ void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window&
 	clusterer.submitFrustum(nearPlane, farPlane, aspect, FOV);
 	hbao.submitFrustum(nearPlane, farPlane, aspect, FOV);
 	caster.submitFrustum(nearPlane, farPlane);
+	deferredLighting.updateProjectionData(nearPlane, farPlane);
 
 	double FOV_X{ glm::atan(glm::tan(FOV / 2) * aspect) * 2 };
 	frustumInfo.planes[0] = { 0.0f, 0.0f, -1.0f, nearPlane }; //near plane
@@ -1102,17 +1076,17 @@ void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window&
 	frustumInfo.points[6] = { (farPlane)*fovXScale, (farPlane)*fovYScale, farPlane }; //far top right
 	frustumInfo.points[7] = { (farPlane)*fovXScale, -(farPlane)*fovYScale, farPlane }; //far bot right
 }
-void fillModelMatrices(const BufferMapped& modelTransformDataSSBO, const std::vector<glm::mat4>& modelMatrices)
+void fillModelMatrices(const BufferMapped& modelTransformData, const std::vector<glm::mat4>& modelMatrices)
 {
-	glm::mat4* transformMatrices{ reinterpret_cast<glm::mat4*>(modelTransformDataSSBO.getData()) };
+	glm::mat4* transformMatrices{ reinterpret_cast<glm::mat4*>(modelTransformData.getData()) };
 	for (int i{ 0 }; i < modelMatrices.size(); ++i)
 	{
 		transformMatrices[i] = modelMatrices[i];
 	}
 }
-void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount)
+void fillDrawData(const BufferMapped& perDrawDataIndices, std::vector<StaticMesh>& staticMeshes, int drawCount)
 {
-	uint8_t* drawDataIndices{ reinterpret_cast<uint8_t*>(perDrawDataIndicesSSBO.getData()) };
+	uint8_t* drawDataIndices{ reinterpret_cast<uint8_t*>(perDrawDataIndices.getData()) };
 	//Per mesh indices
 	uint32_t transMatIndex{ 0 };
 	uint32_t drawNum{ static_cast<uint32_t>(staticMeshes[transMatIndex].getRUnits().size()) };

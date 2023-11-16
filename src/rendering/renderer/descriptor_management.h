@@ -14,7 +14,7 @@ extern PFN_vkCmdSetDescriptorBufferOffsetsEXT lvkCmdSetDescriptorBufferOffsetsEX
 extern PFN_vkGetDescriptorEXT lvkGetDescriptorEXT;
 extern PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT lvkCmdBindDescriptorBufferEmbeddedSamplersEXT;
 
-#define DESCRIPTOR_BUFFER_DEFAULT_SIZE 51200
+#define DESCRIPTOR_BUFFER_DEFAULT_SIZE  51200
 
 class ResourceSet
 {
@@ -252,6 +252,7 @@ public:
         m_invalid = false;
     }
 
+
     uint32_t getCopiesCount() const;
     const VkDescriptorSetLayout& getSetLayout() const;
 
@@ -259,9 +260,21 @@ private:
     uint32_t getDescBufferIndex() const;
     VkDeviceSize getDescriptorSetAlignedSize();
     void setDescBufferOffset(VkDeviceSize offset);
-    VkDeviceSize getDescriptorSetOffset(uint32_t frameInFlight)  const;
+    VkDeviceSize getDescriptorSetOffset(uint32_t resIndex)  const;
     const void* getResourcePayload() const;
     uint32_t getDescriptorTypeSize(VkDescriptorType type) const;
+    void rewriteDescriptor(uint32_t bindingIndex, uint32_t copyIndex, uint32_t arrayIndex, const VkDescriptorDataEXT& descriptorData) const
+    {
+        EASSERT(bindingIndex < m_resources.size(), "App", "Incorrect binding index.");
+
+        VkDescriptorGetInfoEXT descGetInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT, .type = m_resources[bindingIndex].type };
+        uint32_t descriptorTypeSize{ getDescriptorTypeSize(descGetInfo.type) };
+        descGetInfo.data = descriptorData;
+        uint64_t payloadOffset{ copyIndex * m_descSetAlignedByteSize + m_resources[bindingIndex].inSetOffset + arrayIndex * descriptorTypeSize };
+        lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + payloadOffset);
+
+        std::memcpy(reinterpret_cast<uint8_t*>(m_descriptorBuffers[m_allocationIter->bufferIndex].descriptorBuffer.getData()) + m_descBufferOffset + payloadOffset, m_resourcePayload + payloadOffset, descriptorTypeSize);
+    }
 
     ResourceSet(ResourceSet&) = delete;
     void operator=(ResourceSet&) = delete;

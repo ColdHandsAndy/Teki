@@ -21,9 +21,179 @@ namespace fs = std::filesystem;
 namespace TextureLoaders
 {
 
-	inline ImageCubeMap loadCubemap(std::shared_ptr<VulkanObjectHandler> vulkanObjects,
-									CommandBufferSet & commandBufferSet,
-									BufferBaseHostAccessible & stagingBase,
+inline ImageListContainer::ImageListContainerIndices loadTexture(const VulkanObjectHandler& vulkanObjects,
+		CommandBufferSet& commandBufferSet,
+		BufferBaseHostAccessible& stagingBase,
+		ImageListContainer& imageContainer,
+		fs::path filepath)
+	{
+		ktxTexture2* textureKTX{};
+
+		EASSERT(ktxTexture2_CreateFromNamedFile(filepath.generic_string().c_str(), KTX_TEXTURE_CREATE_NO_FLAGS, &textureKTX) == KTX_SUCCESS, "ktx", "Could not load image.");
+		bool needsTranscoding = ktxTexture2_NeedsTranscoding(textureKTX);
+		if (needsTranscoding)
+			EASSERT(ktxTexture2_TranscodeBasis(textureKTX, KTX_TTF_BC7_RGBA, 0) == KTX_SUCCESS, "ktx", "Transcoding failed.");
+
+		//VkFormat format{ static_cast<VkFormat>(textureKTX->vkFormat) };
+		VkFormat format{ VK_FORMAT_BC7_UNORM_BLOCK };
+		uint64_t totalByteSize{ textureKTX->dataSize };
+		uint32_t mipLevelCount{ textureKTX->numLevels };
+		uint32_t width{ textureKTX->baseWidth };
+		uint32_t height{ textureKTX->baseHeight };
+
+		std::vector<uint64_t> stagingOffsets{};
+
+		BufferMapped staging{ stagingBase, totalByteSize };
+
+		for (int i{ 0 }; i < mipLevelCount; ++i)
+		{
+			stagingOffsets.push_back(0);
+			EASSERT(ktxTexture_GetImageOffset((ktxTexture*)textureKTX, i, 0, 0, &stagingOffsets.back()) == KTX_SUCCESS, "ktx", "Could not get offset.");
+			stagingOffsets.back() += staging.getOffset();
+		}
+
+		if (needsTranscoding)
+			std::memcpy(staging.getData(), textureKTX->pData, totalByteSize);
+		else
+			EASSERT(ktxTexture_LoadImageData((ktxTexture*)textureKTX, (ktx_uint8_t*)staging.getData(), totalByteSize) == KTX_SUCCESS, "ktx", "Could not load data into buffer.");
+
+		ktxTexture_Destroy((ktxTexture*)textureKTX);
+
+		ImageListContainer::ImageListContainerIndices imageIndices{ imageContainer.getNewImage(width, height, format) };
+
+		VkImage imageHandle{ imageContainer.getImageHandle(imageIndices.listIndex) };
+		uint32_t mipCount{ imageContainer.getImageListSubresourceRange(imageIndices.listIndex).levelCount };
+		
+		VkCommandBuffer cb{ commandBufferSet.beginTransientRecording() };
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+													.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+													.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+													.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+													.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+													.image = imageHandle,
+													.subresourceRange =
+														{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+														.baseMipLevel = 0,
+														.levelCount = mipCount,
+														.baseArrayLayer = imageIndices.layerIndex,
+														.layerCount = 1 }}}
+			});
+
+		imageContainer.cmdCopyDataFromBufferAllMips(cb, imageIndices.listIndex, staging.getBufferHandle(), imageIndices.layerIndex, stagingOffsets.size(), stagingOffsets.data());
+
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+													.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+													.dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+													.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+													.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+													.image = imageHandle,
+													.subresourceRange =
+														{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+														.baseMipLevel = 0,
+														.levelCount = mipCount,
+														.baseArrayLayer = imageIndices.layerIndex,
+														.layerCount = 1 }}}
+			});
+		commandBufferSet.endRecording(cb);
+
+		VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
+		vkQueueSubmit(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+
+		commandBufferSet.resetAllTransient();
+
+		return imageIndices;
+	}
+
+	inline Image loadTexture(const VulkanObjectHandler& vulkanObjects,
+		CommandBufferSet& commandBufferSet,
+		BufferBaseHostAccessible& stagingBase,
+		fs::path filepath,
+		VkImageUsageFlags usageFlags,
+		VkImageAspectFlags aspect)
+	{
+		ktxTexture2* textureKTX{};
+
+		EASSERT(ktxTexture2_CreateFromNamedFile(filepath.generic_string().c_str(), KTX_TEXTURE_CREATE_NO_FLAGS, &textureKTX) == KTX_SUCCESS, "ktx", "Could not load image.");
+		bool needsTranscoding = ktxTexture2_NeedsTranscoding(textureKTX);
+		if (needsTranscoding)
+			EASSERT(ktxTexture2_TranscodeBasis(textureKTX, KTX_TTF_BC7_RGBA, 0) == KTX_SUCCESS, "ktx", "Transcoding failed.");
+
+		//VkFormat format{ static_cast<VkFormat>(textureKTX->vkFormat) };
+		VkFormat format{ VK_FORMAT_BC7_UNORM_BLOCK };
+		uint64_t totalByteSize{ textureKTX->dataSize };
+		uint32_t mipLevelCount{ textureKTX->numLevels };
+		uint32_t width{ textureKTX->baseWidth };
+		uint32_t height{ textureKTX->baseHeight };
+
+		std::vector<uint64_t> stagingOffsets{};
+
+		BufferMapped staging{ stagingBase, totalByteSize };
+
+		for (int i{ 0 }; i < mipLevelCount; ++i)
+		{
+			stagingOffsets.push_back(0);
+			EASSERT(ktxTexture_GetImageOffset((ktxTexture*)textureKTX, i, 0, 0, &stagingOffsets.back()) == KTX_SUCCESS, "ktx", "Could not get offset.");
+			stagingOffsets.back() += staging.getOffset();
+		}
+
+		if (needsTranscoding)
+			std::memcpy(staging.getData(), textureKTX->pData, totalByteSize);
+		else
+			EASSERT(ktxTexture_LoadImageData((ktxTexture*)textureKTX, (ktx_uint8_t*)staging.getData(), totalByteSize) == KTX_SUCCESS, "ktx", "Could not load data into buffer.");
+
+		ktxTexture_Destroy((ktxTexture*)textureKTX);
+
+		Image texture{ vulkanObjects.getLogicalDevice(), format, width, height, usageFlags, aspect, mipLevelCount > 1 ? true : false };
+
+		VkCommandBuffer cb{ commandBufferSet.beginTransientRecording() };
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+													.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+													.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+													.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+													.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+													.image = texture.getImageHandle(),
+													.subresourceRange =
+														{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+														.baseMipLevel = 0,
+														.levelCount = texture.getMipLevelCount(),
+														.baseArrayLayer = 0,
+														.layerCount = 0 }}}
+			});
+
+		texture.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), stagingOffsets.size(), stagingOffsets.data());
+
+		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
+													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+													.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+													.dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+													.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+													.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+													.image = texture.getImageHandle(),
+													.subresourceRange =
+														{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+														.baseMipLevel = 0,
+														.levelCount = texture.getMipLevelCount(),
+														.baseArrayLayer = 0,
+														.layerCount = 0 }}}
+			});
+		commandBufferSet.endRecording(cb);
+
+		VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
+		vkQueueSubmit(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+
+		commandBufferSet.resetAllTransient();
+
+		return texture;
+	}
+
+	inline ImageCubeMap loadCubemap(const VulkanObjectHandler& vulkanObjects,
+									CommandBufferSet& commandBufferSet,
+									BufferBaseHostAccessible& stagingBase,
 									fs::path filepath)
 	{
 		constexpr int cubemapFaceCount{ 6 };
@@ -32,6 +202,9 @@ namespace TextureLoaders
 
 		EASSERT(ktxTexture2_CreateFromNamedFile(filepath.generic_string().c_str(), KTX_TEXTURE_CREATE_NO_FLAGS, &texture) == KTX_SUCCESS, "ktx", "Could not load cubemap.");
 		EASSERT(texture->isCubemap, "App", "Cubemap image has more than six faces");
+		bool needsTranscoding = ktxTexture2_NeedsTranscoding(texture);
+		if (needsTranscoding)
+			EASSERT(ktxTexture2_TranscodeBasis(texture, KTX_TTF_BC7_RGBA, 0) == KTX_SUCCESS, "ktx", "Transcoding failed.");
 
 		VkFormat format{ static_cast<VkFormat>(texture->vkFormat) };
 		uint64_t totalByteSize{ texture->dataSize };
@@ -49,16 +222,19 @@ namespace TextureLoaders
 			for (int j{ 0 }; j < cubemapFaceCount; ++j)
 			{
 				stagingOffsets.push_back(0);
-				ktxTexture_GetImageOffset((ktxTexture*)texture, i, 0, j, &stagingOffsets.back());
+				EASSERT(ktxTexture_GetImageOffset((ktxTexture*)texture, i, 0, j, &stagingOffsets.back()) == KTX_SUCCESS, "ktx", "Could not get offset.");
 				stagingOffsets.back() += staging.getOffset();
 				mipIndices.push_back(i);
 				faceIndices.push_back(j);
 			}
 		}
-		ktxTexture_LoadImageData((ktxTexture*)texture, (ktx_uint8_t*)staging.getData(), totalByteSize);
+		if (needsTranscoding)
+			std::memcpy(staging.getData(), texture->pData, totalByteSize);
+		else
+			EASSERT(ktxTexture_LoadImageData((ktxTexture*)texture, (ktx_uint8_t*)staging.getData(), totalByteSize) == KTX_SUCCESS, "ktx", "Could not load data into buffer.");
 		ktxTexture_Destroy((ktxTexture*)texture);
 
-		ImageCubeMap cubemap{ vulkanObjects->getLogicalDevice(), format, static_cast<uint32_t>(sideLength), VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, static_cast<int>(mipLevelCount) };
+		ImageCubeMap cubemap{ vulkanObjects.getLogicalDevice(), format, static_cast<uint32_t>(sideLength), VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, static_cast<int>(mipLevelCount) };
 
 		VkCommandBuffer cb{ commandBufferSet.beginTransientRecording() };
 		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
@@ -93,13 +269,15 @@ namespace TextureLoaders
 		commandBufferSet.endRecording(cb);
 
 		VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
-		vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE);
-		vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+		vkQueueSubmit(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(vulkanObjects.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 
-		commandBufferSet.resetAll();
+		commandBufferSet.resetAllTransient();
 
 		return cubemap;
 	}
+
+
 
 	inline Image loadImage(std::shared_ptr<VulkanObjectHandler> vulkanObjects,
 						   CommandBufferSet& commandBufferSet,
@@ -183,7 +361,7 @@ namespace TextureLoaders
 		vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE);
 		vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 
-		commandBufferSet.resetAll();
+		commandBufferSet.resetAllTransient();
 
 		return image;
 	}

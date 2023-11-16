@@ -148,7 +148,34 @@ void Image::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, VkDevi
 
 	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bufImageCopy);
 }
+void Image::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t mipCount, VkDeviceSize* bufferOffset)
+{
+	VkBufferImageCopy* bufferImageCopies{ new VkBufferImageCopy[mipCount] };
 
+	uint32_t mipWidth{ m_width };
+	uint32_t mipHeight{ m_height };
+
+	for (uint32_t i{ 0 }; i < mipCount; ++i)
+	{
+		VkImageSubresourceLayers imageSubresource{};
+		imageSubresource.aspectMask = m_aspects;
+		imageSubresource.layerCount = 1;
+		imageSubresource.baseArrayLayer = 0;
+		imageSubresource.mipLevel = i;
+
+		bufferImageCopies[i] = VkBufferImageCopy{
+			.bufferOffset = bufferOffset[i],
+			.imageSubresource = imageSubresource,
+			.imageOffset = { 0, 0, 0 },
+			.imageExtent = { mipWidth, mipHeight, 1 }
+		};
+		mipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
+		mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+	}
+
+	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipCount, bufferImageCopies);
+	delete[] bufferImageCopies;
+}
 
 
 ImageMS::ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkSampleCountFlagBits sampleCount)
@@ -384,6 +411,9 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 {
 	VkBufferImageCopy* bufferImageCopies{ new VkBufferImageCopy[regionCount] };
 
+	uint32_t mipWidth{ m_width };
+	uint32_t mipHeight{ m_height };
+
 	for (uint32_t i{ 0 }; i < regionCount; ++i)
 	{
 		VkImageSubresourceLayers imageSubresource{};
@@ -396,8 +426,40 @@ void ImageList::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, ui
 			.bufferOffset = bufferOffset[i],
 			.imageSubresource = imageSubresource,
 			.imageOffset = { 0, 0, 0 },
-			.imageExtent = { static_cast<uint32_t>(m_width / (imageSubresource.mipLevel + 1) + 0.001), static_cast<uint32_t>(m_height / (imageSubresource.mipLevel + 1) + 0.001), 1 }
+			.imageExtent = { mipWidth, mipHeight, 1 }
 		};
+
+		mipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
+		mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+	}
+
+	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
+	delete[] bufferImageCopies;
+}
+
+void ImageList::cmdCopyDataFromBufferAllMips(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t dstImageLayerIndex, uint32_t regionCount, VkDeviceSize* bufferOffset)
+{
+	VkBufferImageCopy* bufferImageCopies{ new VkBufferImageCopy[regionCount] };
+
+	uint32_t mipWidth{ m_width };
+	uint32_t mipHeight{ m_height };
+
+	for (uint32_t i{ 0 }; i < regionCount; ++i)
+	{
+		VkImageSubresourceLayers imageSubresource{};
+		imageSubresource.aspectMask = m_aspects;
+		imageSubresource.layerCount = 1;
+		imageSubresource.baseArrayLayer = dstImageLayerIndex;
+		imageSubresource.mipLevel = i;
+
+		bufferImageCopies[i] = VkBufferImageCopy{
+			.bufferOffset = bufferOffset[i],
+			.imageSubresource = imageSubresource,
+			.imageOffset = { 0, 0, 0 },
+			.imageExtent = { mipWidth, mipHeight, 1 }
+		};
+		mipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
+		mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
 	}
 
 	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, bufferImageCopies);
@@ -790,4 +852,8 @@ void ImageListContainer::cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t list
 void ImageListContainer::cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel)
 {
 	m_imageLists[listIndex].list.cmdCopyDataFromBuffer(cb, srcBuffer, regionCount, bufferOffset, dstImageLayerIndex, mipLevel);
+}
+void ImageListContainer::cmdCopyDataFromBufferAllMips(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t dstImageLayerIndex, uint32_t regionCount, VkDeviceSize* bufferOffset)
+{
+	m_imageLists[listIndex].list.cmdCopyDataFromBufferAllMips(cb, srcBuffer, dstImageLayerIndex, regionCount, bufferOffset);
 }

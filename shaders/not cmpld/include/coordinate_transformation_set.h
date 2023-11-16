@@ -7,8 +7,9 @@ struct CoordinateTransformationData
 	mat4 viewFromWorld;
 	mat4 ndcFromView;
 	mat4 worldFromNdc;
-	mat4 worldFromView;
-	mat4 viewFromNdc;
+	mat4 worldFromView; 
+	mat4 viewFromNdc; 
+	mat4 ndcFromWorldPrev; 
 };
 
 layout(set = COORDINATE_TRANSFORMATION_SET_INDEX, binding = 0) uniform CoordinateTransformation

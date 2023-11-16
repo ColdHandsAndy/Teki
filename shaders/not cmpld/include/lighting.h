@@ -6,8 +6,8 @@
 #extension GL_EXT_samplerless_texture_functions : enable
 
 
-#define PCF_NUM_SAMPLES 16
-#define BLOCKER_SEARCH_NUM_SAMPLES 16
+#define PCF_NUM_SAMPLES 12
+#define BLOCKER_SEARCH_NUM_SAMPLES 8 
 vec2 poissonDisc[16] = {
  vec2( 0.14383161, -0.14100790 ),
  vec2( 0.19984126, 0.78641367 ),
