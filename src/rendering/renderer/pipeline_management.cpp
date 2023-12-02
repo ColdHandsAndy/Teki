@@ -69,6 +69,11 @@ void PipelineAssembler::setInputAssemblyState(StatePresets preset)
 		m_inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 		m_inputAssemblyState.primitiveRestartEnable = VK_FALSE;
 		break;
+	case INPUT_ASSEMBLY_STATE_POINT:
+		m_inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+		m_inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+		m_inputAssemblyState.primitiveRestartEnable = VK_FALSE;
+		break;
 	case INPUT_ASSEMBLY_STATE_TRIANGLE_FAN_DRAWING:
 		m_inputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 		m_inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;

@@ -15,7 +15,6 @@
 #include <glm/gtx/transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <OpenImageIO/imageio.h>
 #include <ktx.h>
 
 #include "src/rendering/shader_management/shader_operations.h"
@@ -504,9 +503,6 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 	max.y = max.y - min.y < 0.0001 ? max.y + 0.0001 : max.y;
 	max.z = max.z - min.z < 0.0001 ? max.z + 0.0001 : max.z;
 
-	min = nodeTransform * min;
-	max = nodeTransform * max;
-
 	glm::vec3 point0{ min.x, max.y, min.z };
 	glm::vec3 point1{ max.x, max.y, min.z };
 	glm::vec3 point2{ min.x, max.y, max.z };
@@ -515,6 +511,15 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 	glm::vec3 point5{ max.x, min.y, min.z };
 	glm::vec3 point6{ min.x, min.y, max.z };
 	glm::vec3 point7{ max.x, min.y, max.z };
+
+	point0 = nodeTransform * glm::vec4{ point0, 1.0 };
+	point1 = nodeTransform * glm::vec4{ point1, 1.0 };
+	point2 = nodeTransform * glm::vec4{ point2, 1.0 };
+	point3 = nodeTransform * glm::vec4{ point3, 1.0 };
+	point4 = nodeTransform * glm::vec4{ point4, 1.0 };
+	point5 = nodeTransform * glm::vec4{ point5, 1.0 };
+	point6 = nodeTransform * glm::vec4{ point6, 1.0 };
+	point7 = nodeTransform * glm::vec4{ point7, 1.0 };
 
 	float dataOBB[3 * 8]
 		{

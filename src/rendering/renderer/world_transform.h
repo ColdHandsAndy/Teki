@@ -50,7 +50,7 @@ public:
 	CoordinateTransformation(VkDevice device, BufferBaseHostAccessible& baseHostCachedBuffer) : m_data{ baseHostCachedBuffer, sizeof(CoordinateTransformationData) }
 	{
 		VkDescriptorSetLayoutBinding worldTransformBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, 
-			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_GEOMETRY_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 		VkDescriptorAddressInfoEXT worldTransformAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_data.getDeviceAddress(), .range = m_data.getSize() };
 		m_resSet.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
 			std::array{ worldTransformBinding },

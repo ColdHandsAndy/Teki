@@ -105,7 +105,7 @@ namespace LightTypes
 				m_data->shadowMatrixIndex = m_caster->addPointViewMatrices(worldPos);
 				m_data->lightSize = lightSize;
 				m_hasShadow = true;
-				m_caster->m_drawCommandIndices.emplace_back();
+				m_caster->m_drawCommandIndices.resize(m_caster->m_drawCommandIndices.size() + 6);
 			}
 			else
 			{

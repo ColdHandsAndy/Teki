@@ -5,6 +5,8 @@
 
 #include <glm/glm.hpp>
 
+#include "src/rendering/renderer/pipeline_management.h"
+
 #include "src/tools/asserter.h"
 #include "src/tools/alignment.h"
 
@@ -50,6 +52,9 @@ public:
 		delete[] m_axii;
 		delete[] m_extents;
 		delete[] m_centers;
+#ifdef _DEBUG
+		delete visOBBPipeline;
+#endif
 	}
 
 	uint32_t getBBCount() const
@@ -239,84 +244,48 @@ public:
 	BufferBaseHostAccessible* vb{ nullptr };
 	constexpr static uint32_t vertCount{ 18 };
 public:
-	//void initVisualizationResources(VkDevice device, uint32_t wWidth, uint32_t wHeight, BufferMapped& viewprojDataUB)
-	//{
-	//	PipelineAssembler assembler{ device };
-	//	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
-	//	assembler.setViewportState(PipelineAssembler::VIEWPORT_STATE_DEFAULT, wWidth, wHeight, 1);
-	//	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_TRIANGLE_STRIP_DRAWING);
-	//	assembler.setTesselationState(PipelineAssembler::TESSELATION_STATE_DEFAULT);
-	//	assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
-	//	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_LINE_POLYGONS, 1.6f, VK_CULL_MODE_NONE);
-	//	assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
-	//	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
-	//	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
+	void initVisualizationResources(VkDevice device, uint32_t wWidth, uint32_t wHeight, const ResourceSet& viewprojRS)
+	{
+		PipelineAssembler assembler{ device };
+		assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
+		assembler.setViewportState(PipelineAssembler::VIEWPORT_STATE_DEFAULT, wWidth, wHeight, 1);
+		assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_POINT);
+		assembler.setTesselationState(PipelineAssembler::TESSELATION_STATE_DEFAULT);
+		assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
+		assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.5f, VK_CULL_MODE_NONE);
+		assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
+		assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
+		assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT);
 
-	//	std::vector<ResourceSet> resourceSets{};
-	//	VkDescriptorSetLayoutBinding uniformViewProjBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
-	//	VkDescriptorAddressInfoEXT uniformViewProjAddressinfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = viewprojDataUB.getDeviceAddress(), .range = sizeof(glm::mat4) * 2 };
-	//	resourceSets.push_back({ assembler.getDevice(), 0, VkDescriptorSetLayoutCreateFlags{}, 1, {uniformViewProjBinding},  {}, {{{.pUniformBuffer = &uniformViewProjAddressinfo}}}, false });
-	//	const VkVertexInputBindingDescription bindingDescription{
-	//		.binding = 0,
-	//		.stride = sizeof(glm::vec3),
-	//		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-	//	};
-	//	const std::array<VkVertexInputAttributeDescription, 1> attributeDescriptions
-	//	{
-	//		VkVertexInputAttributeDescription
-	//		{
-	//			.location = 0,
-	//			.binding = 0,
-	//			.format = VK_FORMAT_R32G32B32_SFLOAT,
-	//			.offset = 0
-	//		}
-	//	};
-	//	visOBBPipeline = { new Pipeline };
-	//	visOBBPipeline->initializeGraphics(assembler, 
-	//		{{ShaderStage{.stage = VK_SHADER_STAGE_VERTEX_BIT, .filepath = "shaders/cmpld/simple_proj_vert.spv"}, ShaderStage{.stage = VK_SHADER_STAGE_FRAGMENT_BIT, .filepath = "shaders/cmpld/color_frag.spv"}}}, resourceSets, 
-	//		{ {bindingDescription} },
-	//		attributeDescriptions);
+		std::array<std::reference_wrapper<const ResourceSet>, 1> resourceSets{ viewprojRS };
+		visOBBPipeline = { new Pipeline };
+		visOBBPipeline->initializeGraphics(assembler,
+			{ {ShaderStage{.stage = VK_SHADER_STAGE_VERTEX_BIT, .filepath = "shaders/cmpld/obb_gen_vert.spv"}, 
+			ShaderStage{.stage = VK_SHADER_STAGE_GEOMETRY_BIT, .filepath = "shaders/cmpld/obb_gen_geom.spv"},
+			ShaderStage{.stage = VK_SHADER_STAGE_FRAGMENT_BIT, .filepath = "shaders/cmpld/color_frag.spv"}} },
+			resourceSets, {}, {},
+			{ {VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_GEOMETRY_BIT, .offset = 0, .size = sizeof(float) * 15}}});
+	}
 
-	//	vb = { new BufferBaseHostAccessible{device, m_count * sizeof(glm::vec3) * vertCount, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, false, false} };
-	//	glm::vec3* vbData{ reinterpret_cast<glm::vec3*>(vb->getData()) };
-	//	float* xs = m_data + 0 * boxVertexCount * m_maxCount;
-	//	float* ys = m_data + 1 * boxVertexCount * m_maxCount;
-	//	float* zs = m_data + 2 * boxVertexCount * m_maxCount;
-	//	for (int i{ 0 }; i < m_count; ++i)
-	//	{
-	//		*(vbData++) = glm::vec3(xs[0], ys[0], zs[0]);
-	//		*(vbData++) = glm::vec3(xs[4], ys[4], zs[4]);
-	//		*(vbData++) = glm::vec3(xs[1], ys[1], zs[1]);
-	//		*(vbData++) = glm::vec3(xs[5], ys[5], zs[5]);
-	//		*(vbData++) = glm::vec3(xs[3], ys[3], zs[3]);
-	//		*(vbData++) = glm::vec3(xs[7], ys[7], zs[7]);
-	//		*(vbData++) = glm::vec3(xs[2], ys[2], zs[2]);
-	//		*(vbData++) = glm::vec3(xs[6], ys[6], zs[6]);
-	//		*(vbData++) = glm::vec3(xs[0], ys[0], zs[0]);
-	//		*(vbData++) = glm::vec3(xs[1], ys[1], zs[1]);
-	//		*(vbData++) = glm::vec3(xs[3], ys[3], zs[3]);
-	//		*(vbData++) = glm::vec3(xs[2], ys[2], zs[2]);
-	//		*(vbData++) = glm::vec3(xs[0], ys[0], zs[0]);
-	//		*(vbData++) = glm::vec3(xs[7], ys[7], zs[7]);
-	//		*(vbData++) = glm::vec3(xs[6], ys[6], zs[6]);
-	//		*(vbData++) = glm::vec3(xs[4], ys[4], zs[4]);
-	//		*(vbData++) = glm::vec3(xs[5], ys[5], zs[5]);
-	//		*(vbData++) = glm::vec3(xs[7], ys[7], zs[7]);
-	//		xs += boxVertexCount;
-	//		ys += boxVertexCount;
-	//		zs += boxVertexCount;
-	//	}
-	//}
+	void cmdVisualizeOBBs(VkCommandBuffer cb)
+	{
 
-	//void cmdVisualizeOBBs(VkCommandBuffer cb)
-	//{
-	//	VkBuffer vertexBinding[1]{ vb->getBufferHandle() };
-	//	VkDeviceSize vertexOffsets[1]{ vb->getOffset() };
-	//	vkCmdBindVertexBuffers(cb, 0, 1, vertexBinding, vertexOffsets);
-	//	visOBBPipeline->cmdBind(cb);
-	//	for (int i{ 0 }; i < m_count; ++i)
-	//		vkCmdDraw(cb, vertCount, 1, vertCount * i, 0);
-	//}
+		visOBBPipeline->cmdBind(cb);
+		for (int i{ 0 }; i < m_count; ++i)
+		{
+			struct {
+				glm::vec4 xAxis_extent;
+				glm::vec4 yAxis_extent;
+				glm::vec4 zAxis_extent;
+				glm::vec3 center; } pcData;
+			pcData.center = glm::vec3{ *(m_centers + 0 * m_maxCount + i), *(m_centers + 1 * m_maxCount + i), *(m_centers + 2 * m_maxCount + i) };
+			pcData.xAxis_extent = glm::vec4{ *(m_axii + 0 * m_maxCount + i), *(m_axii + 1 * m_maxCount + i), *(m_axii + 2 * m_maxCount + i), *(m_extents + 0 * m_maxCount + i) };
+			pcData.yAxis_extent = glm::vec4{ *(m_axii + 3 * m_maxCount + i), *(m_axii + 4 * m_maxCount + i), *(m_axii + 5 * m_maxCount + i), *(m_extents + 1 * m_maxCount + i) };
+			pcData.zAxis_extent = glm::vec4{ *(m_axii + 6 * m_maxCount + i), *(m_axii + 7 * m_maxCount + i), *(m_axii + 8 * m_maxCount + i), *(m_extents + 2 * m_maxCount + i) };
+			vkCmdPushConstants(cb, visOBBPipeline->getPipelineLayoutHandle(), VK_SHADER_STAGE_GEOMETRY_BIT, 0, sizeof(pcData), &pcData);
+			vkCmdDraw(cb, 1, 1, 0, 0);
+		}
+	}
 #endif
 };
 

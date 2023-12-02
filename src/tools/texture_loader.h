@@ -5,7 +5,6 @@
 
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_for_each.h>
-#include <OpenImageIO/imageio.h>
 #include <ktx.h>
 #include <ktxvulkan.h>
 
@@ -121,8 +120,7 @@ inline ImageListContainer::ImageListContainerIndices loadTexture(const VulkanObj
 		if (needsTranscoding)
 			EASSERT(ktxTexture2_TranscodeBasis(textureKTX, KTX_TTF_BC7_RGBA, 0) == KTX_SUCCESS, "ktx", "Transcoding failed.");
 
-		//VkFormat format{ static_cast<VkFormat>(textureKTX->vkFormat) };
-		VkFormat format{ VK_FORMAT_BC7_UNORM_BLOCK };
+		VkFormat format{ static_cast<VkFormat>(textureKTX->vkFormat) };
 		uint64_t totalByteSize{ textureKTX->dataSize };
 		uint32_t mipLevelCount{ textureKTX->numLevels };
 		uint32_t width{ textureKTX->baseWidth };
@@ -161,7 +159,7 @@ inline ImageListContainer::ImageListContainerIndices loadTexture(const VulkanObj
 														.baseMipLevel = 0,
 														.levelCount = texture.getMipLevelCount(),
 														.baseArrayLayer = 0,
-														.layerCount = 0 }}}
+														.layerCount = 1 }}}
 			});
 
 		texture.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), stagingOffsets.size(), stagingOffsets.data());
@@ -178,7 +176,7 @@ inline ImageListContainer::ImageListContainerIndices loadTexture(const VulkanObj
 														.baseMipLevel = 0,
 														.levelCount = texture.getMipLevelCount(),
 														.baseArrayLayer = 0,
-														.layerCount = 0 }}}
+														.layerCount = 1 }}}
 			});
 		commandBufferSet.endRecording(cb);
 
@@ -276,96 +274,6 @@ inline ImageListContainer::ImageListContainerIndices loadTexture(const VulkanObj
 
 		return cubemap;
 	}
-
-
-
-	inline Image loadImage(std::shared_ptr<VulkanObjectHandler> vulkanObjects,
-						   CommandBufferSet& commandBufferSet,
-						   BufferBaseHostAccessible& stagingBase,
-						   fs::path filepath,
-						   VkImageUsageFlags usageFlags,
-						   int channelNum, 
-						   OIIO::TypeDesc::BASETYPE oiioFormat,				   
-						   VkFormat vulkanFormat,
-						   bool genMipmap = false)
-	{
-		OIIO::ImageSpec config{};
-		config["oiio:UnassociatedAlpha"] = 1;
-		auto imInp = OIIO::ImageInput::open(filepath, &config);
-		OIIO::ImageSpec spec{ imInp->spec() };
-		EASSERT(spec.depth == 1, "App", "Multi-layered image is not supported yet");
-		LOG_IF_WARNING(spec.format.basetype != oiioFormat, "Image native format is not the same as required format. {}", "Data will be converted.");
-
-		uint64_t totalByteSize{ spec.image_bytes() };
-		
-		BufferMapped staging{ stagingBase, totalByteSize };
-
-		imInp->read_image(0, channelNum, oiioFormat, staging.getData());
-		imInp->close();
-
-		Image image{ vulkanObjects->getLogicalDevice(), vulkanFormat, static_cast<uint32_t>(spec.width), static_cast<uint32_t>(spec.height), usageFlags, VK_IMAGE_ASPECT_COLOR_BIT, genMipmap };
-		VkCommandBuffer cb{ commandBufferSet.beginTransientRecording() };
-		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
-													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-													.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-													.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
-													.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-													.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-													.image = image.getImageHandle(),
-													.subresourceRange =
-														{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-														.baseMipLevel = 0,
-														.levelCount = image.getMipLevelCount(),
-														.baseArrayLayer = 0,
-														.layerCount = 1 }}}
-			});
-		image.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), staging.getOffset(), 0, 0, image.getWidth(), image.getHeight());
-		SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
-													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-													.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
-													.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-													.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
-													.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-													.image = image.getImageHandle(),
-													.subresourceRange =
-														{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-														.baseMipLevel = 0,
-														.levelCount = image.getMipLevelCount(),
-														.baseArrayLayer = 0,
-														.layerCount = 1 }}}
-			});
-		if (genMipmap)
-			image.cmdCreateMipmaps(cb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		else
-		{
-			SyncOperations::cmdExecuteBarrier(cb, { {VkImageMemoryBarrier2{
-													.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-													.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
-													.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-													.dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-													.dstAccessMask = VK_ACCESS_NONE,
-													.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-													.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-													.image = image.getImageHandle(),
-													.subresourceRange =
-														{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-														.baseMipLevel = 0,
-														.levelCount = image.getMipLevelCount(),
-														.baseArrayLayer = 0,
-														.layerCount = 1 }}}
-				});
-		}
-		commandBufferSet.endRecording(cb);
-
-		VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
-		vkQueueSubmit(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 1, &submitInfo, VK_NULL_HANDLE);
-		vkQueueWaitIdle(vulkanObjects->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
-
-		commandBufferSet.resetAllTransient();
-
-		return image;
-	}
-
 }
 
 #endif

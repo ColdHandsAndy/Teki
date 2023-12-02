@@ -40,7 +40,7 @@ private:
 	struct ShadowCubeMapInfo
 	{
 		ImageListContainer::ImageListContainerIndices shadowMapIndices{};
-		uint32_t drawsIndex{};
+		uint32_t drawsFirstIndex{};
 		uint32_t viewMatIndex{};
 	};
 	std::vector<ShadowMapInfo> m_indicesForShadowMaps{};
@@ -129,7 +129,7 @@ public:
 
 	void prepareDataForShadowMapRendering()
 	{
-		for (int i{ 0 }, a{ 0 }; i < m_clusterer->m_nonculledLightsCount; ++i)
+		for (int i{ 0 }, drawCommandVectorIndex{ 0 }; i < m_clusterer->m_nonculledLightsCount; ++i)
 		{
 			uint32_t index{ m_clusterer->m_nonculledLightsData[i].index };
 			Clusterer::LightFormat& light{ m_clusterer->m_lightData[index] };
@@ -142,20 +142,22 @@ public:
 			{
 				m_indicesForShadowMaps.push_back(
 					{.shadowMapIndices = {.listIndex = static_cast<uint16_t>(light.shadowListIndex), .layerIndex = static_cast<uint16_t>(light.shadowLayerIndex)},
-					.drawsIndex = static_cast<uint32_t>(a),
+					.drawsIndex = static_cast<uint32_t>(drawCommandVectorIndex),
 					.viewMatIndex = static_cast<uint32_t>(light.shadowMatrixIndex),
 					.proj00 = light.cutoffCos / (std::sqrt(1 - light.cutoffCos * light.cutoffCos))});
 				glm::vec4 boundingSphere{ m_clusterer->m_boundingSpheres[index] };
-				cullMeshes(glm::vec3{boundingSphere}, boundingSphere.w, m_drawCommandIndices[a++]);
+				cullMeshesSpot(glm::vec3{boundingSphere}, boundingSphere.w, m_drawCommandIndices[drawCommandVectorIndex++]);
 			}
 			else
 			{
 				m_indicesForShadowCubeMaps.push_back(
 					{.shadowMapIndices = {.listIndex = static_cast<uint16_t>(light.shadowListIndex), .layerIndex = 0}, 
-					.drawsIndex = static_cast<uint32_t>(a), 
+					.drawsFirstIndex = static_cast<uint32_t>(drawCommandVectorIndex),
 					.viewMatIndex = static_cast<uint32_t>(light.shadowMatrixIndex) });
 				glm::vec4 boundingSphere{ m_clusterer->m_boundingSpheres[index] };
-				cullMeshes(glm::vec3{boundingSphere}, boundingSphere.w, m_drawCommandIndices[a++]);
+				//cullMeshes(glm::vec3{boundingSphere}, boundingSphere.w, m_drawCommandIndices[a++]);
+				cullMeshesPoint(glm::vec3{ boundingSphere }, boundingSphere.w, m_drawCommandIndices, drawCommandVectorIndex);
+				drawCommandVectorIndex += 6;
 			}
 		}
 		
@@ -221,7 +223,7 @@ private:
 		m_shadowCubeMaps.emplace_back(m_device, sideLength, sideLength, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, false, cubemapLayerCount, VK_IMAGE_ASPECT_DEPTH_BIT);
 		return index;
 	}
-	void cullMeshes(const glm::vec3& pos, float rad, std::vector<uint32_t>& drawCommandIndices)
+	void cullMeshesSpot(const glm::vec3& pos, float rad, std::vector<uint32_t>& drawCommandIndices)
 	{
 		drawCommandIndices.clear();
 
@@ -293,7 +295,407 @@ private:
 			}
 		}
 	}
+	void cullMeshesPoint(const glm::vec3& pos, float rad, std::vector<std::vector<uint32_t>>& drawCommandIndices, const int index)
+	{
+		for (int i{ 0 }; i < 6; ++i)
+			drawCommandIndices[index + i].clear();
 
+		int passedMeshesCount{ 0 };
+		std::array<int, 4> passedMeshes{};
+		int passedMeshesQueueCount{ 0 };
+		std::array<int, 4> passedMeshesQueue{};
+
+		float *xsOfXaxii, *ysOfXaxii, *zsOfXaxii,
+			*xsOfYaxii, *ysOfYaxii, *zsOfYaxii,
+			*xsOfZaxii, *ysOfZaxii, *zsOfZaxii,
+			*centersX, *centersY, *centersZ,
+			*extentsX, *extentsY, *extentsZ;
+		uint32_t meshCount{ m_rUnitsBoundingBoxes->getAxiiOBBs(
+			&xsOfXaxii, &ysOfXaxii, &zsOfXaxii,
+			&xsOfYaxii, &ysOfYaxii, &zsOfYaxii,
+			&xsOfZaxii, &ysOfZaxii, &zsOfZaxii,
+			&centersX, &centersY, &centersZ,
+			&extentsX, &extentsY, &extentsZ) };
+		__m128 xP{ _mm_load1_ps(&pos.x) };
+		__m128 yP{ _mm_load1_ps(&pos.y) };
+		__m128 zP{ _mm_load1_ps(&pos.z) };
+		__m128 r{ _mm_load1_ps(&rad) };
+		__m128 r2{ _mm_mul_ps(r, r) };
+		for (int i{ 0 }; i < meshCount; i += 4)
+		{
+			__m128 xC{ _mm_load_ps(centersX + i) };
+			__m128 yC{ _mm_load_ps(centersY + i) };
+			__m128 zC{ _mm_load_ps(centersZ + i) };
+
+			__m128 xCP{ _mm_sub_ps(xP, xC) };
+			__m128 yCP{ _mm_sub_ps(yP, yC) };
+			__m128 zCP{ _mm_sub_ps(zP, zC) };
+
+			__m128 xU{ _mm_load_ps(xsOfXaxii + i) };
+			__m128 yU{ _mm_load_ps(ysOfXaxii + i) };
+			__m128 zU{ _mm_load_ps(zsOfXaxii + i) };
+			__m128 xV{ _mm_load_ps(xsOfYaxii + i) };
+			__m128 yV{ _mm_load_ps(ysOfYaxii + i) };
+			__m128 zV{ _mm_load_ps(zsOfYaxii + i) };
+			__m128 xW{ _mm_load_ps(xsOfZaxii + i) };
+			__m128 yW{ _mm_load_ps(ysOfZaxii + i) };
+			__m128 zW{ _mm_load_ps(zsOfZaxii + i) };
+
+			__m128 dpU{ _mm_add_ps(_mm_add_ps(_mm_mul_ps(xCP, xU), _mm_mul_ps(yCP, yU)), _mm_mul_ps(zCP, zU)) };
+			__m128 dpV{ _mm_add_ps(_mm_add_ps(_mm_mul_ps(xCP, xV), _mm_mul_ps(yCP, yV)), _mm_mul_ps(zCP, zV)) };
+			__m128 dpW{ _mm_add_ps(_mm_add_ps(_mm_mul_ps(xCP, xW), _mm_mul_ps(yCP, yW)), _mm_mul_ps(zCP, zW)) };
+
+			for (int j{ 0 }; j < 4; ++j)
+			{
+				dpU.m128_f32[j] = glm::clamp(dpU.m128_f32[j], -*(extentsX + i + j), *(extentsX + i + j));
+
+				dpV.m128_f32[j] = glm::clamp(dpV.m128_f32[j], -*(extentsY + i + j), *(extentsY + i + j));
+
+				dpW.m128_f32[j] = glm::clamp(dpW.m128_f32[j], -*(extentsZ + i + j), *(extentsZ + i + j));
+			}
+
+			__m128 nxC{ _mm_add_ps(xC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xU, dpU), _mm_mul_ps(yU, dpU)), _mm_mul_ps(zU, dpU)))};
+			__m128 nyC{ _mm_add_ps(yC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xV, dpV), _mm_mul_ps(yV, dpV)), _mm_mul_ps(zV, dpV)))};
+			__m128 nzC{ _mm_add_ps(zC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xW, dpW), _mm_mul_ps(yW, dpW)), _mm_mul_ps(zW, dpW)))};
+
+			__m128 xD{ _mm_sub_ps(xP, nxC) };
+			__m128 yD{ _mm_sub_ps(yP, nyC) };
+			__m128 zD{ _mm_sub_ps(zP, nzC) };
+
+			__m128 d2{ _mm_add_ps(_mm_add_ps(_mm_mul_ps(xD, xD), _mm_mul_ps(yD, yD)), _mm_mul_ps(zD, zD)) };
+
+			__m128 res = _mm_cmp_ps(d2, r2, _CMP_LE_OS);
+
+			for (int j{ 0 }; j < 4; ++j)
+			{
+				if (res.m128_u32[j] && (i + j < meshCount))
+				{
+					if (passedMeshesCount != 4)
+						passedMeshes[passedMeshesCount++] = i + j;
+					else
+						passedMeshesQueue[passedMeshesQueueCount++] = i + j;
+				}
+			}
+
+			if (passedMeshesCount == 4 || i + 4 >= meshCount)
+			{
+				last:
+
+				uint8_t bitSides[4]{ 0b11111111, 0b11111111, 0b11111111, 0b11111111 };
+
+				float *xs[4]{};
+				float *ys[4]{};
+				float *zs[4]{};
+				m_rUnitsBoundingBoxes->getPointsOBB(passedMeshes[0], xs + 0, ys + 0, zs + 0);
+				m_rUnitsBoundingBoxes->getPointsOBB(passedMeshes[1], xs + 1, ys + 1, zs + 1);
+				m_rUnitsBoundingBoxes->getPointsOBB(passedMeshes[2], xs + 2, ys + 2, zs + 2);
+				m_rUnitsBoundingBoxes->getPointsOBB(passedMeshes[3], xs + 3, ys + 3, zs + 3);
+
+				__m128 pointsXs[8]{};
+				__m128 pointsYs[8]{};
+				__m128 pointsZs[8]{};
+
+				for (int j{ 0 }; j < 8; ++j)
+				{
+					pointsXs[j] = _mm_sub_ps(_mm_set_ps(xs[3][j], xs[2][j], xs[1][j], xs[0][j]), xP);
+					pointsYs[j] = _mm_sub_ps(_mm_set_ps(ys[3][j], ys[2][j], ys[1][j], ys[0][j]), yP);
+					pointsZs[j] = _mm_sub_ps(_mm_set_ps(zs[3][j], zs[2][j], zs[1][j], zs[0][j]), zP);
+				}
+
+				__m128 allYGreaterThanX{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[0], pointsXs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[1], pointsXs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[2], pointsXs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[3], pointsXs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[4], pointsXs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[5], pointsXs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[6], pointsXs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[7], pointsXs[7], _CMP_GT_OS))
+						)
+					)}; //aboveYX
+				__m128 allXGreaterThanY{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[0], pointsYs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[1], pointsYs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[2], pointsYs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[3], pointsYs[3], _CMP_GT_OS))
+						), 
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[4], pointsYs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[5], pointsYs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[6], pointsYs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[7], pointsYs[7], _CMP_GT_OS))
+						)
+					)}; //belowYX
+				__m128 allYGreaterThanZ{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[0], pointsZs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[1], pointsZs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[2], pointsZs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[3], pointsZs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[4], pointsZs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[5], pointsZs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[6], pointsZs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[7], pointsZs[7], _CMP_GT_OS))
+						)
+					) }; //aboveYZ
+				__m128 allZGreaterThanY{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[0], pointsYs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[1], pointsYs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[2], pointsYs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[3], pointsYs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[4], pointsYs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[5], pointsYs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[6], pointsYs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[7], pointsYs[7], _CMP_GT_OS))
+						)
+					) }; //belowYZ
+				__m128 allXGreaterThanZ{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[0], pointsZs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[1], pointsZs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[2], pointsZs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[3], pointsZs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[4], pointsZs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[5], pointsZs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[6], pointsZs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[7], pointsZs[7], _CMP_GT_OS))
+						)
+					) }; //aboveXZ
+				__m128 allZGreaterThanX{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[0], pointsXs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[1], pointsXs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[2], pointsXs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[3], pointsXs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[4], pointsXs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[5], pointsXs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsZs[6], pointsXs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsZs[7], pointsXs[7], _CMP_GT_OS))
+						)
+					) }; //belowXZ
+
+				__m128 negate{ _mm_set1_ps(-1.0f) };
+				for (int j{ 0 }; j < 8; ++j)
+				{
+					pointsYs[j] = _mm_mul_ps(pointsYs[j], negate);
+				}
+				__m128 allNegYGreaterThanX{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[0], pointsXs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[1], pointsXs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[2], pointsXs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[3], pointsXs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[4], pointsXs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[5], pointsXs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[6], pointsXs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[7], pointsXs[7], _CMP_GT_OS))
+						)
+					) }; //below-YX
+				__m128 allNegYSmallerThanX{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[0], pointsXs[0], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[1], pointsXs[1], _CMP_LT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[2], pointsXs[2], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[3], pointsXs[3], _CMP_LT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[4], pointsXs[4], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[5], pointsXs[5], _CMP_LT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[6], pointsXs[6], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[7], pointsXs[7], _CMP_LT_OS))
+						)
+					) }; //above-YX
+				__m128 allNegYGreaterThanZ{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[0], pointsZs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[1], pointsZs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[2], pointsZs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[3], pointsZs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[4], pointsZs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[5], pointsZs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[6], pointsZs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsYs[7], pointsZs[7], _CMP_GT_OS))
+						)
+					) }; //below-YZ
+				__m128 allNegYSmallerThanZ{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[0], pointsZs[0], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[1], pointsZs[1], _CMP_LT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[2], pointsZs[2], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[3], pointsZs[3], _CMP_LT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[4], pointsZs[4], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[5], pointsZs[5], _CMP_LT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsYs[6], pointsZs[6], _CMP_LT_OS),
+								_mm_cmp_ps(pointsYs[7], pointsZs[7], _CMP_LT_OS))
+						)
+					) }; //above-YZ
+				for (int j{ 0 }; j < 8; ++j)
+				{
+					pointsXs[j] = _mm_mul_ps(pointsXs[j], negate);
+				}
+				__m128 allNegXGreaterThanZ{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[0], pointsZs[0], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[1], pointsZs[1], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[2], pointsZs[2], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[3], pointsZs[3], _CMP_GT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[4], pointsZs[4], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[5], pointsZs[5], _CMP_GT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[6], pointsZs[6], _CMP_GT_OS),
+								_mm_cmp_ps(pointsXs[7], pointsZs[7], _CMP_GT_OS))
+						)
+					) }; //below-XZ
+				__m128 allNegXSmallerThanZ{
+					_mm_and_ps(
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[0], pointsZs[0], _CMP_LT_OS),
+								_mm_cmp_ps(pointsXs[1], pointsZs[1], _CMP_LT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[2], pointsZs[2], _CMP_LT_OS),
+								_mm_cmp_ps(pointsXs[3], pointsZs[3], _CMP_LT_OS))
+						),
+						_mm_and_ps(
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[4], pointsZs[4], _CMP_LT_OS),
+								_mm_cmp_ps(pointsXs[5], pointsZs[5], _CMP_LT_OS)),
+							_mm_and_ps(
+								_mm_cmp_ps(pointsXs[6], pointsZs[6], _CMP_LT_OS),
+								_mm_cmp_ps(pointsXs[7], pointsZs[7], _CMP_LT_OS))
+						)
+					) }; //above-XZ
+
+				for (int j{ 0 }; j < 4; ++j)
+				{
+					if (allYGreaterThanX.m128_u32[j])
+						bitSides[j] &= 0b11110110;
+					else if (allXGreaterThanY.m128_u32[j])
+						bitSides[j] &= 0b11111001;
+
+					if (allYGreaterThanZ.m128_u32[j])
+						bitSides[j] &= 0b11100111;
+					else if (allZGreaterThanY.m128_u32[j])
+						bitSides[j] &= 0b11011011;
+
+					if (allXGreaterThanZ.m128_u32[j])
+						bitSides[j] &= 0b11101101;
+					else if (allZGreaterThanX.m128_u32[j])
+						bitSides[j] &= 0b11011110;
+
+
+					if (allNegYGreaterThanX.m128_u32[j])
+						bitSides[j] &= 0b11111010;
+					else if (allNegYSmallerThanX.m128_u32[j])
+						bitSides[j] &= 0b11110101;
+
+					if (allNegYGreaterThanZ.m128_u32[j])
+						bitSides[j] &= 0b11101011;
+					else if (allNegYSmallerThanZ.m128_u32[j])
+						bitSides[j] &= 0b11010111;
+
+					if (allNegXGreaterThanZ.m128_u32[j])
+						bitSides[j] &= 0b11101110;
+					else if (allNegXSmallerThanZ.m128_u32[j])
+						bitSides[j] &= 0b11011101;
+				}
+
+				for (int j{ 0 }; j < 6; ++j)
+				{
+					for (int k{ 0 }; k < passedMeshesCount; ++k)
+					{
+						if (bitSides[k] & (1 << j))
+							drawCommandIndices[index + j].push_back(passedMeshes[k]);
+					}
+				}
+				
+				passedMeshesCount = 0;
+				for (; passedMeshesCount < passedMeshesQueueCount; ++passedMeshesCount)
+				{
+					passedMeshes[passedMeshesCount] = passedMeshesQueue[passedMeshesCount];
+				}
+				passedMeshesQueueCount = 0;
+
+				if (passedMeshesCount != 0 && i == meshCount - 1)
+					goto last;
+			}
+		}
+	}
 
 	void calcViewMatrix(uint32_t index, const glm::vec3& pos, const glm::vec3& dir)
 	{
@@ -451,10 +853,12 @@ private:
 			pcData.proj22 = m_frustumData.proj22;
 			pcData.proj32 = m_frustumData.proj32;
 
-			auto& drawIndices{ m_drawCommandIndices[m_indicesForShadowCubeMaps[i].drawsIndex] };
 			
 			for (int j{ 0 }; j < 6; ++j)
 			{
+				//
+				auto& drawIndices{ m_drawCommandIndices[m_indicesForShadowCubeMaps[i].drawsFirstIndex + j] };
+				//
 				pcData.layer = j;
 				pcData.viewMatrixIndex = m_indicesForShadowCubeMaps[i].viewMatIndex + j;
 				IndirectData* drawCommands{ reinterpret_cast<IndirectData*>(m_indirectDrawCmdData->getData()) };

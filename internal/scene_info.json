@@ -1,7 +1,7 @@
 { 
 	"models" : 
 		[
-			{"path" : "A:/Soft/gltfpack-windows/om/sponza/scene.gltf", "model index" : 0}
+			{"path" : "A:/Soft/gltfpack-windows/om/pod/scene.gltf", "model index" : 0}
 		],
 
 	"environment" : "A:/materials/distant_probes_cubemaps/beach",

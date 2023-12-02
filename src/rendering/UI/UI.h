@@ -15,6 +15,7 @@ struct UiData
     bool drawLightProxies{ true };
     bool drawSpaceLines{ false };
     bool hiZvis{ false };
+    bool showOBBs{ false };
     int hiZmipLevel{ 0 };
     uint32_t frustumCulledCount{ 0 };
     BufferMapped finalDrawCount;
@@ -229,6 +230,7 @@ public:
         if (ImGui::TreeNode("Miscellanous"))
         {
             ImGui::Checkbox("Space lines", &data.drawSpaceLines);
+            ImGui::Checkbox("OBBs", &data.showOBBs);
             ImGui::TreePop();
         }
     }

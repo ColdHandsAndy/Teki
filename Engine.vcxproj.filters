@@ -196,6 +196,14 @@
     <None Include="shaders\vert_shader.vs">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="internal\brdfLUT\brdfLUT.ktx2" />
+    <None Include="internal\BVmeshes\octasphere_1sub_M.bin">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="internal\spaceLinesMesh\space_lines_vertices.bin">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="internal\scene_info.json" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="shaders\not cmpld\shader_space_lines_vert.vert" />
@@ -219,6 +227,8 @@
     <CustomBuild Include="shaders\not cmpld\hbao_blur_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\hbao_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\taa_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\obb_gen_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\obb_gen_geom.geom" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="shaders\not cmpld\include\pbr.h">

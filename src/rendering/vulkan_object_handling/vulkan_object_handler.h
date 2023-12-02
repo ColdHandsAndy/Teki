@@ -156,6 +156,7 @@ public:
 	VkPhysicalDeviceFeatures2 deviceFeaturesToEnable{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
 		.features{
 			.imageCubeArray = VK_TRUE,
+			.geometryShader = VK_TRUE,
 			.multiDrawIndirect = VK_TRUE,
 			.drawIndirectFirstInstance = VK_TRUE,
 			.depthClamp = VK_TRUE,

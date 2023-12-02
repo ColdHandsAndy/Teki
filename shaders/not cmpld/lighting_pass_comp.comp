@@ -116,7 +116,7 @@ layout(set = 7, binding = 4) buffer ZBinData
 
 
 
-vec3 evaluateIBL(vec3 N, vec3 V, vec3 R, float NdotV, float alpha, float roughness, vec3 F0, vec3 DFG, vec3 albedo, float specAO, float diffAO)
+vec3 evaluateIBL(vec3 N, vec3 V, vec3 R, float NdotV, float alpha, float roughness, vec3 F0, vec2 DFG, vec3 albedo, float specAO, float diffAO)
 {
     vec3 Fr = max(vec3(1.0 - alpha), F0) - F0;
     vec3 kS = F0 + Fr * pow(1.0 - NdotV, 5.0);
@@ -442,7 +442,7 @@ void main()
 	data.diffAO = texture(AO, screenUV).x;
 	data.specAO = computeSpecOcclusion(NdotV, data.diffAO, data.alpha);
 	
-	vec3 DFG = texture(brdfLUT, vec2(NdotV, data.roughness)).xyz;
+	vec2 DFG = texture(brdfLUT, vec2(NdotV, data.roughness)).xy;
 	
 	vec3 IBLcontrib = evaluateIBL(N, V, R, NdotV, data.alpha, data.roughness, data.F0, DFG, data.albedo, data.specAO, data.diffAO);
 	vec3 lightsContrib = calculateLightContribution(screenCoord, linearDepth, worldPos, V, N, NdotV, data);

@@ -138,7 +138,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>dependencies\include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ShowIncludes>false</ShowIncludes>
-      <PreprocessorDefinitions>_USE_MATH_DEFINES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_USE_MATH_DEFINES;_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
@@ -165,7 +165,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>dependencies\include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ShowIncludes>false</ShowIncludes>
-      <PreprocessorDefinitions>_USE_MATH_DEFINES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_USE_MATH_DEFINES;_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
@@ -264,6 +264,10 @@
     <ClInclude Include="src\world_state\world_state.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="internal\brdfLUT\brdfLUT.ktx2" />
+    <None Include="internal\BVmeshes\octasphere_1sub_M.bin" />
+    <None Include="internal\scene_info.json" />
+    <None Include="internal\spaceLinesMesh\space_lines_vertices.bin" />
     <None Include="shaders\frag_shader.fs" />
     <CustomBuild Include="shaders\not cmpld\shader_skybox_frag.frag">
       <FileType>Document</FileType>
@@ -369,6 +373,12 @@
       <FileType>Document</FileType>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/tonemap.h;%(AdditionalInputs)</AdditionalInputs>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/tonemap.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\obb_gen_geom.geom">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\obb_gen_vert.vert">
+      <FileType>Document</FileType>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />
   </ItemGroup>

@@ -60,8 +60,8 @@
 
 #include "src/tools/tools.h"
 
-#define WINDOW_WIDTH_DEFAULT  1920u
-#define WINDOW_HEIGHT_DEFAULT 1080u
+#define WINDOW_WIDTH_DEFAULT  1280u
+#define WINDOW_HEIGHT_DEFAULT 720u
 #define HBAO_WIDTH_DEFAULT  1280u
 #define HBAO_HEIGHT_DEFAULT 720u
 
@@ -154,7 +154,7 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", true };
+	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetCursorPosCallback(window, mouseCallback);
 	glfwSetKeyCallback(window, keyCallback);
@@ -198,10 +198,7 @@ int main()
 	BufferMapped transformMatrices{ baseHostBuffer, sizeof(glm::mat4) * MAX_TRANSFORM_MATRICES };
 	BufferMapped directionalLight{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
 	VkSampler generalSampler{ createGeneralSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
-	Image brdfLUT{ TextureLoaders::loadImage(vulkanObjectHandler, cmdBufferSet, baseHostBuffer,
-											 "internal/brdfLUT/brdfLUT.exr",
-											 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
-											 4, OIIO::TypeDesc::HALF, VK_FORMAT_R16G16B16A16_SFLOAT) };
+	Image brdfLUT{ TextureLoaders::loadTexture(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "internal/brdfLUT/brdfLUT.ktx2", VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT) };
 	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
 	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance/radiance.ktx2") };
 	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance/irradiance.ktx2") };
@@ -261,7 +258,6 @@ int main()
 	transformOBBs(rUnitOBBs, staticMeshes, drawCount, modelMatrices);
 	getBoundingSpheres(indirectDrawCmdData, rUnitOBBs);
 
-
 	ResourceSet transformMatricesRS{};
 	ResourceSet materialsTexturesRS{};
 	ResourceSet shadowMapsRS{};
@@ -298,7 +294,7 @@ int main()
 		drawDataRS, pbrRS, directLightingRS, generalSampler};
 	deferredLighting.updateTileWidth(clusterer.getWidthInTiles());
 	TAA taa{ device, depthBuffer, deferredLighting.getFramebuffer(), coordinateTransformation.getResourceSet(), cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
-
+	rUnitOBBs.initVisualizationResources(device, window.getWidth(), window.getHeight(), coordinateTransformation.getResourceSet());
 	 
 	 
 	PipelineAssembler assembler{ device };
@@ -530,6 +526,9 @@ int main()
 					clusterer.cmdDrawBVs(cbPostprocessing);
 				if (renderingData.drawLightProxies)
 					clusterer.cmdDrawProxies(cbPostprocessing);
+
+				if (renderingData.showOBBs)
+					rUnitOBBs.cmdVisualizeOBBs(cbPostprocessing);
 
 				if (renderingData.drawSpaceLines)
 				{
