@@ -1,7 +1,6 @@
 #ifndef LIGHTING_TYPES_HEADER
 #define LIGHTING_TYPES_HEADER
 
-
 #include <cmath>
 #include <cstdint>
 
@@ -9,6 +8,7 @@
 
 #include "src/rendering/renderer/clusterer.h"
 #include "src/rendering/lighting/shadows.h"
+#include "src/rendering/renderer/GI.h"
 
 namespace LightTypes
 {
@@ -57,6 +57,7 @@ namespace LightTypes
 
 		inline static Clusterer* m_clusterer{ nullptr };
 		inline static ShadowCaster* m_caster{ nullptr };
+		inline static GI* m_gi{ nullptr };
 
 	protected:
 		LightBase(const glm::vec3& lightColor, float lightPower) : m_color{ lightColor }, m_power{ lightPower } {}
@@ -85,15 +86,19 @@ namespace LightTypes
 		{
 			m_caster = &caster;
 		}
+		static void assignGlobalGI(GI& gi)
+		{
+			m_gi = &gi;
+		}
 	};
 
 	class PointLight : public LightBase
 	{
 	public:
-		PointLight(const glm::vec3& worldPos, const glm::vec3& lightColor, float lightPower, float radius, uint32_t shadowMapSize = 0, float lightSize = 1.0f) : LightBase{ lightColor, lightPower }
+		PointLight(const glm::vec3& worldPos, const glm::vec3& lightColor, float lightPower, float radius, uint32_t shadowMapSize = 0, float lightSize = 1.0f, bool affectsIndirect = false) : LightBase{ lightColor, lightPower }
 		{
 			EASSERT(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
-			m_clusterer->getNewLight(&m_data, &m_boundingSphere, Clusterer::LightFormat::TYPE_POINT);
+			uint32_t lightIndex{ m_clusterer->getNewLight(&m_data, &m_boundingSphere, Clusterer::LightFormat::TYPE_POINT) };
 			m_data->position = worldPos;
 			m_data->length = radius;
 			m_data->spectrum = lightColor * lightPower;
@@ -106,6 +111,11 @@ namespace LightTypes
 				m_data->lightSize = lightSize;
 				m_hasShadow = true;
 				m_caster->m_drawCommandIndices.resize(m_caster->m_drawCommandIndices.size() + 6);
+
+				if (affectsIndirect)
+				{
+					m_gi->addLightToInject(lightIndex);
+				}
 			}
 			else
 			{
@@ -152,11 +162,11 @@ namespace LightTypes
 	class SpotLight : public LightBase
 	{
 	public:
-		SpotLight(const glm::vec3& worldPos, const glm::vec3& lightColor, float lightPower, float length, const glm::vec3& lightDir, float falloffAngle, float cutoffAngle, uint32_t shadowMapSize = 0, float lightSize = 1.0f)
+		SpotLight(const glm::vec3& worldPos, const glm::vec3& lightColor, float lightPower, float length, const glm::vec3& lightDir, float falloffAngle, float cutoffAngle, uint32_t shadowMapSize = 0, float lightSize = 1.0f, bool affectsIndirect = false)
 			: LightBase{ lightColor, lightPower }
 		{
 			EASSERT(m_clusterer != nullptr, "App", "Global Clusterer has not been assigned.");
-			m_clusterer->getNewLight(&m_data, &m_boundingSphere, Clusterer::LightFormat::TYPE_SPOT);
+			uint32_t lightIndex{ m_clusterer->getNewLight(&m_data, &m_boundingSphere, Clusterer::LightFormat::TYPE_SPOT) };
 			m_data->position = worldPos;
 			m_data->spectrum = lightColor * lightPower;
 			m_data->cutoffCos = std::cos(std::min(cutoffAngle, static_cast<float>(M_PI_2)));
@@ -184,6 +194,11 @@ namespace LightTypes
 				m_data->lightSize = lightSize * (m_data->cutoffCos / std::sqrt(1 - m_data->cutoffCos * m_data->cutoffCos));
 				m_hasShadow = true;
 				m_caster->m_drawCommandIndices.emplace_back();
+
+				if (affectsIndirect)
+				{
+					m_gi->addLightToInject(lightIndex);
+				}
 			}
 			else
 			{

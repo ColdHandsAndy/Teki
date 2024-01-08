@@ -1,0 +1,35 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive						: enable
+
+#include "gi_data.h"
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, rgba16ui) uniform readonly uimage3D EmissionMetRoughVoxelMap;
+layout(set = 1, binding = 0, rgba16ui) uniform uimage3D DynamicEmissionVoxelMap;
+
+void main()
+{
+	ivec3 voxCoord = ivec3(gl_GlobalInvocationID);
+	
+	
+	float metalness;
+	float roughness;
+	
+	
+	uvec4 emissionMetRoughData = imageLoad(EmissionMetRoughVoxelMap, voxCoord);
+	vec3 staticEmission;
+	unpackEmissionVM(staticEmission, metalness, roughness, emissionMetRoughData);
+	
+	vec3 dynamicEmission;
+	unpackEmissionVM(dynamicEmission, metalness, roughness, imageLoad(DynamicEmissionVoxelMap, voxCoord));
+	
+	vec3 emission = staticEmission + dynamicEmission;
+		
+	uint emRG = packHalf2x16(emission.xy);
+	uint emB = packHalf2x16(vec2(emission.z, 0.0));
+	
+	uvec4 result = uvec4(emRG & 0xFFFF, (emRG >> 16) & 0xFFFF, emB & 0xFFFF, emissionMetRoughData.w);
+	imageStore(DynamicEmissionVoxelMap, voxCoord, result);
+}

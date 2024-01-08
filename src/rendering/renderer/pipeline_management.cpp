@@ -453,37 +453,37 @@ void Pipeline::cmdBindResourceSets(VkCommandBuffer cb)
 		EASSERT(currentSet.getCopiesCount() > 1 ? (currentResIndex < currentSet.getCopiesCount()) : true, "App", "Resource index is bigger than number of resources in a resource set")
 
 			uint32_t resourceDescBufferIndex{ currentSet.getDescBufferIndex() };
-		std::vector<uint32_t>::iterator beginIter{ ResourceSet::m_descBuffersBindings.begin() };
-		std::vector<uint32_t>::iterator indexIter{ std::find(beginIter, ResourceSet::m_descBuffersBindings.end(), resourceDescBufferIndex) };
-		if (indexIter == ResourceSet::m_descBuffersBindings.end())
+		std::vector<uint32_t>::iterator beginIter{ ResourceSet::m_descManager->m_descBuffersBindings.begin() };
+		std::vector<uint32_t>::iterator indexIter{ std::find(beginIter, ResourceSet::m_descManager->m_descBuffersBindings.end(), resourceDescBufferIndex) };
+		if (indexIter == ResourceSet::m_descManager->m_descBuffersBindings.end())
 		{
-			ResourceSet::m_descBuffersBindings.push_back(resourceDescBufferIndex);
-			beginIter = ResourceSet::m_descBuffersBindings.begin();
-			indexIter = ResourceSet::m_descBuffersBindings.end() - 1;
+			ResourceSet::m_descManager->m_descBuffersBindings.push_back(resourceDescBufferIndex);
+			beginIter = ResourceSet::m_descManager->m_descBuffersBindings.begin();
+			indexIter = ResourceSet::m_descManager->m_descBuffersBindings.end() - 1;
 
-			ResourceSet::m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
-			ResourceSet::m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
+			ResourceSet::m_descManager->m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
+			ResourceSet::m_descManager->m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
 		}
 		else
 		{
-			ResourceSet::m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
-			ResourceSet::m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
+			ResourceSet::m_descManager->m_bufferIndicesToBind.push_back(static_cast<uint32_t>(indexIter - beginIter));
+			ResourceSet::m_descManager->m_offsetsToSet.push_back(currentSet.getDescriptorSetOffset(currentResIndex));
 		}
 	}
-	uint32_t bufferCount{ static_cast<uint32_t>(ResourceSet::m_descBuffersBindings.size()) };
+	uint32_t bufferCount{ static_cast<uint32_t>(ResourceSet::m_descManager->m_descBuffersBindings.size()) };
 
 	VkDescriptorBufferBindingInfoEXT* bindingInfos{ new VkDescriptorBufferBindingInfoEXT[bufferCount] };
 	for (uint32_t i{ 0 }; i < bufferCount; ++i)
 	{
 		bindingInfos[i].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_BUFFER_BINDING_INFO_EXT;
 		bindingInfos[i].pNext = nullptr;
-		bindingInfos[i].address = ResourceSet::m_descriptorBuffers[ResourceSet::m_descBuffersBindings[i]].deviceAddress;
-		switch (ResourceSet::m_descriptorBuffers[ResourceSet::m_descBuffersBindings[i]].type)
+		bindingInfos[i].address = ResourceSet::m_descManager->m_descriptorBuffers[ResourceSet::m_descManager->m_descBuffersBindings[i]].deviceAddress;
+		switch (ResourceSet::m_descManager->m_descriptorBuffers[ResourceSet::m_descManager->m_descBuffersBindings[i]].type)
 		{
-		case ResourceSet::RESOURCE_TYPE:
+		case DescriptorBufferType::RESOURCE_TYPE:
 			bindingInfos[i].usage = VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
 			break;
-		case ResourceSet::SAMPLER_TYPE:
+		case DescriptorBufferType::SAMPLER_TYPE:
 			bindingInfos[i].usage = VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT | VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT;
 			break;
 		default:
@@ -492,11 +492,11 @@ void Pipeline::cmdBindResourceSets(VkCommandBuffer cb)
 	}
 
 	lvkCmdBindDescriptorBuffersEXT(cb, bufferCount, bindingInfos);
-	lvkCmdSetDescriptorBufferOffsetsEXT(cb, m_bindPoint, m_pipelineLayoutHandle, 0, ResourceSet::m_offsetsToSet.size(), ResourceSet::m_bufferIndicesToBind.data(), ResourceSet::m_offsetsToSet.data());
+	lvkCmdSetDescriptorBufferOffsetsEXT(cb, m_bindPoint, m_pipelineLayoutHandle, 0, ResourceSet::m_descManager->m_offsetsToSet.size(), ResourceSet::m_descManager->m_bufferIndicesToBind.data(), ResourceSet::m_descManager->m_offsetsToSet.data());
 
-	ResourceSet::m_descBuffersBindings.clear();
-	ResourceSet::m_bufferIndicesToBind.clear();
-	ResourceSet::m_offsetsToSet.clear();
+	ResourceSet::m_descManager->m_descBuffersBindings.clear();
+	ResourceSet::m_descManager->m_bufferIndicesToBind.clear();
+	ResourceSet::m_descManager->m_offsetsToSet.clear();
 	delete[] bindingInfos;
 }
 

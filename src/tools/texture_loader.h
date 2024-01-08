@@ -33,8 +33,7 @@ inline ImageListContainer::ImageListContainerIndices loadTexture(const VulkanObj
 		if (needsTranscoding)
 			EASSERT(ktxTexture2_TranscodeBasis(textureKTX, KTX_TTF_BC7_RGBA, 0) == KTX_SUCCESS, "ktx", "Transcoding failed.");
 
-		//VkFormat format{ static_cast<VkFormat>(textureKTX->vkFormat) };
-		VkFormat format{ VK_FORMAT_BC7_UNORM_BLOCK };
+		VkFormat format{ static_cast<VkFormat>(textureKTX->vkFormat) };
 		uint64_t totalByteSize{ textureKTX->dataSize };
 		uint32_t mipLevelCount{ textureKTX->numLevels };
 		uint32_t width{ textureKTX->baseWidth };

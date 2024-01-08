@@ -1,0 +1,72 @@
+#version 460
+
+#define SIGMA 10.0
+#define BSIGMA 1.0
+#define MSIZE 7
+#define OFFSET ((MSIZE - 1) / 2)
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConsts 
+{
+	ivec2 imgRes;
+} pushConstants;
+
+layout(set = 0, binding = 0, r11f_g11f_b10f) uniform readonly image2D imgInput;
+layout(set = 0, binding = 1, r11f_g11f_b10f) uniform writeonly image2D imgOutput;
+
+float normpdf(float x, float sigma)
+{
+	return 0.39894*exp(-0.5*x*x/(sigma*sigma))/sigma;
+}
+
+float normpdf3(vec3 v, float sigma)
+{
+	return 0.39894*exp(-0.5*dot(v,v)/(sigma*sigma))/sigma;
+}
+
+void main() 
+{
+	ivec2 screenCoord = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+	if (any(greaterThanEqual(screenCoord, pushConstants.imgRes)))
+		return;
+	
+	ivec2 sampleCenterCoord = screenCoord;
+	
+	ivec2 offsClamped = clamp(pushConstants.imgRes - ivec2(1, 1) - sampleCenterCoord, -OFFSET, OFFSET);
+
+	vec3 center = imageLoad(imgInput, sampleCenterCoord).rgb;
+	
+	const int kSize = OFFSET;
+	vec3 result = vec3(0.0);
+	
+	//Precomp for SIGMA 10
+	const float kernel[MSIZE] = 
+		float[MSIZE](
+		0.038138565, 0.039104044, 0.039695028, 
+		0.039894000, 
+		0.039695028, 0.039104044, 0.038138565);
+	/*float kernel[MSIZE];
+	
+	for (int j = 0; j <= kSize; ++j)
+	{
+		kernel[kSize+j] = kernel[kSize-j] = normpdf(float(j), SIGMA);
+	}*/
+
+	vec3 cc;
+	float factor;
+	float Z = 0.0;
+	float bZ = 1.0 / normpdf(0.0, BSIGMA);
+	for (int i = -OFFSET; i <= offsClamped.x; ++i)
+	{
+		for (int j = -OFFSET; j <= offsClamped.y; ++j)
+		{
+			cc = imageLoad(imgInput, sampleCenterCoord + ivec2(i, j)).rgb;
+			factor = normpdf3(cc - center, BSIGMA) * bZ * kernel[kSize+j] * kernel[kSize+i];
+			Z += factor;
+			result += factor * cc;
+		}
+	}
+	
+	imageStore(imgOutput, screenCoord, vec4(result / Z, 0.0));
+}

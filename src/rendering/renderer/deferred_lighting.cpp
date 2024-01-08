@@ -7,9 +7,11 @@ DeferredLighting::DeferredLighting(VkDevice device, uint32_t width, uint32_t hei
 	const ResourceSet& transformMatricesRS,
 	const ResourceSet& materialsTexturesRS,
 	const ResourceSet& shadowMapsRS,
-	const ResourceSet& skyboxLightingRS,
+	const ResourceSet& indirectDiffiseLightingRS,
+	const ResourceSet& indirectSpecularLightingRS,
+	const ResourceSet& indirectLightingMetadataRS,
 	const ResourceSet& drawDataRS,
-	const ResourceSet& pbrRS,
+	const ResourceSet& BRDFLUTRS,
 	const ResourceSet& directLightingRS,
 	VkSampler generalSampler)
 	: m_UV{ device, VK_FORMAT_R32_UINT, width, height, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT },
@@ -48,21 +50,30 @@ DeferredLighting::DeferredLighting(VkDevice device, uint32_t width, uint32_t hei
 	VkDescriptorImageInfo drawIDImageInfo{ .imageView = m_drawID.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	VkDescriptorSetLayoutBinding depthBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo depthImageInfo{ .sampler = generalSampler, .imageView = m_depthBuffer.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding framebufferBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorSetLayoutBinding aoBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo aoImageInfo{ .sampler = generalSampler, .imageView = hbao.getAO().getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+	VkDescriptorSetLayoutBinding framebufferBinding{ .binding = 5, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo framebufferImageInfo{ .imageView = m_outputFramebuffer.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
 	m_resSet.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-		std::array{ uvBinding, tangFrameBinding, drawIDBinding, depthBinding, framebufferBinding },
+		std::array{ uvBinding, tangFrameBinding, drawIDBinding, depthBinding, aoBinding, framebufferBinding },
 		std::array<VkDescriptorBindingFlags, 0>{},
 		std::vector<std::vector<VkDescriptorDataEXT>>{
 			std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &uvImageInfo} },
 			std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &tangFrameImageInfo} },
 			std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &drawIDImageInfo} },
 			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &depthImageInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &aoImageInfo} },
 			std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &framebufferImageInfo} } },
 		true);
 
 
-	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSets1{ viewprojRS, m_resSet, materialsTexturesRS, shadowMapsRS, skyboxLightingRS, drawDataRS, pbrRS, directLightingRS };
+	std::array<std::reference_wrapper<const ResourceSet>, 10> resourceSets1{
+		viewprojRS, m_resSet, 
+		materialsTexturesRS, shadowMapsRS, 
+		indirectDiffiseLightingRS, indirectSpecularLightingRS, indirectLightingMetadataRS,
+		drawDataRS, 
+		BRDFLUTRS, 
+		directLightingRS };
 	m_lightingComputePipeline.initializaCompute(device, "shaders/cmpld/lighting_pass_comp.spv", resourceSets1,
 		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcData) }} });
 
@@ -190,8 +201,10 @@ void DeferredLighting::cmdPassDrawToUVBuffer(VkCommandBuffer cb, const Culling& 
 		vkCmdEndRendering(cb);
 	}
 
-void DeferredLighting::cmdDispatchLightingCompute(VkCommandBuffer cb)
+void DeferredLighting::cmdDispatchLightingCompute(VkCommandBuffer cb, uint32_t indirectCurrentSet)
 {
+	constexpr uint32_t indirectResourceSetIndex{ 4 };
+	m_lightingComputePipeline.setResourceInUse(indirectResourceSetIndex, indirectCurrentSet);
 	m_lightingComputePipeline.cmdBindResourceSets(cb);
 	m_lightingComputePipeline.cmdBind(cb);
 	vkCmdPushConstants(cb, m_lightingComputePipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_pcData), &m_pcData);

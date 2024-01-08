@@ -1,0 +1,118 @@
+#version 460
+
+#define FAR_DEPTH 10000.0
+
+#extension GL_GOOGLE_include_directive						: enable
+
+#include "pbr.h"
+#include "gi_data.h"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConsts
+{
+	vec3 voxelmapOriginWorld;
+	float injectionScale;
+	vec3 spectrum;
+	float voxelmapScale;
+	vec3 lightDir;
+	float cutoffCos;
+	float falloffCos;
+	float lightLength;
+	float fovScale;
+	uint lightID;
+	uint voxelmapResolution;
+	uint listIndex;
+	uint layerIndex;
+	uint viewmatIndex;
+	uint type;
+} pushConstants;
+
+
+layout(set = 0, binding = 0) uniform texture2DArray shadowMapArray[64];
+layout(set = 0, binding = 1) uniform texture2DArray shadowCubeMapArray[64];
+layout(set = 0, binding = 2) uniform sampler samplerLinear;
+layout(set = 0, binding = 3) uniform sampler samplerNearest;
+layout(set = 0, binding = 4) buffer ShadowViewMatrices
+{
+	mat4 matrices[];
+} shadowViewMatrices;
+
+layout(set = 1, binding = 0, rgba8ui) uniform readonly uimage3D AlbedoNormalVoxelMap;
+layout(set = 2, binding = 0, rgba16ui) uniform uimage3D DynamicEmissionVoxelMap;
+
+const uint TYPE_POINT = 0;
+const uint TYPE_SPOT = 1;
+
+void main()
+{
+	//Get depth texture coordinate with InjectionScale, LocalInvocationIndex, WorkGroupID
+	vec2 coord = (vec2(gl_LocalInvocationID) + vec2(0.5)) * (1.0 / 8.0) * pushConstants.injectionScale + vec2(gl_WorkGroupID) * pushConstants.injectionScale;
+	
+	//Sample depth from approroiate texture
+	vec3 layerCoord = vec3(coord, float(pushConstants.layerIndex) + 0.1);
+	float linDepth;
+	if (pushConstants.type == TYPE_POINT)
+		linDepth = texture(sampler2DArray(shadowCubeMapArray[pushConstants.listIndex], samplerNearest), layerCoord).x;
+	else
+		linDepth = texture(sampler2DArray(shadowMapArray[pushConstants.listIndex], samplerNearest), layerCoord).x;
+
+	//Check if depth equals far value
+	if (linDepth == FAR_DEPTH)
+		return;
+	
+	//Calculate CastPosView from depth
+	vec3 castPosView = vec3((coord * 2.0 - vec2(1.0)) * linDepth * pushConstants.fovScale, linDepth);
+	castPosView.y = -castPosView.y;
+	
+	//Transform CastPosView to CastPosWorld
+	mat4 viewmat = shadowViewMatrices.matrices[pushConstants.viewmatIndex];
+	mat3 inverseRotation = transpose(mat3(viewmat));
+	mat4 inverseViewmat = inverse(viewmat);
+	vec3 lightPos = vec3(inverseViewmat[3]);
+
+	vec3 castPosWorld = vec3(inverseViewmat * vec4(castPosView, 1.0));
+	
+	//Check if CastPos is inside the voxelmap
+	ivec3 voxelmapCoord = ivec3((castPosWorld - pushConstants.voxelmapOriginWorld) * pushConstants.voxelmapScale);
+	
+	if (any(lessThan(voxelmapCoord, ivec3(0))) || any(greaterThanEqual(voxelmapCoord, ivec3(pushConstants.voxelmapResolution))))
+		return;
+		
+	//Sample albedo and normal from the voxelmap
+	vec3 albedo;
+	vec3 N;
+	unpackMaterialVM(albedo, N, imageLoad(AlbedoNormalVoxelMap, voxelmapCoord));
+	
+	//Calculate diffuse reflection
+	float attenuation;
+	vec3 L = lightPos - castPosWorld;
+	float dist = length(L);
+	L /= dist;
+	
+	if (pushConstants.type == TYPE_POINT)
+	{
+		float sqrtNom = clamp(1 - pow(dist / pushConstants.lightLength, 4), 0.0, 1.0);
+		attenuation = (sqrtNom * sqrtNom) / (dist * dist + 1.0);
+	}
+	else
+	{
+		float sqrtNom = clamp(1 - pow(dist / pushConstants.lightLength, 4), 0.0, 1.0);
+		attenuation = (sqrtNom * sqrtNom) / (dist * dist + 1.0);
+		attenuation *= clamp((-dot(pushConstants.lightDir, L) - pushConstants.cutoffCos) / (pushConstants.falloffCos - pushConstants.cutoffCos), 0.0, 1.0);
+	}
+
+	float cosScale = clamp(dot(N, L), 0.0, 1.0);
+	vec3 diffuseReflection = albedo * Fr_LambertDiffuse() * pushConstants.spectrum * attenuation * cosScale;
+	
+	vec3 currentDiffuse;
+	uint lightID;
+	unpackInjectedEmissionVM(currentDiffuse, lightID, imageLoad(DynamicEmissionVoxelMap, voxelmapCoord));
+	if (pushConstants.lightID != lightID) //In the future for dynamic emissive objects pack UINT16_MAX into the "w"
+		diffuseReflection += currentDiffuse;
+
+	//Inject
+	uint RG = packHalf2x16(diffuseReflection.xy);
+	uint B = packHalf2x16(vec2(diffuseReflection.z, 0.0));
+	imageStore(DynamicEmissionVoxelMap, voxelmapCoord, uvec4(RG & 0xFFFF, (RG >> 16) & 0xFFFF, B & 0xFFFF, pushConstants.lightID));
+}

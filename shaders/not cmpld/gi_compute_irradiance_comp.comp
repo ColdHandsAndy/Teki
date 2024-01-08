@@ -1,0 +1,90 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive						: enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8     : enable
+
+#include "gi_data.h"
+
+layout(local_size_x = DDGI_PROBE_LIGHT_SIDE_SIZE, local_size_y = DDGI_PROBE_LIGHT_SIDE_SIZE, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, r11f_g11f_b10f) uniform readonly image2D RadianceProbes;
+
+layout(set = 1, binding = 0, r11f_g11f_b10f) uniform readonly image2D IrradianceProbesHistory;
+layout(set = 1, binding = 1, r11f_g11f_b10f) uniform writeonly image2D IrradianceProbesNew;
+
+layout(set = 2, binding = 0) uniform RayDirections
+{
+	vec3 rayDirs[DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE];
+} rayDirections;
+
+vec3 getNormalOctohedral(ivec2 probeInnerCoord)
+{
+	vec2 octC = (vec2(probeInnerCoord) + vec2(0.5)) * (2.0 / DDGI_PROBE_LIGHT_SIDE_SIZE) - 1.0;
+	return decodeOctohedralNegOneToPosOne(octC);
+}
+
+//temp solution before edge copy pass
+void copyEdges(vec3 value, ivec2 probeInnerCoord, ivec2 probeOuterCoord)
+{
+	bool firstRow = probeInnerCoord.y == 0;
+	bool lastRow = probeInnerCoord.y == DDGI_PROBE_LIGHT_SIDE_SIZE - 1;
+	bool firstCol = probeInnerCoord.x == 0;
+	bool lastCol = probeInnerCoord.x == DDGI_PROBE_LIGHT_SIDE_SIZE - 1;
+
+	if (firstRow)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y - 1), vec4(value, 0.0));
+	else if (lastRow)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y + 1), vec4(value, 0.0));
+	if (firstCol)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - 1, probeOuterCoord.y + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value, 0.0));
+	else if (lastCol)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + 1, probeOuterCoord.y + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value, 0.0));
+	
+	if (firstRow && firstCol)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+	else if (firstRow && lastCol)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+	else if (lastRow && firstCol)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+	else if (lastRow && lastCol)
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+}
+
+void main()
+{
+	ivec2 borderOffset = ivec2(gl_WorkGroupID.x * 2 + 1, gl_WorkGroupID.y * 2 + 1);
+	ivec2 probeFirstCoord = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y) * DDGI_PROBE_LIGHT_SIDE_SIZE;
+	ivec2 probeOuterCoord = borderOffset + ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+	ivec2 probeInnerCoord = ivec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y);
+	
+	int invocationIndex = probeInnerCoord.y * DDGI_PROBE_LIGHT_SIDE_SIZE + probeInnerCoord.x;
+	bool positiveDirInvocation = invocationIndex < 32;
+			
+	vec3 irradianceN = getNormalOctohedral(probeInnerCoord);
+			
+	vec4 irradiance_weight_sums = vec4(0.0);
+		
+	for (int y = 0; y < DDGI_PROBE_LIGHT_SIDE_SIZE; ++y)
+	{
+		for (int x = 0; x < DDGI_PROBE_LIGHT_SIDE_SIZE; ++x)
+		{
+			vec3 sampleDir = rayDirections.rayDirs[y * DDGI_PROBE_LIGHT_SIDE_SIZE + x];
+			
+			vec3 radiance = imageLoad(RadianceProbes, probeFirstCoord + ivec2(x, y)).xyz;
+			float weight = max(0.0, dot(irradianceN, sampleDir));
+			
+			irradiance_weight_sums += vec4(radiance * weight, weight);
+		}
+	}
+	
+	const float smallestDivisor = 1e-9 * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE;
+	vec3 irradiance = irradiance_weight_sums.xyz / max(irradiance_weight_sums.w, smallestDivisor);
+
+	irradiance = pow(irradiance, vec3(DDGI_INVERSE_IRRADIANCE_GAMMA));
+
+	irradiance = mix(imageLoad(IrradianceProbesHistory, probeOuterCoord).xyz, irradiance, vec3(DDGI_HYSTERESIS));
+
+	imageStore(IrradianceProbesNew, probeOuterCoord, vec4(irradiance, 0.0));
+	
+	copyEdges(irradiance, probeInnerCoord, probeOuterCoord);
+}

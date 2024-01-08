@@ -1,0 +1,52 @@
+#version 460
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConsts 
+{
+	vec3 directionZ;
+	int resolution;
+	vec3 directionX;
+	uint indexROM;
+	vec3 directionY;
+	uint pad;
+	vec3 originROMInLocalBOM;
+} pushConstants;
+
+layout(set = 0, binding = 0, r32ui) uniform readonly uimage3D BOM;
+layout(set = 1, binding = 0, r32ui) uniform writeonly uimage3D ROMA[32];
+
+void fillROMA(ivec3 storeCoord, vec3 coordBOM, vec3 zDir)
+{
+	const uint packingX = 4;
+	const uint packingY = 2;
+	const uint packingZ = 4;
+
+	uint occupancy = 0;
+	
+	for (int i = 0; i < 32; ++i)
+	{
+		if (all(lessThanEqual(coordBOM, vec3(pushConstants.resolution))) && all(greaterThanEqual(coordBOM, vec3(0.0))))
+		{
+			if (bool(imageLoad(BOM, ivec3(coordBOM.x / packingX, coordBOM.y / packingY, coordBOM.z / packingZ)).x & (1 << ((int(coordBOM.x) % packingX) * 4) << ((int(coordBOM.y) % packingY) * 16) << ((int(coordBOM.z) % packingZ)))))
+			{
+				occupancy |= 1 << i;
+			}
+		}
+		coordBOM += zDir;
+	}
+	
+	imageStore(ROMA[pushConstants.indexROM], storeCoord, uvec4(occupancy));
+}
+
+void main()
+{
+	ivec3 storeCoord = ivec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+	
+	vec3 startCoordBOM = pushConstants.originROMInLocalBOM
+		+ pushConstants.directionX * storeCoord.x
+		+ pushConstants.directionY * storeCoord.y
+		+ pushConstants.directionZ * storeCoord.z * 32;
+		
+	fillROMA(storeCoord, startCoordBOM, pushConstants.directionZ);
+}

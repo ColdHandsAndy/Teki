@@ -6,26 +6,21 @@
 //Header from the newer version to support dynamic rendering.
 #include "dependencies/include/imgui_impl_vulkan.h"
 
+#include <LegitProfiler/ImGuiProfilerRenderer.h>
+
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
 #include "src/rendering/renderer/command_management.h"
+#include "src/rendering/lighting/light_types.h"
 
-struct UiData
-{
-    bool drawBVs{ false };
-    bool drawLightProxies{ true };
-    bool drawSpaceLines{ false };
-    bool hiZvis{ false };
-    bool showOBBs{ false };
-    int hiZmipLevel{ 0 };
-    uint32_t frustumCulledCount{ 0 };
-    BufferMapped finalDrawCount;
-};
+#include "src/rendering/UI/UIData.h"
 
 class UI
 {
 private:
     VkDevice m_device{};
     VkDescriptorPool m_descPool{};
+
+    ImGuiUtils::ProfilersWindow m_profilersWindow{};
 
     GLFWwindow* m_window{};
 
@@ -148,7 +143,7 @@ public:
             ImGui::TreePop();
         }
     }
-    void lightSettings(UiData& data, LightTypes::PointLight& pLight, LightTypes::SpotLight& sLight)
+    void lightSettings(UiData& data, std::span<LightTypes::PointLight> pointLights, std::span<LightTypes::SpotLight> spotLights)
     {
         if (ImGui::TreeNode("Light settings"))
         {
@@ -157,6 +152,8 @@ public:
             if (ImGui::TreeNode("Spot settings"))
             {
                 {
+                    static int index{ 0 };
+                    bool i = ImGui::SliderInt("Light index", &index, 0, spotLights.size() - 1);
                     static glm::vec3 pos{ 0.0f };
                     bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
                     static glm::vec2 anglesAB{ 0.0f };
@@ -166,14 +163,16 @@ public:
                     bool l = ImGui::SliderFloat("Length", &length, 0.0f, 50.0f);
                     static glm::vec3 color{};
                     bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
-                    float power{ 1.0f };
-                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 30000.0f);
+                    static float power{ 1.0f };
+                    bool pw = ImGui::DragFloat("Power", &power, 5.0f, 0.0f, 30000.0f);
                     static float lightSize{ 0.1f };
                     bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
                     static float cutoff{ 22.5f };
                     bool cf = ImGui::SliderFloat("Cutoff", &cutoff, 0.0f, 90.0f);
                     static float falloff{ 20.0f };
                     bool ff = ImGui::SliderFloat("Falloff", &falloff, 0.0f, 90.0f);
+
+                    LightTypes::SpotLight& sLight{ spotLights[index] };
 
                     if (s)
                         sLight.changeSize(lightSize);
@@ -197,16 +196,20 @@ public:
             if (ImGui::TreeNode("Point settings"))
             {
                 {
+                    static int index{ 0 };
+                    bool i = ImGui::SliderInt("Light index", &index, 0, pointLights.size() - 1);
                     static glm::vec3 pos{};
                     bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
                     static float radius{};
                     bool r = ImGui::SliderFloat("Radius", &radius, 0.0f, 50.0f);
                     static glm::vec3 color{};
                     bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
-                    float power{ 1.0f };
-                    bool pw = ImGui::SliderFloat("Power", &power, 0.0f, 30000.0f);
+                    static float power{ 1.0f };
+                    bool pw = ImGui::DragFloat("Power", &power, 5.0f, 0.0f, 30000.0f);
                     static float lightSize{};
                     bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
+
+                    LightTypes::PointLight& pLight{ pointLights[index] };
 
                     if (pw)
                         pLight.changePower(power);
@@ -225,12 +228,45 @@ public:
             ImGui::TreePop();
         }
     }
+    void profiler(UiData& data, bool profile)
+    {
+        if (profile)
+        {
+            m_profilersWindow.gpuGraph.LoadFrameData(data.gpuTasks.data(), data.gpuTasks.size());
+            m_profilersWindow.Render();
+        }
+    }
     void misc(UiData& data)
     {
-        if (ImGui::TreeNode("Miscellanous"))
+        if (ImGui::TreeNode("Debug"))
         {
-            ImGui::Checkbox("Space lines", &data.drawSpaceLines);
+            ImGui::Checkbox("Space grid", &data.drawSpaceGrid);
             ImGui::Checkbox("OBBs", &data.showOBBs);
+            if (ImGui::TreeNode("Voxel debug"))
+            {
+                ImGui::RadioButton("None", &data.voxelDebug, UiData::NONE_VOXEL_DEBUG);
+                ImGui::RadioButton("Show BOM", &data.voxelDebug, UiData::BOM_VOXEL_DEBUG);
+                ImGui::RadioButton("Show ROM", &data.voxelDebug, UiData::ROM_VOXEL_DEBUG);
+                if (data.voxelDebug == 1)
+                {
+                   ImGui::SliderInt("ROM index", &data.indexROM, 0, data.countROM - 1);
+                }
+                ImGui::RadioButton("Show albedo voxelmap", &data.voxelDebug, UiData::ALBEDO_VOXEL_DEBUG);
+                ImGui::RadioButton("Show metalness voxelmap", &data.voxelDebug, UiData::METALNESS_VOXEL_DEBUG);
+                ImGui::RadioButton("Show roughness voxelmap", &data.voxelDebug, UiData::ROUGHNESS_VOXEL_DEBUG);
+                ImGui::RadioButton("Show emission voxelmap", &data.voxelDebug, UiData::EMISSION_VOXEL_DEBUG);
+
+                ImGui::TreePop();
+            }
+            if (ImGui::TreeNode("Probe debug"))
+            {
+                ImGui::RadioButton("None", &data.probeDebug, UiData::NONE_PROBE_DEBUG);
+                ImGui::RadioButton("Show radiance", &data.probeDebug, UiData::RADIANCE_PROBE_DEBUG);
+                ImGui::RadioButton("Show irradiance", &data.probeDebug, UiData::IRRADIANCE_PROBE_DEBUG);
+                ImGui::RadioButton("Show visibility", &data.probeDebug, UiData::VISIBILITY_PROBE_DEBUG);
+
+                ImGui::TreePop();
+            }
             ImGui::TreePop();
         }
     }

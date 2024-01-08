@@ -155,7 +155,6 @@ public:
 					.drawsFirstIndex = static_cast<uint32_t>(drawCommandVectorIndex),
 					.viewMatIndex = static_cast<uint32_t>(light.shadowMatrixIndex) });
 				glm::vec4 boundingSphere{ m_clusterer->m_boundingSpheres[index] };
-				//cullMeshes(glm::vec3{boundingSphere}, boundingSphere.w, m_drawCommandIndices[a++]);
 				cullMeshesPoint(glm::vec3{ boundingSphere }, boundingSphere.w, m_drawCommandIndices, drawCommandVectorIndex);
 				drawCommandVectorIndex += 6;
 			}
@@ -276,9 +275,9 @@ private:
 				dpW.m128_f32[j] = glm::clamp(dpW.m128_f32[j], -*(extentsZ + i + j), *(extentsZ + i + j));
 			}
 
-			xC = _mm_add_ps(xC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xU, dpU), _mm_mul_ps(yU, dpU)), _mm_mul_ps(zU, dpU)));
-			yC = _mm_add_ps(yC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xV, dpV), _mm_mul_ps(yV, dpV)), _mm_mul_ps(zV, dpV)));
-			zC = _mm_add_ps(zC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xW, dpW), _mm_mul_ps(yW, dpW)), _mm_mul_ps(zW, dpW)));
+			xC = _mm_add_ps(xC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xU, dpU), _mm_mul_ps(xV, dpV)), _mm_mul_ps(xW, dpW)));
+			yC = _mm_add_ps(yC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(yU, dpU), _mm_mul_ps(yV, dpV)), _mm_mul_ps(yW, dpW)));
+			zC = _mm_add_ps(zC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(zU, dpU), _mm_mul_ps(zV, dpV)), _mm_mul_ps(zW, dpW)));
 
 			__m128 xD{_mm_sub_ps(xP, xC)};
 			__m128 yD{_mm_sub_ps(yP, yC)};
@@ -354,9 +353,9 @@ private:
 				dpW.m128_f32[j] = glm::clamp(dpW.m128_f32[j], -*(extentsZ + i + j), *(extentsZ + i + j));
 			}
 
-			__m128 nxC{ _mm_add_ps(xC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xU, dpU), _mm_mul_ps(yU, dpU)), _mm_mul_ps(zU, dpU)))};
-			__m128 nyC{ _mm_add_ps(yC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xV, dpV), _mm_mul_ps(yV, dpV)), _mm_mul_ps(zV, dpV)))};
-			__m128 nzC{ _mm_add_ps(zC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xW, dpW), _mm_mul_ps(yW, dpW)), _mm_mul_ps(zW, dpW)))};
+			__m128 nxC{ _mm_add_ps(xC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(xU, dpU), _mm_mul_ps(xV, dpV)), _mm_mul_ps(xW, dpW))) };
+			__m128 nyC{ _mm_add_ps(yC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(yU, dpU), _mm_mul_ps(yV, dpV)), _mm_mul_ps(yW, dpW))) };
+			__m128 nzC{ _mm_add_ps(zC, _mm_add_ps(_mm_add_ps(_mm_mul_ps(zU, dpU), _mm_mul_ps(zV, dpV)), _mm_mul_ps(zW, dpW))) };
 
 			__m128 xD{ _mm_sub_ps(xP, nxC) };
 			__m128 yD{ _mm_sub_ps(yP, nyC) };
@@ -691,7 +690,7 @@ private:
 				}
 				passedMeshesQueueCount = 0;
 
-				if (passedMeshesCount != 0 && i == meshCount - 1)
+				if (passedMeshesCount != 0 && i + 4 >= meshCount)
 					goto last;
 			}
 		}

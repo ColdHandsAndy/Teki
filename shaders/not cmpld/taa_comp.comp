@@ -178,8 +178,12 @@ void main()
     if (!(depthRejected || uvRejected))
         currentVal = currentVal * pushConstants.smoothingFactor + (1.0 - pushConstants.smoothingFactor) * historyVal;
 
-    imageStore(newHistoryBuffer, screenCoords, vec4(clamp(currentVal, 0.0, 60000.0), depth));
-    imageStore(outputImage, screenCoords, vec4(TimothyTonemapper(currentVal), 1.0));
+    currentVal = clamp(currentVal, 0.0, 60000.0);
 
+    imageStore(newHistoryBuffer, screenCoords, vec4(currentVal, depth));
+    
+    currentVal = TimothyTonemapper(currentVal);
+    currentVal = gammaCorrection(currentVal);
 
+    imageStore(outputImage, screenCoords, vec4(currentVal, 1.0));
 }

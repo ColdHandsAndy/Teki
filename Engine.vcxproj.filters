@@ -69,6 +69,9 @@
     <ClCompile Include="src\rendering\renderer\deferred_lighting.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\rendering\renderer\GI.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\rendering\data_management\image_classes.h">
@@ -188,6 +191,21 @@
     <ClInclude Include="src\rendering\renderer\deferred_lighting.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\renderer\GI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\tools\compile_time_array.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\tools\ld_seq.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\rendering\UI\UIData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\tools\timestamp_queries.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">
@@ -229,6 +247,21 @@
     <CustomBuild Include="shaders\not cmpld\taa_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\obb_gen_vert.vert" />
     <CustomBuild Include="shaders\not cmpld\obb_gen_geom.geom" />
+    <CustomBuild Include="shaders\not cmpld\gi_voxelization_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\gi_voxelization_geom.geom" />
+    <CustomBuild Include="shaders\not cmpld\gi_voxelization_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\debug_voxel_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\debug_voxel_geom.geom" />
+    <CustomBuild Include="shaders\not cmpld\gi_create_ROMA_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\gi_probe_tracing_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\debug_probe_vert.vert" />
+    <CustomBuild Include="shaders\not cmpld\debug_probe_frag.frag" />
+    <CustomBuild Include="shaders\not cmpld\gi_compute_irradiance_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\gi_compute_visibility_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\gi_inject_light_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\gi_emission_merge_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\gi_trace_specular_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\bilateral_comp.comp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="shaders\not cmpld\include\pbr.h">
@@ -250,6 +283,9 @@
       <Filter>Header Files</Filter>
     </Text>
     <Text Include="shaders\not cmpld\include\tonemap.h">
+      <Filter>Header Files</Filter>
+    </Text>
+    <Text Include="shaders\not cmpld\include\gi_data.h">
       <Filter>Header Files</Filter>
     </Text>
   </ItemGroup>

@@ -1,0 +1,104 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive						: enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8     : enable
+
+#include "gi_data.h"
+
+layout(local_size_x = DDGI_PROBE_VISIBILITY_SIDE_SIZE, local_size_y = DDGI_PROBE_VISIBILITY_SIDE_SIZE, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, r16f) uniform readonly image2D DistanceProbes;
+
+layout(set = 1, binding = 0, rg16) uniform readonly image2D VisibilityProbesHistory;
+layout(set = 1, binding = 1, rg16) uniform writeonly image2D VisibilityProbesNew;
+
+layout(set = 2, binding = 0) uniform RayDirections
+{
+	vec3 rayDirs[DDGI_PROBE_VISIBILITY_SIDE_SIZE * DDGI_PROBE_VISIBILITY_SIDE_SIZE];
+} rayDirections;
+
+vec3 getNormalOctohedral(ivec2 probeInnerCoord)
+{
+	vec2 octC = (vec2(probeInnerCoord) + vec2(0.5)) * (2.0 / DDGI_PROBE_VISIBILITY_SIDE_SIZE) - 1.0;
+	float u = octC.x;
+	float v = octC.y;
+
+	vec3 vec;
+	vec.y = 1.0 - abs(u) - abs(v);
+	vec.x = u;
+	vec.z = v;
+
+	float t = max(-vec.y, 0.0f);
+
+	vec.x += vec.x >= 0.0f ? -t : t;
+	vec.z += vec.z >= 0.0f ? -t : t;
+
+	return normalize(vec);
+}
+
+//temp solution before edge copy pass
+void copyEdges(vec2 value, ivec2 probeInnerCoord, ivec2 probeOuterCoord)
+{
+	bool firstRow = probeInnerCoord.y == 0;
+	bool lastRow = probeInnerCoord.y == DDGI_PROBE_VISIBILITY_SIDE_SIZE - 1;
+	bool firstCol = probeInnerCoord.x == 0;
+	bool lastCol = probeInnerCoord.x == DDGI_PROBE_VISIBILITY_SIDE_SIZE - 1;
+
+	if (firstRow)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_VISIBILITY_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y - 1), vec4(value, 0.0, 0.0));
+	else if (lastRow)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_VISIBILITY_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y + 1), vec4(value, 0.0, 0.0));
+	if (firstCol)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x - 1, probeOuterCoord.y + (DDGI_PROBE_VISIBILITY_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value, 0.0, 0.0));
+	else if (lastCol)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x + 1, probeOuterCoord.y + (DDGI_PROBE_VISIBILITY_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value, 0.0, 0.0));
+	
+	if (firstRow && firstCol)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_VISIBILITY_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_VISIBILITY_SIDE_SIZE), vec4(value, 0.0, 0.0));
+	else if (firstRow && lastCol)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_VISIBILITY_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_VISIBILITY_SIDE_SIZE), vec4(value, 0.0, 0.0));
+	else if (lastRow && firstCol)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_VISIBILITY_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_VISIBILITY_SIDE_SIZE), vec4(value, 0.0, 0.0));
+	else if (lastRow && lastCol)
+		imageStore(VisibilityProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_VISIBILITY_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_VISIBILITY_SIDE_SIZE), vec4(value, 0.0, 0.0));
+}
+
+void main()
+{
+	ivec2 borderOffset = ivec2(gl_WorkGroupID.x * 2 + 1, gl_WorkGroupID.y * 2 + 1);
+	ivec2 probeFirstCoord = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y) * DDGI_PROBE_VISIBILITY_SIDE_SIZE;
+	ivec2 probeOuterCoord = borderOffset + ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+	ivec2 probeInnerCoord = ivec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y);
+	
+	int invocationIndex = probeInnerCoord.y * DDGI_PROBE_VISIBILITY_SIDE_SIZE + probeInnerCoord.x;
+	bool positiveDirInvocation = invocationIndex < 32;
+			
+	vec3 visibilityN = getNormalOctohedral(probeInnerCoord);
+			
+	vec3 visibility_weight_sums = vec3(0.0);
+		
+	for (int y = 0; y < DDGI_PROBE_VISIBILITY_SIDE_SIZE; ++y)
+	{
+		for (int x = 0; x < DDGI_PROBE_VISIBILITY_SIDE_SIZE; ++x)
+		{
+			vec3 sampleDir = rayDirections.rayDirs[y * DDGI_PROBE_VISIBILITY_SIDE_SIZE + x];
+			
+			float dist = imageLoad(DistanceProbes, probeFirstCoord + ivec2(x, y)).x;
+			vec2 visibility = vec2(dist, dist * dist);
+			
+			float weight = max(0.0, dot(visibilityN, sampleDir));
+			weight = pow(weight, DDGI_VISIBILIYY_SHARPNESS);
+			
+			visibility_weight_sums += vec3(visibility * weight, weight);
+		}
+	}
+	
+	const float smallestDivisor = 1e-9 * DDGI_PROBE_VISIBILITY_SIDE_SIZE * DDGI_PROBE_VISIBILITY_SIDE_SIZE;
+	vec2 visibility = visibility_weight_sums.xy / max(visibility_weight_sums.z, smallestDivisor);
+
+	visibility = mix(imageLoad(VisibilityProbesHistory, probeOuterCoord).xy, visibility, vec2(DDGI_HYSTERESIS));
+	
+	imageStore(VisibilityProbesNew, probeOuterCoord, vec4(visibility, 0.0, 0.0));
+	
+	copyEdges(visibility, probeInnerCoord, probeOuterCoord);
+}

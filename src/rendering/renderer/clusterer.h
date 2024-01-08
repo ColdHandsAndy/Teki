@@ -27,13 +27,13 @@
 #define MAX_LIGHTS 1024u
 #define MAX_WORDS uint32_t(std::ceil(MAX_LIGHTS / 32u))
 #define Z_BIN_COUNT 8096u
-#define CLUSTERED_BUFFERS_SIZE MAX_LIGHTS * sizeof(Clusterer::LightFormat) + Z_BIN_COUNT * sizeof(uint16_t) * 2 + MAX_LIGHTS * sizeof(uint16_t) + MAX_LIGHTS * sizeof(uint16_t) + 512/*possible alignment correction*/
+#define CLUSTERED_BUFFERS_SIZE (MAX_LIGHTS * sizeof(Clusterer::LightFormat) + Z_BIN_COUNT * sizeof(uint16_t) * 2 + MAX_LIGHTS * sizeof(uint16_t) + MAX_LIGHTS * sizeof(uint16_t) + 512)/*possible alignment correction*/
 #define TILE_DATA_SIZE  MAX_WORDS * 4
 #define TILE_PIXEL_WIDTH 8
 #define TILE_PIXEL_HEIGHT 8
 #define TILE_TEST_SAMPLE_COUNT VK_SAMPLE_COUNT_8_BIT
 #define POINT_LIGHT_BV_VERTEX_COUNT 96
-#define POINT_LIGHT_BV_SIZE sizeof(float) * 3 * POINT_LIGHT_BV_VERTEX_COUNT
+#define POINT_LIGHT_BV_SIZE (sizeof(float) * 3 * POINT_LIGHT_BV_VERTEX_COUNT)
 #define SPOT_LIGHT_BV_VERTEX_COUNT 30
 
 namespace LightTypes
@@ -204,7 +204,7 @@ private:
 
 	void createTileTestObjects(const ResourceSet& viewprojRS);
 	void uploadBuffersData(CommandBufferSet& cmdBufferSet, VkQueue queue);
-	void getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type);
+	uint32_t getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type);
 
 	void createVisualizationPipelines(const ResourceSet& viewprojRS, uint32_t windowWidth, uint32_t windowHeight);
 
@@ -216,6 +216,7 @@ private:
 	friend class LightTypes::PointLight;
 	friend class LightTypes::SpotLight;
 	friend class ShadowCaster;
+	friend class GI;
 };
 
 #endif

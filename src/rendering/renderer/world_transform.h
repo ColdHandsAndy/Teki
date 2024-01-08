@@ -68,8 +68,11 @@ public:
 	}
 
 	const glm::mat4& getViewMatrix() const { return reinterpret_cast<CoordinateTransformationData*>(m_data.getData())->viewFromWorld; }
+	const glm::mat4& getInverseViewMatrix() const { return reinterpret_cast<CoordinateTransformationData*>(m_data.getData())->worldFromView; }
 	const glm::mat4& getProjectionMatrix() const { return reinterpret_cast<CoordinateTransformationData*>(m_data.getData())->ndcFromView; }
+	const glm::mat4& getInverseProjectionMatrix() const { return reinterpret_cast<CoordinateTransformationData*>(m_data.getData())->viewFromNdc; }
 	const glm::mat4& getViewProjectionMatrix() const { return reinterpret_cast<CoordinateTransformationData*>(m_data.getData())->ndcFromWorld; }
+	const glm::mat4& getInverseViewProjectionMatrix() const { return reinterpret_cast<CoordinateTransformationData*>(m_data.getData())->worldFromNdc; }
 
 	void updateViewMatrix(const glm::vec3& eye, const glm::vec3& gazePoint, const glm::vec3& up)
 	{

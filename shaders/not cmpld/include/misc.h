@@ -1,6 +1,8 @@
 #ifndef MISC_HEADER
 #define MISC_HEADER
 
+#define FLT_EPSILON 1.19209e-07
+
 //Texture array coord from direction vector
 vec3 getTexArrayCoordinateFromDirection(vec3 v)
 {
@@ -84,6 +86,14 @@ vec3 RGBtoYCoCg(vec3 c)
 vec3 YCoCgToRGB(vec3 c)
 {
 	return mat3(1, 1, 1, 1, 0, -1, -1, 1, -1) * c;
+}
+
+vec3 gammaCorrection(vec3 i)
+{
+	vec3 sRGBLo = i * 12.92;
+	vec3 sRGBHi = (pow(abs(i), vec3(1.0 / 2.4)) * 1.055) - 0.055;
+	vec3 sRGB = (i.x <= 0.0031308 && i.y <= 0.0031308 && i.z <= 0.0031308) ? sRGBLo : sRGBHi;
+	return sRGB;
 }
 
 #endif

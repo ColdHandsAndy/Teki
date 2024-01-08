@@ -1,6 +1,14 @@
 #ifndef PBR_HEADER
 #define PBR_HEADER
 
+//Math
+#define PI 3.141592653589
+#define TWO_PI (2.0 * PI)
+#define ONE_OVER_PI (1.0 / PI)
+#define ONE_OVER_TWO_PI (1.0 / TWO_PI)
+#define SQRT_2 1.41421356237309
+#define ONE_OVER_SQRT_2 0.7071067811865475244
+
 vec3 F_Schlick(vec3 F0, float F90, float NdotX)
 {
 	return F0 + (F90 - F0) * pow(1.0 - NdotX, 5.0);
@@ -28,6 +36,11 @@ float Fr_DisneyDiffuse(float NdotV, float NdotL, float LdotH, float roughness)
 	float viewScatter = F_Schlick(f0, fd90, NdotV).r;
 	
 	return lightScatter * viewScatter * energyFactor;
+}
+
+float Fr_LambertDiffuse()
+{
+	return ONE_OVER_PI;
 }
 
 

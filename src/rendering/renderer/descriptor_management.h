@@ -16,43 +16,43 @@ extern PFN_vkCmdBindDescriptorBufferEmbeddedSamplersEXT lvkCmdBindDescriptorBuff
 
 #define DESCRIPTOR_BUFFER_DEFAULT_SIZE  51200
 
-class ResourceSet
+enum DescriptorBufferType
+{
+    RESOURCE_TYPE,
+    SAMPLER_TYPE,
+    TYPES_MAX_NUM
+};
+struct DescriptorBuffer
+{
+    VmaVirtualBlock memoryProxy{};
+    BufferBaseHostAccessible descriptorBuffer;
+    VkDeviceAddress deviceAddress{};
+    DescriptorBufferType type{};
+};
+struct DescriptorAllocation
+{
+    VmaVirtualAllocation memProxyAlloc{};
+    uint32_t bufferIndex{};
+};
+
+class DescriptorManager
 {
 private:
-    enum DescriptorBufferType
-    {
-        RESOURCE_TYPE,
-        SAMPLER_TYPE,
-        TYPES_MAX_NUM
-    };
-    struct DescriptorBuffer
-    {
-        VmaVirtualBlock memoryProxy{};
-        BufferBaseHostAccessible descriptorBuffer;
-        VkDeviceAddress deviceAddress{};
-        DescriptorBufferType type{};
-    };
-    struct DescriptorAllocation
-    {
-        VmaVirtualAllocation memProxyAlloc{};
-        uint32_t bufferIndex{};
-    };
+    VkDevice m_device{};
 
-    inline static VkDevice m_device{};
-
-    inline static std::vector<DescriptorBuffer> m_descriptorBuffers{};
-    inline static uint32_t m_descriptorBufferAlignment;
-    inline static std::array<uint32_t, 2> m_queueFamilyIndices;
+    std::vector<DescriptorBuffer> m_descriptorBuffers{};
+    uint32_t m_descriptorBufferAlignment{};
+    std::array<uint32_t, 2> m_queueFamilyIndices{};
 
     inline static thread_local std::vector<uint32_t> m_descBuffersBindings{};
     inline static thread_local std::vector<uint32_t> m_bufferIndicesToBind{};
     inline static thread_local std::vector<VkDeviceSize> m_offsetsToSet{};
 
-    inline static std::list<DescriptorAllocation> m_descriptorSetAllocations{};
+    std::list<DescriptorAllocation> m_descriptorSetAllocations{};
 
-    inline static const VkPhysicalDeviceDescriptorBufferPropertiesEXT* m_descriptorBufferProperties{ nullptr };
+    const VkPhysicalDeviceDescriptorBufferPropertiesEXT* m_descriptorBufferProperties{ nullptr };
 
-    static void createNewDescriptorBuffer(DescriptorBufferType type)
+    void createNewDescriptorBuffer(DescriptorBufferType type)
     {
         VkBufferCreateInfo bufferCI{};
         bufferCI.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -75,56 +75,14 @@ private:
         virtualBlockCI.size = DESCRIPTOR_BUFFER_DEFAULT_SIZE;
         EASSERT(vmaCreateVirtualBlock(&virtualBlockCI, &newBuffer.memoryProxy) == VK_SUCCESS, "VMA", "Virtual block creation failed.")
     }
-    static void insertResourceSetInBuffer(ResourceSet& resourceSet, bool containsSampledData)
-    {
-        VmaVirtualAllocationCreateInfo allocationCI{};
-        allocationCI.size = resourceSet.getDescriptorSetAlignedSize() * resourceSet.getCopiesCount();
-        allocationCI.alignment = m_descriptorBufferAlignment;
-        allocationCI.flags = VMA_VIRTUAL_ALLOCATION_CREATE_STRATEGY_MIN_TIME_BIT;
-
-
-        VmaVirtualAllocation allocation{};
-        uint32_t bufferIndex{};
-        auto bufferIter{ m_descriptorBuffers.begin() };
-        VkDeviceSize offset{};
-        DescriptorBufferType requiredType{ containsSampledData ? SAMPLER_TYPE : RESOURCE_TYPE };
-        while (bufferIter->type == requiredType ? vmaVirtualAllocate(bufferIter->memoryProxy, &allocationCI, &allocation, &offset) == VK_ERROR_OUT_OF_DEVICE_MEMORY : true)
-        {
-            if (++bufferIter == m_descriptorBuffers.end())
-            {
-                createNewDescriptorBuffer(requiredType);
-                bufferIter = m_descriptorBuffers.end() - 1;
-            }
-        }
-        if (allocation == VK_NULL_HANDLE)
-        {
-            EASSERT(false, "App", "Descriptor set allocation failed. || Should never happen.")
-        }
-        resourceSet.setDescBufferOffset(offset);
-        bufferIndex = static_cast<uint32_t>(bufferIter - m_descriptorBuffers.begin());
-        m_descriptorSetAllocations.push_back({ allocation, bufferIndex });
-        resourceSet.m_allocationIter = --m_descriptorSetAllocations.end();
-
-        std::memcpy(reinterpret_cast<uint8_t*>(bufferIter->descriptorBuffer.getData()) + offset, resourceSet.getResourcePayload(), allocationCI.size);
-    }
-    static void removeResourceSetFromBuffer(std::list<DescriptorAllocation>::const_iterator allocationIter)
+    void removeResourceSetFromBuffer(std::list<DescriptorAllocation>::const_iterator allocationIter)
     {
         vmaVirtualFree(m_descriptorBuffers[allocationIter->bufferIndex].memoryProxy, allocationIter->memProxyAlloc);
         m_descriptorSetAllocations.erase(allocationIter);
     }
 
-    static void destroyDescriptorBuffers()
-    {
-        for (auto& descBuf : m_descriptorBuffers)
-        {
-            //vmaClearVirtualBlock(descBuf.memoryProxy);
-            vmaDestroyVirtualBlock(descBuf.memoryProxy);
-        }
-        m_descriptorBuffers.clear();
-    }
-
 public:
-    static void initializeDescriptorBuffers(VulkanObjectHandler& vulkanObjectHandler, MemoryManager& memManager)
+    DescriptorManager(VulkanObjectHandler& vulkanObjectHandler)
     {
         if (m_device != VK_NULL_HANDLE)
             return;
@@ -137,11 +95,33 @@ public:
         m_descriptorBufferProperties = &vulkanObjectHandler.getPhysDevDescBufferProperties();
 
         createNewDescriptorBuffer(RESOURCE_TYPE);
+    }
+    ~DescriptorManager()
+    {
+        for (auto& descBuf : m_descriptorBuffers)
+        {
+            vmaDestroyVirtualBlock(descBuf.memoryProxy);
+        }
+        m_descriptorBuffers.clear();
+    }
 
-        memManager.m_descriptorBufferDestruction = &destroyDescriptorBuffers;
+    friend class Pipeline;
+    friend class ResourceSet;
+};
+
+class ResourceSet
+{
+private:
+    static inline DescriptorManager* m_descManager{};
+public:
+    static void assignGlobalDescriptorManager(DescriptorManager& descManager)
+    {
+        m_descManager = &descManager;
     }
 
 private:
+    VkDevice m_device{};
+
     VkDescriptorSetLayout m_layout{};
 
     std::list<DescriptorAllocation>::const_iterator m_allocationIter{};
@@ -181,6 +161,9 @@ public:
     }
     ResourceSet(ResourceSet&& srcResourceSet) noexcept;
     ~ResourceSet();
+
+    uint32_t getCopiesCount() const;
+    const VkDescriptorSetLayout& getSetLayout() const;
 
     template<std::ranges::contiguous_range Range1, std::ranges::contiguous_range Range2, std::ranges::contiguous_range Range3>
     void initializeSet(VkDevice device, uint32_t resCopies, VkDescriptorSetLayoutCreateFlags flags, const Range1& bindings, const Range2& bindingFlags, const Range3& bindingsDescriptorData, bool containsSampledData)
@@ -227,7 +210,7 @@ public:
         }
         lvkGetDescriptorSetLayoutSizeEXT(m_device, m_layout, &m_descSetByteSize);
 
-        m_descSetAlignedByteSize = (m_descSetByteSize + (m_descriptorBufferAlignment - 1)) & ~(m_descriptorBufferAlignment - 1);
+        m_descSetAlignedByteSize = (m_descSetByteSize + (m_descManager->m_descriptorBufferAlignment - 1)) & ~(m_descManager->m_descriptorBufferAlignment - 1);
         m_resourcePayload = { new uint8_t[m_descSetAlignedByteSize * m_resCopies] };
 
         for (uint32_t copyIndex{ 0 }; copyIndex < m_resCopies; ++copyIndex)
@@ -247,14 +230,10 @@ public:
             }
         }
 
-        insertResourceSetInBuffer(*this, containsSampledData);
+        insertResourceSetInBuffer(containsSampledData);
 
         m_invalid = false;
     }
-
-
-    uint32_t getCopiesCount() const;
-    const VkDescriptorSetLayout& getSetLayout() const;
 
 private:
     uint32_t getDescBufferIndex() const;
@@ -263,22 +242,13 @@ private:
     VkDeviceSize getDescriptorSetOffset(uint32_t resIndex)  const;
     const void* getResourcePayload() const;
     uint32_t getDescriptorTypeSize(VkDescriptorType type) const;
-    void rewriteDescriptor(uint32_t bindingIndex, uint32_t copyIndex, uint32_t arrayIndex, const VkDescriptorDataEXT& descriptorData) const
-    {
-        EASSERT(bindingIndex < m_resources.size(), "App", "Incorrect binding index.");
-
-        VkDescriptorGetInfoEXT descGetInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_GET_INFO_EXT, .type = m_resources[bindingIndex].type };
-        uint32_t descriptorTypeSize{ getDescriptorTypeSize(descGetInfo.type) };
-        descGetInfo.data = descriptorData;
-        uint64_t payloadOffset{ copyIndex * m_descSetAlignedByteSize + m_resources[bindingIndex].inSetOffset + arrayIndex * descriptorTypeSize };
-        lvkGetDescriptorEXT(m_device, &descGetInfo, descriptorTypeSize, m_resourcePayload + payloadOffset);
-
-        std::memcpy(reinterpret_cast<uint8_t*>(m_descriptorBuffers[m_allocationIter->bufferIndex].descriptorBuffer.getData()) + m_descBufferOffset + payloadOffset, m_resourcePayload + payloadOffset, descriptorTypeSize);
-    }
+    void insertResourceSetInBuffer(bool containsSampledData);
+    void rewriteDescriptor(uint32_t bindingIndex, uint32_t copyIndex, uint32_t arrayIndex, const VkDescriptorDataEXT& descriptorData) const;
 
     ResourceSet(ResourceSet&) = delete;
     void operator=(ResourceSet&) = delete;
 
+    friend class DescriptorManager;
     friend class Pipeline;
 };
 

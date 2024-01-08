@@ -66,42 +66,41 @@ class Image : public ImageBase
 private:
 	uint32_t m_width{};
 	uint32_t m_height{};
+	uint32_t m_depth{};
 	VkImageAspectFlags m_aspects{};
 
 public:
-	Image() = delete;
+	enum QueueAccessMask
+	{
+		EXCLUSIVE_ACCESS,
+		GRAPHICS_AND_COMPUTE_BIT,
+		TRANSFER_AND_COMPUTE_BIT,
+		TRANSFER_AND_GRAPHICS_BIT,
+		GRAPHICS_AND_COMPUTE_AND_TRANSFER_BIT,
+	};
+	Image();
 	explicit Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, bool allocateMips = false);
+	explicit Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, uint32_t depth, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, bool allocateMips = false);
+	explicit Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, uint32_t depth, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, QueueAccessMask queueAccessMask, bool allocateMips = false);
 	Image(Image&& src) noexcept;
 	~Image() = default;
 
 	uint32_t getWidth() const;
 	uint32_t getHeight() const;
+	uint32_t getDepth() const;
 	VkImageSubresourceRange getSubresourceRange() const;
+
+	void initialize(VkDevice device, 
+		VkFormat format, 
+		uint32_t width, uint32_t height, uint32_t depth,
+		VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL,
+		bool allocateMips = false, 
+		QueueAccessMask queueAccessMask = EXCLUSIVE_ACCESS);
 
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayout);
 
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, VkDeviceSize bufferOffset, int xOffset, int yOffset, uint32_t width, uint32_t height, uint32_t mipLevel = 0);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32_t mipCount, VkDeviceSize* bufferOffset);
-
-};
-
-class ImageMS : public ImageBase
-{
-private:
-	uint32_t m_width{};
-	uint32_t m_height{};
-	VkImageAspectFlags m_aspects{};
-
-public:
-	ImageMS() = delete;
-	explicit ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkSampleCountFlagBits sampleCount);
-	ImageMS(ImageMS&& src) noexcept;
-	~ImageMS() = default;
-
-	uint32_t getWidth() const;
-	uint32_t getHeight() const;
-	VkImageSubresourceRange getSubresourceRange() const;
-
 };
 
 class ImageList : public ImageBase
@@ -168,7 +167,6 @@ public:
 
 
 
-//TODO: If new list is added after associated ResourceSet already initialised, need to update ResourceSet payload
 class ImageListContainer
 {
 private:
@@ -208,9 +206,9 @@ public:
 	VkImage getImageHandle(uint16_t listIndex) const;
 	VkImageView getImageViewHandle(uint16_t listIndex) const;
 	void cmdTransitionLayoutsFromUndefined(VkCommandBuffer cb, VkPipelineStageFlags2 srcStageMask, VkPipelineStageFlags2 dstStageMask, VkImageLayout dstLayout);
-	void cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListContainerIndices indices, VkImageLayout currentLayout);
-	void cmdCreateListMipmaps(VkCommandBuffer cb, uint16_t listIndex, VkImageLayout currentLayout);
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentLayout);
+	void cmdCreateListMipmaps(VkCommandBuffer cb, uint16_t listIndex, VkImageLayout currentLayout);
+	void cmdCreateImageMipmaps(VkCommandBuffer cb, ImageListContainerIndices indices, VkImageLayout currentLayout);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 	void cmdCopyDataFromBufferAllMips(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t dstImageLayerIndex, uint32_t regionCount, VkDeviceSize* bufferOffset);

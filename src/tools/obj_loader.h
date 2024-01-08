@@ -26,9 +26,11 @@ namespace LoaderOBJ
         return static_cast<VertexOBJ>(static_cast<int>(a) | static_cast<int>(b));
     }
 
-    inline void loadOBJfile(fs::path filepath, BufferMapped& stagingBuffer, VertexOBJ flags)
+    inline uint32_t loadOBJfile(fs::path filepath, Buffer& vertexBuffer, VertexOBJ flags, BufferBaseHostAccessible& stagingBase, CommandBufferSet& cmdBufferSet, VkQueue queue)
     {
         tinyobj::ObjReader reader;
+
+        BufferMapped stagingBuffer{ stagingBase };
 
         if (!reader.ParseFromFile(filepath.generic_string()))
         {
@@ -39,16 +41,17 @@ namespace LoaderOBJ
 
         auto& attrib = reader.GetAttrib();
         auto& shapes = reader.GetShapes();
-        auto& materials = reader.GetMaterials();
         std::vector<float> vertices{};
 
+        uint32_t vertexCount{ 0 };
+
         EASSERT(shapes.size() == 1, "App", "Unsupported number of shapes in obj model");
-        // Loop over shapes
+
         for (size_t s = 0; s < shapes.size(); ++s)
         {
             // Loop over faces(polygon)
             size_t index_offset = 0;
-            for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); ++f) 
+            for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); ++f)
             {
                 size_t fv = size_t(shapes[s].mesh.num_face_vertices[f]);
 
@@ -100,6 +103,8 @@ namespace LoaderOBJ
                             LOG_IF_WARNING(true, "[{}]: {} were not found and loaded", "tinyobjloader", "Texture coordinates");
                         }
                     }
+
+                    ++vertexCount;
                 }
                 index_offset += fv;
             }
@@ -107,7 +112,18 @@ namespace LoaderOBJ
             stagingBuffer.initialize(vertices.size() * sizeof(float));
             std::memcpy(stagingBuffer.getData(), vertices.data(), stagingBuffer.getSize());
         }
-    }
-}
 
+        vertexBuffer.initialize(stagingBuffer.getSize());
+        VkCommandBuffer cb{ cmdBufferSet.beginTransientRecording() };
+            VkBufferCopy copy{ .srcOffset = stagingBuffer.getOffset(), .dstOffset = vertexBuffer.getOffset(), .size = stagingBuffer.getSize() };
+            BufferTools::cmdBufferCopy(cb, stagingBuffer.getBufferHandle(), vertexBuffer.getBufferHandle(), 1, &copy);
+        cmdBufferSet.endRecording(cb);
+        VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
+        vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(queue);
+
+        return vertexCount;
+    }
+
+ }
 #endif

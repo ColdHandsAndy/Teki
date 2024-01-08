@@ -9,5 +9,6 @@
 #include "src/tools/arraysize.h"
 
 #include "src/tools/time_measurement.h"
+#include "src/tools/timestamp_queries.h"
 
 #include "src/tools/asserter.h"

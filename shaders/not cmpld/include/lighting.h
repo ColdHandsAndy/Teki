@@ -4,7 +4,7 @@
 #include "rand.h"
 
 #extension GL_EXT_samplerless_texture_functions : enable
-
+#extension GL_KHR_shader_subgroup_arithmetic : enable
 
 #define PCF_NUM_SAMPLES 12
 #define BLOCKER_SEARCH_NUM_SAMPLES 8 
@@ -43,33 +43,70 @@ struct UnifiedLightData
 };
 
 //Shadow mapping functions
-//PCF
-float PCF(float bias, float receiverDepth, vec3 uv, sampler samplerSM, texture2DArray shadowMap)
+//Plane biasing 
+vec2 computeReceiverPlaneDepthBias(vec3 texCoordDX, vec3 texCoordDY)
 {
-	vec2 offsets[9] = {
-	  vec2(-1.0, -1.0),
-	  vec2(0.0, -1.0),
-	  vec2(1.0, -1.0),
-	  vec2(-1.0, 0.0),
-	  vec2(0.0, 0.0),
-	  vec2(1.0, 0.0),
-	  vec2(-1.0, 1.0),
-	  vec2(0.0, 1.0),
-	  vec2(1.0, 1.0)
-	};
-
+	vec2 biasUV;
+	biasUV.x = texCoordDY.y * texCoordDX.z - texCoordDX.y * texCoordDY.z;
+	biasUV.y = texCoordDX.x * texCoordDY.z - texCoordDY.x * texCoordDX.z;
+	biasUV *= 1.0f / ((texCoordDX.x * texCoordDY.y) - (texCoordDX.y * texCoordDY.x));
+	return biasUV;
+}
+//PCF
+float PCF(float bias, float receiverDepth, vec3 uv, samplerShadow samplerSM, texture2DArray shadowMap, sampler2D rotationImage, ivec2 screenCoord)
+{
 	float invRes = 1.0 / textureSize(shadowMap, 0).x;
 
-	float numCloserSamples = 0.0;
-	for (int i = 0; i < 9; ++i) 
-	{
-		float shadowSample = texture(sampler2DArray(shadowMap, samplerSM), vec3(uv.xy + offsets[i] * invRes, uv.z)).x;
+	float biasedReceiverDepth = receiverDepth - bias;
 
-		if (shadowSample > receiverDepth - bias)
-			++numCloserSamples;
+	const float radius = 0.8;
+
+	int rotTexSize = textureSize(rotationImage, 0).x;
+	ivec2 offsetsFirstCoord = ivec2(screenCoord.x * 0.5, screenCoord.y) % rotTexSize;
+
+	vec2 rRot = bool(screenCoord.x % 2) ? texelFetch(rotationImage, offsetsFirstCoord, 0).xy : texelFetch(rotationImage, offsetsFirstCoord, 0).zw;
+	float rcos = rRot.x;
+	float rsin = rRot.y;
+
+	float pcfValue = 0.0;
+
+	vec2 offsetsFar[4] = {
+		vec2(2.3, 2.3),
+		vec2(-2.3, -2.3),
+		vec2(2.3, -2.3),
+		vec2(-2.3, 2.3)
+	};
+
+	for (int i = 0; i < 4; ++i)
+	{
+		vec2 offs = offsetsFar[i];
+		offs.x = offs.x * rcos - offs.y * rsin;
+		offs.y = offs.x * rsin + offs.y * rcos;
+		pcfValue += texture(sampler2DArrayShadow(shadowMap, samplerSM), vec4(uv.xy + offs * invRes * radius, uv.z, biasedReceiverDepth)).x;
 	}
 
-	return numCloserSamples / 9.0;
+	if (subgroupMin(pcfValue) > 3.9)
+		return 1.0;
+	else if (subgroupMax(pcfValue) < 0.1)
+		return 0.0;
+
+	vec2 offsetsClose[5] = {
+		vec2(1.3, 0.0),
+		vec2(-1.3, 0.0),
+		vec2(0.0, 1.3),
+		vec2(0.0, -1.3),
+		vec2(0.0, 0.0)
+	};
+
+	for (int i = 0; i < 5; ++i)
+	{
+		vec2 offs = offsetsClose[i];
+		offs.x = offs.x * rcos - offs.y * rsin;
+		offs.y = offs.x * rsin + offs.y * rcos;
+		pcfValue += texture(sampler2DArrayShadow(shadowMap, samplerSM), vec4(uv.xy + offs * invRes * radius, uv.z, biasedReceiverDepth)).x;
+	}
+
+	return pcfValue / 9.0;
 }
 
 //PCSS

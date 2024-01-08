@@ -52,9 +52,7 @@ public:
 		delete[] m_axii;
 		delete[] m_extents;
 		delete[] m_centers;
-#ifdef _DEBUG
 		delete visOBBPipeline;
-#endif
 	}
 
 	uint32_t getBBCount() const
@@ -238,11 +236,14 @@ public:
 		++m_count;
 	}
 
-#ifdef _DEBUG
-
 	Pipeline* visOBBPipeline{ nullptr };
 	BufferBaseHostAccessible* vb{ nullptr };
-	constexpr static uint32_t vertCount{ 18 };
+	struct {
+		glm::vec4 xAxis_extent;
+		glm::vec4 yAxis_extent;
+		glm::vec4 zAxis_extent;
+		glm::vec3 center;
+	} pcData;
 public:
 	void initVisualizationResources(VkDevice device, uint32_t wWidth, uint32_t wHeight, const ResourceSet& viewprojRS)
 	{
@@ -264,20 +265,14 @@ public:
 			ShaderStage{.stage = VK_SHADER_STAGE_GEOMETRY_BIT, .filepath = "shaders/cmpld/obb_gen_geom.spv"},
 			ShaderStage{.stage = VK_SHADER_STAGE_FRAGMENT_BIT, .filepath = "shaders/cmpld/color_frag.spv"}} },
 			resourceSets, {}, {},
-			{ {VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_GEOMETRY_BIT, .offset = 0, .size = sizeof(float) * 15}}});
+			{ {VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_GEOMETRY_BIT, .offset = 0, .size = sizeof(pcData)}}});
 	}
 
 	void cmdVisualizeOBBs(VkCommandBuffer cb)
 	{
-
 		visOBBPipeline->cmdBind(cb);
 		for (int i{ 0 }; i < m_count; ++i)
 		{
-			struct {
-				glm::vec4 xAxis_extent;
-				glm::vec4 yAxis_extent;
-				glm::vec4 zAxis_extent;
-				glm::vec3 center; } pcData;
 			pcData.center = glm::vec3{ *(m_centers + 0 * m_maxCount + i), *(m_centers + 1 * m_maxCount + i), *(m_centers + 2 * m_maxCount + i) };
 			pcData.xAxis_extent = glm::vec4{ *(m_axii + 0 * m_maxCount + i), *(m_axii + 1 * m_maxCount + i), *(m_axii + 2 * m_maxCount + i), *(m_extents + 0 * m_maxCount + i) };
 			pcData.yAxis_extent = glm::vec4{ *(m_axii + 3 * m_maxCount + i), *(m_axii + 4 * m_maxCount + i), *(m_axii + 5 * m_maxCount + i), *(m_extents + 1 * m_maxCount + i) };
@@ -286,7 +281,6 @@ public:
 			vkCmdDraw(cb, 1, 1, 0, 0);
 		}
 	}
-#endif
 };
 
 

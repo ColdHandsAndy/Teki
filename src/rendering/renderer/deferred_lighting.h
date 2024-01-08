@@ -41,6 +41,7 @@ private:
 		glm::vec2 invResolution;
 		uint32_t windowTileWidth;
 		float nearPlane;
+		glm::vec3 giSceneCenter;
 		float farPlane;
 	} m_pcData;
 
@@ -52,7 +53,9 @@ public:
 		const ResourceSet& transformMatricesRS,
 		const ResourceSet& materialsTexturesRS,
 		const ResourceSet& shadowMapsRS,
-		const ResourceSet& skyboxLightingRS,
+		const ResourceSet& indirectDiffiseLightingRS,
+		const ResourceSet& indirectSpecularLightingRS,
+		const ResourceSet& indirectLightingMetadataRS,
 		const ResourceSet& drawDataRS,
 		const ResourceSet& pbrRS,
 		const ResourceSet& directLightingRS,
@@ -75,6 +78,10 @@ public:
 	void updateTileWidth(uint32_t tileWidth)
 	{
 		m_pcData.windowTileWidth = tileWidth;
+	}
+	void updateGISceneCenter(const glm::vec3& giSceneCenter)
+	{
+		m_pcData.giSceneCenter = giSceneCenter;
 	}
 
 	const Image& getFramebuffer() const
@@ -101,7 +108,7 @@ public:
 		return m_dependencyInfo;
 	}
 
-	void cmdDispatchLightingCompute(VkCommandBuffer cb);
+	void cmdDispatchLightingCompute(VkCommandBuffer cb, uint32_t indirectCurrentSet);
 };
 
 #endif

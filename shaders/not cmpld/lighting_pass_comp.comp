@@ -13,6 +13,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "tang_frame.h"
 #include "lighting.h"
 #include "pbr.h"
+#include "gi_data.h"
  
 //Math
 #define PI 3.141592653589
@@ -47,6 +48,7 @@ layout(push_constant) uniform PushConsts
 	vec2 invResolution;
 	uint windowTileWidth;
 	float nearPlane;
+	vec3 giSceneCenter;
 	float farPlane;
 } pushConstants;
 
@@ -57,50 +59,59 @@ layout(set = 1, binding = 0, r32ui) uniform readonly uimage2D UV;
 layout(set = 1, binding = 1, rgb10_a2) uniform readonly image2D TangentFramePacked;
 layout(set = 1, binding = 2, r16ui) uniform readonly uimage2D DrawID;
 layout(set = 1, binding = 3) uniform sampler2D Depth;
-layout(set = 1, binding = 4, rgba16f) uniform writeonly image2D Framebuffer;
+layout(set = 1, binding = 4) uniform sampler2D AO;
+layout(set = 1, binding = 5, rgba16f) uniform writeonly image2D Framebuffer;
 
 layout(set = 2, binding = 0) uniform sampler2DArray imageListArray[64];
 
 layout(set = 3, binding = 0) uniform texture2DArray shadowMapArray[64];
 layout(set = 3, binding = 1) uniform texture2DArray shadowCubeMapArray[64];
-layout(set = 3, binding = 2) uniform sampler samplerS;
-layout(set = 3, binding = 3) buffer ShadowViewMatrices
+layout(set = 3, binding = 2) uniform samplerShadow samplerS;
+layout(set = 3, binding = 3) uniform sampler samplerNearest;
+layout(set = 3, binding = 4) buffer ShadowViewMatrices
 {
 	mat4 matrices[];
 } shadowViewMatrices;
+layout(set = 3, binding = 5) uniform sampler2D RotationImage;
 
-layout(set = 4, binding = 0) uniform samplerCube samplerCubeMap;
-layout(set = 4, binding = 1) uniform samplerCube samplerCubeMapRad;
-layout(set = 4, binding = 2) uniform samplerCube samplerCubeMapIrrad;
+layout(set = 4, binding = 0) uniform sampler2D IrradianceProbes;
+layout(set = 4, binding = 1) uniform sampler2D VisibilityProbes;
+layout(set = 5, binding = 0) uniform sampler2D SpecularImages[2];
+layout(set = 5, binding = 1) uniform sampler2D DistanceToHit;
+layout(set = 5, binding = 2, r32f) uniform writeonly image2D DepthRed;
+layout(set = 5, binding = 3, rg8) uniform writeonly image2D RefdirRed;
+layout(set = 6, binding = 0) uniform MD
+{
+	GIMetaData data;
+} giMetaData;
 
-layout(set = 5, binding = 0) buffer DrawDataBuffer 
+layout(set = 7, binding = 0) buffer DrawDataBuffer 
 {
     DrawData data[];
 } drawData;
 
-layout(set = 6, binding = 0) uniform sampler2D brdfLUT;
-layout(set = 6, binding = 1) uniform sampler2D AO;
+layout(set = 8, binding = 0) uniform sampler2D brdfLUT;
 
 struct DirectionalLightLayout
 {
     vec3 spectrum;
     vec3 direction;
 };
-layout(std140, set = 7, binding = 0) uniform DirectionalLight
+layout(std140, set = 9, binding = 0) uniform DirectionalLight
 {
     DirectionalLightLayout light;
 } dirLight;
-layout(set = 7, binding = 1) buffer LightsData
+layout(set = 9, binding = 1) buffer LightsData
 {
 	UnifiedLightData lights[];
 } lightsData;
 const uint TYPE_POINT = 0;
 const uint TYPE_SPOT = 1;
-layout(std430, set = 7, binding = 2) buffer TypeData
+layout(std430, set = 9, binding = 2) buffer TypeData
 {
 	uint8_t types[];
 } typeData;
-layout(set = 7, binding = 3) buffer TilesData
+layout(set = 9, binding = 3) buffer TilesData
 {
 	uint tilesWords[];
 } tilesData;
@@ -109,16 +120,71 @@ struct ZBin
 	uint16_t minI;
 	uint16_t maxI;
 };
-layout(set = 7, binding = 4) buffer ZBinData
+layout(set = 9, binding = 4) buffer ZBinData
 {
 	ZBin data[];
 } zBinData;
 
-
-
-vec3 evaluateIBL(vec3 N, vec3 V, vec3 R, float NdotV, float alpha, float roughness, vec3 F0, vec2 DFG, vec3 albedo, float specAO, float diffAO)
+vec3 calculateIndirectLighting(vec3 worldPos, vec3 N, vec3 V, vec3 R, float NdotV, float alpha, float roughness, vec3 F0, vec2 DFG, vec3 albedo, float specAO, float diffAO, vec2 screenUV)
 {
-    vec3 Fr = max(vec3(1.0 - alpha), F0) - F0;
+	ProbeGridData gridData = giMetaData.data.cascades[0].gridData;
+
+	vec3 originProbePos = pushConstants.giSceneCenter + gridData.relOriginProbePos;
+	vec3 endProbePos = pushConstants.giSceneCenter + gridData.relEndProbePos;
+
+	worldPos += (N * 0.2 + V * 0.8) * gridData.shadowBias;
+
+	vec3 gridPos = worldPos - originProbePos;
+	vec3 gridCoord = gridPos * vec3(gridData.probeInvDistX, gridData.probeInvDistY, gridData.probeInvDistZ);
+	vec3 baseProbeCoord = floor(gridCoord);
+	vec3 trilValues = gridCoord - baseProbeCoord;
+
+	bool outOfBounds = false;
+	vec3 gridCenter = (originProbePos + endProbePos) * 0.5;
+	vec3 gridExtents = (endProbePos - originProbePos) * 0.5;
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		outOfBounds = abs(worldPos[axis] - gridCenter[axis]) > gridExtents[axis];
+	}
+
+	vec3 specLD = vec3(0.0);
+	vec3 diffLD = vec3(0.0);
+	if (true)
+		diffLD = sampleProbeVolume(gridData, N, gridPos, gridCoord, baseProbeCoord, trilValues, IrradianceProbes, VisibilityProbes);
+
+	//float csZ = dot(V, cameraZAxis);
+    //float k = (alpha) * 18;
+    //float mip = log2((k + k * distToHit) / sqrt(abs(csZ)));
+	//uint mipLevel = clamp(uint(mip), 0, 4);
+	float ndcX = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][0], coordTransformData.ndcFromWorldPrev[1][0], coordTransformData.ndcFromWorldPrev[2][0])) + coordTransformData.ndcFromWorldPrev[3][0];
+    float ndcY = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][1], coordTransformData.ndcFromWorldPrev[1][1], coordTransformData.ndcFromWorldPrev[2][1])) + coordTransformData.ndcFromWorldPrev[3][1];
+    float ndcW = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][3], coordTransformData.ndcFromWorldPrev[1][3], coordTransformData.ndcFromWorldPrev[2][3])) + coordTransformData.ndcFromWorldPrev[3][3];
+    ndcX /= ndcW;
+    ndcY /= ndcW;
+	vec2 reprUV = vec2(ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5);
+	float distToHit = texture(DistanceToHit, reprUV).x;
+	vec3 penPos = worldPos - (V * distToHit);
+	ndcX = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][0], coordTransformData.ndcFromWorldPrev[1][0], coordTransformData.ndcFromWorldPrev[2][0])) + coordTransformData.ndcFromWorldPrev[3][0];
+    ndcY = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][1], coordTransformData.ndcFromWorldPrev[1][1], coordTransformData.ndcFromWorldPrev[2][1])) + coordTransformData.ndcFromWorldPrev[3][1];
+    ndcW = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][3], coordTransformData.ndcFromWorldPrev[1][3], coordTransformData.ndcFromWorldPrev[2][3])) + coordTransformData.ndcFromWorldPrev[3][3];
+    ndcX /= ndcW;
+    ndcY /= ndcW;
+	vec2 reprRefUV = vec2(ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5);
+	vec3 gl = texture(SpecularImages[0], reprRefUV).xyz;
+	vec3 rg = texture(SpecularImages[1], reprRefUV).xyz;
+	if (subgroupMax(roughness) < 0.1)
+	{
+		specLD = mix(gl, rg, roughness * 10.0);
+	}
+	else
+	{
+		if (roughness < 0.1)
+			specLD = mix(gl, rg, roughness * 10.0);
+		else
+			specLD = sampleProbeVolume(gridData, R, gridPos, gridCoord, baseProbeCoord, trilValues, IrradianceProbes, VisibilityProbes);
+	}
+
+	vec3 Fr = max(vec3(1.0 - alpha), F0) - F0;
     vec3 kS = F0 + Fr * pow(1.0 - NdotV, 5.0);
 
     vec3 FssEss = kS * DFG.x + DFG.y;
@@ -127,38 +193,36 @@ vec3 evaluateIBL(vec3 N, vec3 V, vec3 R, float NdotV, float alpha, float roughne
     vec3 Favg = F0 + (1.0 - F0) / 21.0;
     vec3 FmsEms = Ems * FssEss * Favg / (1.0 - Favg * Ems);
     vec3 kD = albedo * (1.0 - FssEss - FmsEms) * diffAO;
-	float mipLevel = sqrt(roughness) * RAD_MIP_COUNT;
-	vec3 specLD = textureLod(samplerCubeMapRad, R, mipLevel).rgb;
-	vec3 diffLD = texture(samplerCubeMapIrrad, N).rgb;
 
     return FssEss * specLD * specAO + (FmsEms + kD) * diffLD;
 }
 
-float calcShadowingOnedir(int list, uint layer, vec3 shadingPointPos, uint viewmat, float angleCos, float lightSize, float NdotL)
+float calcShadowingOnedir(int list, uint layer, vec3 shadingPointPos, uint viewmat, float angleCos, float lightSize, vec3 N, float NdotL)
 {
-	vec4 pos = vec4(shadingPointPos, 1.0);
+	vec4 pos = vec4(shadingPointPos + N * 0.15, 1.0);
 	vec3 viewpos = vec3(shadowViewMatrices.matrices[viewmat] * pos);
+
 	float projMod = angleCos / sqrt(1.0 - angleCos * angleCos);
 	
 	vec3 uv = vec3(vec2(((viewpos.x * projMod) / viewpos.z) * 0.5 + 0.5, ((viewpos.y * (-projMod)) / viewpos.z) * 0.5 + 0.5), float(layer) + 0.1);
 	float depth = viewpos.z;
 	
-	float bias = max(0.2 * (1.0 - NdotL), 0.04);
+	float bias = max(0.15 * (1.0 - NdotL), 0.02);
 	
 	//return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowMapArray[list]);
-	return PCF(bias, depth, uv, samplerS, shadowMapArray[list]); 
+	return PCF(bias, depth, uv, samplerS, shadowMapArray[list], RotationImage, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
 }
-float calcShadowingOmnidir(int list, vec3 shadingPointPos, uint viewmat, vec3 lightPos, float lightSize, float NdotL)
+float calcShadowingOmnidir(int list, vec3 shadingPointPos, vec3 lightPos, float lightSize, vec3 N, float NdotL)
 {
-	vec3 dirvec = shadingPointPos - lightPos;
+	vec3 dirvec = shadingPointPos + N * 0.15 - lightPos;
 	float depth = max(max(abs(dirvec.x), abs(dirvec.y)), abs(dirvec.z));
 	
 	vec3 uv = getTexArrayCoordinateFromDirection(dirvec);
 	
-	float bias = max(0.2 * (1.0 - NdotL), 0.04);
+	float bias = max(0.15 * (1.0 - NdotL), 0.02);
 
 	//return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowCubeMapArray[list]);
-	return PCF(bias, depth, uv, samplerS, shadowCubeMapArray[list]);
+	return PCF(bias, depth, uv, samplerS, shadowCubeMapArray[list], RotationImage, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
 }
 struct MaterialData
 {
@@ -193,7 +257,7 @@ vec3 directionalLightEval(vec3 V, vec3 N, float NdotV, MaterialData data)
 
 	return (Fr * data.specAO + Fd * (vec3(1.0) - F) * data.albedo) * dirLight.light.spectrum * NdotL;
 } 
-vec3 pointLightEval(vec3 spectrum, vec3 unnormL, float radius, vec3 shadingPointPos, vec3 V, vec3 N, float NdotV, MaterialData data, int shadowList, uint viewmatIndex, vec3 lightPos, float lightSize)
+vec3 pointLightEval(vec3 spectrum, vec3 unnormL, float radius, vec3 shadingPointPos, vec3 V, vec3 N, float NdotV, MaterialData data, int shadowList, vec3 lightPos, float lightSize)
 {
 	float	dist = length(unnormL);
 	vec3 	L = normalize(unnormL);
@@ -213,7 +277,7 @@ vec3 pointLightEval(vec3 spectrum, vec3 unnormL, float radius, vec3 shadingPoint
 	vec3 lighting = ((Fr * data.specAO + Fd * (vec3(1.0) - F)) * data.albedo) * spectrum * NdotL * attenuationTerm;
 	float shadowing = 1.0;
 	if (shadowList != -1)
-		shadowing = calcShadowingOmnidir(shadowList, shadingPointPos, viewmatIndex, lightPos, lightSize, NdotL);
+		shadowing = calcShadowingOmnidir(shadowList, shadingPointPos, lightPos, lightSize, N, NdotL);
 
     return lighting * shadowing;   
 }
@@ -243,7 +307,7 @@ vec3 spotLightEval(vec3 spectrum, vec3 direction,
 	vec3 lighting = ((Fr * data.specAO + Fd * (vec3(1.0) - F)) * data.albedo) * spectrum * falloffIntensity * NdotL * attenuationTerm;
 	float shadowing = 1.0;
 	if (shadowList != -1)
-		shadowing = calcShadowingOnedir(shadowList, shadowLayer, shadingPointPos, viewmatIndex, cutoffCos, lightSize, NdotL);
+		shadowing = calcShadowingOnedir(shadowList, shadowLayer, shadingPointPos, viewmatIndex, cutoffCos, lightSize, N, NdotL);
 
     return lighting * shadowing;
 }
@@ -259,7 +323,7 @@ vec3 processLight(uint index, vec3 shadingPointPos, vec3 V, vec3 N, float NdotV,
 		case TYPE_POINT:
 			result = pointLightEval(light.spectrum, light.position - shadingPointPos, light.lightLength, 
 			shadingPointPos, V, N, NdotV, data, 
-			light.shadowListIndex, light.shadowMatrixIndex, light.position, light.lightSize);
+			light.shadowListIndex, light.position, light.lightSize);
 			break;
 		case TYPE_SPOT:
 			result = spotLightEval(light.spectrum, light.direction, light.position - shadingPointPos, light.lightLength, light.falloffCos, light.cutoffCos, 
@@ -287,7 +351,7 @@ void getZBinMinMaxData(float linearDepth, out uint minInd, out uint maxInd)
 	maxInd = zBinIndex > Z_BIN_COUNT ? 0 : zBinData.data[zBinIndex].maxI;
 }
 
-vec3 calculateLightContribution(ivec2 screenCoord, float linearDepth, vec3 shadingPointPos, vec3 V, vec3 N, float NdotV, MaterialData data)
+vec3 calculateDirectLighting(ivec2 screenCoord, float linearDepth, vec3 shadingPointPos, vec3 V, vec3 N, float NdotV, MaterialData data)
 {
 	//Directional light contrib
 	vec3 result = vec3(0.0);
@@ -398,6 +462,19 @@ vec3 getWorldPositionFromDepth(vec2 uv, float depth)
 	return res.xyz / res.w;
 }
 
+void storeDataForSpecularTracing(vec2 screenCoord, float depth, vec3 refdir)
+{
+	if ((gl_GlobalInvocationID.x + gl_GlobalInvocationID.y) % 2 == 0)
+	{
+		vec2 encRefdir = encodeOctohedralZeroToOne(refdir);
+
+		ivec2 scaledScreenCoord = ivec2(screenCoord.x, screenCoord.y * 0.5);
+
+		imageStore(DepthRed, scaledScreenCoord, vec4(depth, vec3(0.0)));
+		imageStore(RefdirRed, scaledScreenCoord, vec4(encRefdir, vec2(0.0)));
+	}
+}
+
 void main()
 { 
 	ivec2 screenCoord = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
@@ -426,6 +503,8 @@ void main()
 	vec3 N = TNB * normalize((textureGrad(imageListArray[drawData.nmIndexList], vec3(uvAndGrads.uv, drawData.nmIndexLayer + 0.1), uvAndGrads.uvDX, uvAndGrads.uvDY).xzy) * 2.0 - 1.0);
 	vec3 V = normalize(pushConstants.camPos - worldPos);
 	vec3 R = reflect(-V, N);
+
+	storeDataForSpecularTracing(vec2(screenCoord), depth, R);
 	
 	float NdotV = abs(dot(N, V)) + 0.0001; 
 	
@@ -444,12 +523,12 @@ void main()
 	
 	vec2 DFG = texture(brdfLUT, vec2(NdotV, data.roughness)).xy;
 	
-	vec3 IBLcontrib = evaluateIBL(N, V, R, NdotV, data.alpha, data.roughness, data.F0, DFG, data.albedo, data.specAO, data.diffAO);
-	vec3 lightsContrib = calculateLightContribution(screenCoord, linearDepth, worldPos, V, N, NdotV, data);
+	vec3 directContrib = calculateDirectLighting(screenCoord, linearDepth, worldPos, V, N, NdotV, data);
+	vec3 indirectContrib = calculateIndirectLighting(worldPos, N, V, R, NdotV, data.alpha, data.roughness, data.F0, DFG, data.albedo, data.specAO, data.diffAO, screenUV);
 
 	vec3 emission = textureGrad(imageListArray[drawData.emIndexList], vec3(uvAndGrads.uv, drawData.emIndexLayer + 0.1), uvAndGrads.uvDX, uvAndGrads.uvDY).xyz;
 	   
-	vec3 result = lightsContrib + IBLcontrib + emission;
+	vec3 result = directContrib + indirectContrib + emission;
 
 	imageStore(Framebuffer, screenCoord, vec4(result, 1.0));
 }

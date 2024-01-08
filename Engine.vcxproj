@@ -192,6 +192,7 @@
     <ClCompile Include="src\rendering\data_management\image_classes.cpp" />
     <ClCompile Include="src\main\main.cpp" />
     <ClCompile Include="src\rendering\data_management\memory_manager.cpp" />
+    <ClCompile Include="src\rendering\renderer\GI.cpp" />
     <ClCompile Include="src\rendering\renderer\sync_operations.cpp" />
     <ClCompile Include="src\rendering\renderer\clusterer.cpp" />
     <ClCompile Include="src\rendering\renderer\command_management.cpp" />
@@ -224,6 +225,7 @@
     <Text Include="shaders\not cmpld\include\coordinate_transformation_set.h" />
     <Text Include="shaders\not cmpld\include\tang_frame.h" />
     <Text Include="shaders\not cmpld\include\tonemap.h" />
+    <Text Include="shaders\not cmpld\include\gi_data.h" />
     <ClInclude Include="src\rendering\data_abstraction\BB.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
     <ClInclude Include="src\rendering\data_abstraction\mesh.h" />
@@ -233,6 +235,7 @@
     <ClInclude Include="src\rendering\data_management\memory_manager.h" />
     <ClInclude Include="src\rendering\lighting\light_types.h" />
     <ClInclude Include="src\rendering\lighting\shadows.h" />
+    <ClInclude Include="src\rendering\renderer\GI.h" />
     <ClInclude Include="src\rendering\renderer\sync_operations.h" />
     <ClInclude Include="src\rendering\renderer\clusterer.h" />
     <ClInclude Include="src\rendering\renderer\command_management.h" />
@@ -248,16 +251,20 @@
     <ClInclude Include="src\rendering\scene\parse_scene.h" />
     <ClInclude Include="src\rendering\shader_management\shader_operations.h" />
     <ClInclude Include="src\rendering\UI\UI.h" />
+    <ClInclude Include="src\rendering\UI\UIData.h" />
     <ClInclude Include="src\tools\alignment.h" />
     <ClInclude Include="src\tools\arraysize.h" />
     <ClInclude Include="src\tools\asserter.h" />
+    <ClInclude Include="src\tools\compile_time_array.h" />
     <ClInclude Include="src\tools\comp_s.h" />
     <ClInclude Include="src\tools\gltf_loader.h" />
+    <ClInclude Include="src\tools\ld_seq.h" />
     <ClInclude Include="src\tools\projection.h" />
     <ClInclude Include="src\tools\texture_loader.h" />
     <ClInclude Include="src\tools\logging.h" />
     <ClInclude Include="src\rendering\vulkan_object_handling\vulkan_object_handler.h" />
     <ClInclude Include="src\tools\obj_loader.h" />
+    <ClInclude Include="src\tools\timestamp_queries.h" />
     <ClInclude Include="src\tools\time_measurement.h" />
     <ClInclude Include="src\tools\tools.h" />
     <ClInclude Include="src\window\window.h" />
@@ -350,8 +357,8 @@
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\lighting_pass_comp.comp">
       <FileType>Document</FileType>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;%(AdditionalInputs)</AdditionalInputs>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;$(SHADER_INPUT_DIR)/include/lighting.h;$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/tang_frame.h;$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\uv_buffer_frag.frag">
       <FileType>Document</FileType>
@@ -378,6 +385,73 @@
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\obb_gen_vert.vert">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_voxelization_frag.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_voxelization_geom.geom">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_voxelization_vert.vert">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/misc.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/misc.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\debug_voxel_geom.geom">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/coordinate_transformation_set.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\debug_voxel_vert.vert">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_create_ROMA_comp.comp">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_probe_tracing_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\debug_probe_frag.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\debug_probe_vert.vert">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_compute_irradiance_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_compute_visibility_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_inject_light_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/pbr.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/pbr.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_emission_merge_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_trace_specular_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/misc.h</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/misc.h</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\bilateral_comp.comp">
       <FileType>Document</FileType>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />

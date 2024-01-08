@@ -3,53 +3,121 @@
 #include <cmath>
 
 #include "src/rendering/renderer/sync_operations.h"
+#include "src/tools/logging.h"
+
+Image::Image()
+{
+	m_invalid = true;
+}
 
 Image::Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, bool allocateMips)
 {
-	VkImageCreateInfo imageCI{};
-	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	imageCI.imageType = VK_IMAGE_TYPE_2D;
-	imageCI.format = format;
-	m_format = format;
-	m_width = width;
-	m_height = height;
-	imageCI.extent = { .width = width, .height = height, .depth = 1 };
-	if (allocateMips)
-	{
-		m_mipLevelCount = std::floor(std::log2(std::max(width, height))) + 1;
-	}
-	else
-	{
-		m_mipLevelCount = 1;
-	}
-	imageCI.mipLevels = m_mipLevelCount;
-	imageCI.arrayLayers = 1;
-	imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageCI.usage = usageFlags;
-	imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	imageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-	//Allocation performed on device through VMA
-	VmaAllocationCreateInfo allocCI{};
-	allocCI.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-	auto allocationIter{ m_memoryManager->addAllocation() };
-	EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
-	m_imageAllocIter = allocationIter;
-
-	m_aspects = imageAspects;
-
-	VkImageViewCreateInfo imageViewCI{};
-	imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	imageViewCI.image = m_imageHandle;
-	imageViewCI.format = m_format;
-	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
-	imageViewCI.subresourceRange = { .aspectMask = imageAspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = 1 };
-	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+	m_invalid = true;
+	initialize(device, format, width, height, 1, usageFlags, imageAspects, VK_IMAGE_TILING_OPTIMAL, allocateMips, EXCLUSIVE_ACCESS);
 }
+
+Image::Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, uint32_t depth, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, bool allocateMips)
+{
+	m_invalid = true;
+	initialize(device, format, width, height, depth, usageFlags, imageAspects, VK_IMAGE_TILING_OPTIMAL, allocateMips, EXCLUSIVE_ACCESS);
+}
+
+Image::Image(VkDevice device, VkFormat format, uint32_t width, uint32_t height, uint32_t depth, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, QueueAccessMask queueAccessMask, bool allocateMips)
+{
+	m_invalid = true;
+	initialize(device, format, width, height, depth, usageFlags, imageAspects, VK_IMAGE_TILING_OPTIMAL, allocateMips, queueAccessMask);
+}
+
+void Image::initialize(VkDevice device,
+	VkFormat format,
+	uint32_t width, uint32_t height, uint32_t depth,
+	VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkImageTiling tiling,
+	bool allocateMips,
+	QueueAccessMask queueAccessMask)
+{
+	LOG_IF_INFO(!m_invalid, "{}", "Image is already initialized");
+	
+	if (m_invalid)
+	{
+		VkImageCreateInfo imageCI{};
+		imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageCI.imageType = depth == 1 ? VK_IMAGE_TYPE_2D : VK_IMAGE_TYPE_3D;
+		imageCI.format = format;
+		m_format = format;
+		m_width = width;
+		m_height = height;
+		m_depth = depth;
+		imageCI.extent = { .width = width, .height = height, .depth = depth };
+		if (allocateMips)
+		{
+			m_mipLevelCount = std::floor(std::log2(std::max(std::max(width, height), depth))) + 1;
+		}
+		else
+		{
+			m_mipLevelCount = 1;
+		}
+		imageCI.mipLevels = m_mipLevelCount;
+		imageCI.arrayLayers = 1;
+		imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageCI.tiling = tiling;
+		imageCI.usage = usageFlags;
+		uint32_t queueFamilyIndices[3];
+		switch (queueAccessMask)
+		{
+		case GRAPHICS_AND_COMPUTE_BIT:
+			imageCI.queueFamilyIndexCount = 2;
+			queueFamilyIndices[0] = m_memoryManager->m_graphicsQueueFamilyIndex;
+			queueFamilyIndices[1] = m_memoryManager->m_computeQueueFamilyIndex;
+			imageCI.pQueueFamilyIndices = queueFamilyIndices;
+			break;
+		case TRANSFER_AND_COMPUTE_BIT:
+			imageCI.queueFamilyIndexCount = 2;
+			queueFamilyIndices[0] = m_memoryManager->m_transferQueueFamilyIndex;
+			queueFamilyIndices[1] = m_memoryManager->m_computeQueueFamilyIndex;
+			imageCI.pQueueFamilyIndices = queueFamilyIndices;
+			break;
+		case TRANSFER_AND_GRAPHICS_BIT:
+			imageCI.queueFamilyIndexCount = 2;
+			queueFamilyIndices[0] = m_memoryManager->m_transferQueueFamilyIndex;
+			queueFamilyIndices[1] = m_memoryManager->m_graphicsQueueFamilyIndex;
+			imageCI.pQueueFamilyIndices = queueFamilyIndices;
+			break;
+		case GRAPHICS_AND_COMPUTE_AND_TRANSFER_BIT:
+			imageCI.queueFamilyIndexCount = 3;
+			queueFamilyIndices[0] = m_memoryManager->m_graphicsQueueFamilyIndex;
+			queueFamilyIndices[1] = m_memoryManager->m_computeQueueFamilyIndex;
+			queueFamilyIndices[2] = m_memoryManager->m_transferQueueFamilyIndex;
+			imageCI.pQueueFamilyIndices = queueFamilyIndices;
+			break;
+		default:
+			imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			break;
+		}
+		imageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+		VmaAllocationCreateInfo allocCI{};
+		allocCI.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+		auto allocationIter{ m_memoryManager->addAllocation() };
+		EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
+		m_imageAllocIter = allocationIter;
+
+		m_aspects = imageAspects;
+
+		VkImageViewCreateInfo imageViewCI{};
+		imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		imageViewCI.image = m_imageHandle;
+		imageViewCI.format = m_format;
+		imageViewCI.viewType = depth == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_3D;
+		imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
+		imageViewCI.subresourceRange = { .aspectMask = imageAspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = 1 };
+		EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+
+		m_invalid = false;
+	}
+}
+
 Image::Image(Image&& src) noexcept
 {
 	m_imageHandle = src.m_imageHandle;
@@ -58,6 +126,7 @@ Image::Image(Image&& src) noexcept
 	m_format = src.m_format;
 	m_width = src.m_width;
 	m_height = src.m_height;
+	m_depth = src.m_depth;
 	m_mipLevelCount = src.m_mipLevelCount;
 	m_aspects = src.m_aspects;
 
@@ -74,14 +143,18 @@ uint32_t Image::getHeight() const
 {
 	return m_height;
 }
+uint32_t Image::getDepth() const
+{
+	return m_depth;
+}
 VkImageSubresourceRange Image::getSubresourceRange() const
 {
-	return VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = 1 };
+	return VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = VK_REMAINING_ARRAY_LAYERS };
 }
 
 void Image::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayout)
 {
-	if (m_mipLevelCount <= 1 || (m_width == 1 && m_height == 1))
+	if (m_mipLevelCount <= 1 || (m_width == 1 && m_height == 1 && m_depth == 1))
 		return;
 
 	VkImageMemoryBarrier2 initialBarriers[2] = {
@@ -113,19 +186,21 @@ void Image::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayou
 
 	int mipWidth{ static_cast<int>(m_width) };
 	int mipHeight{ static_cast<int>(m_height) };
+	int mipDepth{ static_cast<int>(m_depth) };
 	for (uint32_t i{ 1 }; i < m_mipLevelCount; ++i)
 	{
 		VkImageBlit blit{};
 		blit.srcOffsets[0] = VkOffset3D{ 0, 0, 0 };
-		blit.srcOffsets[1] = VkOffset3D{ mipWidth, mipHeight, 1 };
+		blit.srcOffsets[1] = VkOffset3D{ mipWidth, mipHeight, mipDepth };
 		blit.srcSubresource = VkImageSubresourceLayers{ .aspectMask = m_aspects, .mipLevel = i - 1, .baseArrayLayer = 0, .layerCount = 1 };
 		blit.dstOffsets[0] = VkOffset3D{ 0, 0, 0 };
-		blit.dstOffsets[1] = VkOffset3D{ mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, 1 };
+		blit.dstOffsets[1] = VkOffset3D{ mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1, mipDepth };
 		blit.dstSubresource = VkImageSubresourceLayers{ .aspectMask = m_aspects, .mipLevel = i, .baseArrayLayer = 0, .layerCount = 1 };
 
 		vkCmdBlitImage(cb, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
 		mipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
 		mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+		mipDepth = mipDepth > 1 ? mipDepth / 2 : 1;
 
 		memBarrier.subresourceRange.baseMipLevel = i;
 		SyncOperations::cmdExecuteBarrier(cb, { {memBarrier} });
@@ -154,6 +229,7 @@ void Image::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32
 
 	uint32_t mipWidth{ m_width };
 	uint32_t mipHeight{ m_height };
+	uint32_t mipDepth{ m_depth };
 
 	for (uint32_t i{ 0 }; i < mipCount; ++i)
 	{
@@ -167,83 +243,16 @@ void Image::cmdCopyDataFromBuffer(VkCommandBuffer cb, VkBuffer srcBuffer, uint32
 			.bufferOffset = bufferOffset[i],
 			.imageSubresource = imageSubresource,
 			.imageOffset = { 0, 0, 0 },
-			.imageExtent = { mipWidth, mipHeight, 1 }
+			.imageExtent = { mipWidth, mipHeight, mipDepth }
 		};
 		mipWidth = mipWidth > 1 ? mipWidth / 2 : 1;
 		mipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
+		mipDepth = mipDepth > 1 ? mipDepth / 2 : 1;
 	}
 
 	vkCmdCopyBufferToImage(cb, srcBuffer, m_imageHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipCount, bufferImageCopies);
 	delete[] bufferImageCopies;
 }
-
-
-ImageMS::ImageMS(VkDevice device, VkFormat format, uint32_t width, uint32_t height, VkImageUsageFlags usageFlags, VkImageAspectFlags imageAspects, VkSampleCountFlagBits sampleCount)
-{
-	VkImageCreateInfo imageCI{};
-	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	imageCI.imageType = VK_IMAGE_TYPE_2D;
-	imageCI.format = format;
-	m_format = format;
-	m_width = width;
-	m_height = height;
-	imageCI.extent = { .width = width, .height = height, .depth = 1 };
-	imageCI.mipLevels = 1;
-	imageCI.arrayLayers = 1;
-	imageCI.samples = sampleCount;
-	imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageCI.usage = usageFlags;
-	imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	imageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-	//Allocation performed on device through VMA
-	VmaAllocationCreateInfo allocCI{};
-	allocCI.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	allocCI.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-	auto allocationIter{ m_memoryManager->addAllocation() };
-	EASSERT(vmaCreateImage(m_memoryManager->getAllocator(), &imageCI, &allocCI, &m_imageHandle, &(*allocationIter), nullptr) == VK_SUCCESS, "VMA", "Image creation failed.");
-	m_imageAllocIter = allocationIter;
-
-	m_aspects = imageAspects;
-
-	VkImageViewCreateInfo imageViewCI{};
-	imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	imageViewCI.image = m_imageHandle;
-	imageViewCI.format = m_format;
-	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
-	imageViewCI.subresourceRange = { .aspectMask = imageAspects, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
-	EASSERT(vkCreateImageView(device, &imageViewCI, nullptr, &m_imageViewHandle) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
-}
-ImageMS::ImageMS(ImageMS&& src) noexcept
-{
-	m_imageHandle = src.m_imageHandle;
-	m_imageViewHandle = src.m_imageViewHandle;
-
-	m_format = src.m_format;
-	m_width = src.m_width;
-	m_height = src.m_height;
-	m_aspects = src.m_aspects;
-
-	m_imageAllocIter = src.m_imageAllocIter;
-
-	src.m_invalid = true;
-}
-
-uint32_t ImageMS::getWidth() const
-{
-	return m_width;
-}
-uint32_t ImageMS::getHeight() const
-{
-	return m_height;
-}
-VkImageSubresourceRange ImageMS::getSubresourceRange() const
-{
-	return VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = 0, .baseArrayLayer = 0, .layerCount = 1 };
-}
-
 
 
 ImageList::ImageList(VkDevice device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usageFlags, bool allocateMips, uint32_t layercount, VkImageAspectFlags aspects)

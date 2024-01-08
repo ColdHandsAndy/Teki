@@ -40,6 +40,7 @@
 #include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/renderer/sync_operations.h"
 #include "src/rendering/renderer/timeline_semaphore.h"
+#include "src/rendering/renderer/GI.h"
 #include "src/rendering/lighting/light_types.h"
 #include "src/rendering/lighting/shadows.h"
 #include "src/rendering/renderer/clusterer.h"
@@ -102,8 +103,9 @@ void createResourceSets(VkDevice device,
 	const BufferMapped& transformMatrices,
 	ResourceSet& materialsTexturesRS,
 	const ImageListContainer& imageLists,
-	ResourceSet& skyboxLightingRS,
+	ResourceSet& skyboxRS,
 	const ImageCubeMap& skybox,
+	ResourceSet& distantProbeRS,
 	const ImageCubeMap& radiance,
 	const ImageCubeMap& irradiance);
 void createDrawDataResourceSet(VkDevice device,
@@ -114,12 +116,16 @@ void createShadowMapResourceSet(VkDevice device,
 	ResourceSet& shadowMapsRS,
 	const ImageListContainer& shadowMapLists,
 	const std::vector<ImageList>& shadowCubeMapLists,
-	const BufferBaseHostAccessible& shadowMapViewMatrices);
-void createPBRResourceSet(VkDevice device,
+	const BufferBaseHostAccessible& shadowMapViewMatrices,
+	VkSampler nearestSampler,
+	Image& shadowSamplingRotationTexture,
+	BufferBaseHostAccessible& stagingBase,
+	CommandBufferSet& cmdBufferSet,
+	VkQueue queue);
+void createBRDFLUTResourceSet(VkDevice device,
 	VkSampler generalSampler,
-	ResourceSet& pbrRS,
-	const Image& brdfLUT,
-	const Image& aoImage);
+	ResourceSet& brdfLUTRS,
+	const Image& brdfLUT);
 void createDirecLightingResourceSet(VkDevice device,
 	ResourceSet& directLightingRS,
 	const BufferMapped& directionalLight,
@@ -142,7 +148,10 @@ void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<Static
 void mouseCallback(GLFWwindow* window, double xpos, double ypos);
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
-VkSampler createGeneralSampler(VkDevice device, float maxAnisotropy);
+void voxelize(GI& gi, CommandBufferSet& cmdBufferSet, VkQueue queue, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride);
+
+VkSampler createLinearSampler(VkDevice device, float maxAnisotropy);
+VkSampler createNearestSampler(VkDevice device, float maxAnisotropy);
 
 void submitAndWait(VulkanObjectHandler& vulkanObjectHandler,
 	CommandBufferSet& cmdBufferSet, VkCommandBuffer cbPreprocessing, VkCommandBuffer cbDraw, VkCommandBuffer cbPostprocessing, VkCommandBuffer cbCompute,
@@ -154,7 +163,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
+	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
+	Window window{ "Teki" };
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetCursorPosCallback(window, mouseCallback);
 	glfwSetKeyCallback(window, keyCallback);
@@ -166,12 +176,13 @@ int main()
 	BufferBase::assignGlobalMemoryManager(memManager);
 	ImageBase::assignGlobalMemoryManager(memManager);
 	
+	DescriptorManager descManager{ *vulkanObjectHandler };
+	ResourceSet::assignGlobalDescriptorManager(descManager);
+
 	CommandBufferSet cmdBufferSet{ *vulkanObjectHandler };
 
 	UI ui{ window, *vulkanObjectHandler, cmdBufferSet };
 	
-	ResourceSet::initializeDescriptorBuffers(*vulkanObjectHandler, memManager);
-
 	VkDevice device{ vulkanObjectHandler->getLogicalDevice() };
 
 	BufferBaseHostInaccessible baseDeviceBuffer{ device, DEVICE_BUFFER_DEFAULT_SIZE, 
@@ -179,7 +190,7 @@ int main()
 	BufferBaseHostAccessible baseHostBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
 		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT };
 	BufferBaseHostAccessible baseHostCachedBuffer{ device, GENERAL_BUFFER_DEFAULT_SIZE, 
-		VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
+		VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, BufferBase::DEDICATED_FLAG, false, true };
 
 	std::vector<fs::path> modelPaths{};
 	std::vector<glm::mat4> modelMatrices{};
@@ -197,11 +208,13 @@ int main()
 	BufferMapped drawData{ baseHostBuffer, sizeof(uint8_t) * 12 * MAX_INDIRECT_DRAWS };
 	BufferMapped transformMatrices{ baseHostBuffer, sizeof(glm::mat4) * MAX_TRANSFORM_MATRICES };
 	BufferMapped directionalLight{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
-	VkSampler generalSampler{ createGeneralSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
+	VkSampler linearSampler{ createLinearSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
+	VkSampler nearestSampler{ createNearestSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
+	Image shadowSamplingRotationTexture{ device, VK_FORMAT_R8G8B8A8_SNORM, 2 * 32, 2 * 32, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT };
 	Image brdfLUT{ TextureLoaders::loadTexture(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "internal/brdfLUT/brdfLUT.ktx2", VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT) };
-	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox/skybox.ktx2") };
-	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance/radiance.ktx2") };
-	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance/irradiance.ktx2") };
+	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox.ktx2") };
+	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance.ktx2") };
+	ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance.ktx2") };
 	ImageListContainer materialsTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true,
 		VkSamplerCreateInfo{ 
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, 
@@ -232,8 +245,8 @@ int main()
 			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 			.mipLodBias = 0.0f,
 			.anisotropyEnable = VK_FALSE,
-			.compareEnable = VK_FALSE,
-			.compareOp = VK_COMPARE_OP_ALWAYS,
+			.compareEnable = VK_TRUE,
+			.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
 			.minLod = 0.0f,
 			.maxLod = 128.0f,
 			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
@@ -261,42 +274,57 @@ int main()
 	ResourceSet transformMatricesRS{};
 	ResourceSet materialsTexturesRS{};
 	ResourceSet shadowMapsRS{};
-	ResourceSet skyboxLightingRS{};
+	ResourceSet skyboxRS{};
+	ResourceSet distantProbeRS{};
 	ResourceSet drawDataRS{};
-	ResourceSet pbrRS{};
+	ResourceSet BRDFLUTRS{};
 	ResourceSet directLightingRS{};
 	createResourceSets(device,
 		transformMatricesRS, transformMatrices, 
 		materialsTexturesRS, materialsTextures, 
-		skyboxLightingRS, cubemapSkybox, cubemapSkyboxRadiance, cubemapSkyboxIrradiance);
+		skyboxRS, cubemapSkybox, 
+		distantProbeRS, cubemapSkyboxRadiance, cubemapSkyboxIrradiance);
 	DepthBuffer depthBuffer{ device, window.getWidth(), window.getHeight() };
 	Clusterer clusterer{ device, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), window.getWidth(), window.getHeight(), coordinateTransformation.getResourceSet() };
 	ShadowCaster caster{ device, clusterer, shadowMaps, shadowCubeMaps, indirectDrawCmdData, transformMatrices, drawData, rUnitOBBs };
+	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, coordinateTransformation.getResourceSet(), indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex()};
+	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, depthBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
+	GI gi{ device, window.getWidth(), window.getHeight(), baseHostBuffer, baseDeviceBuffer, clusterer};
+	renderingData.countROM = gi.getCountROM();
+	LightTypes::LightBase::assignGlobalGI(gi);
 	LightTypes::LightBase::assignGlobalClusterer(clusterer);
 	LightTypes::LightBase::assignGlobalShadowCaster(caster);
 
 	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
 	dirLight.plantData(directionalLight.getData());
-	LightTypes::PointLight pLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 10.0f, 1024, 0.0);
-	LightTypes::SpotLight sLight(glm::vec3{-8.5f, 14.0f, -3.5f}, glm::vec3{0.6f, 0.5f, 0.7f}, 1000.0f, 24.0f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(25.0), glm::radians(30.0), 2048, 0.0);
+	std::array<LightTypes::PointLight, 5> pointLights{ 
+		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
+		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
+		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
+		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
+		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
+	};
+	std::array<LightTypes::SpotLight, 1> spotLights{ 
+		LightTypes::SpotLight(glm::vec3{-8.5f, 14.0f, -3.5f}, glm::vec3{0.6f, 0.5f, 0.7f}, 1000.0f, 0.0f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(25.0), glm::radians(30.0), 1024, 0.0, true)
+	};
 
-	Culling culling{ device, MAX_INDIRECT_DRAWS, NEAR_PLANE, coordinateTransformation.getResourceSet(), indirectDrawCmdData, depthBuffer, vulkanObjectHandler->getComputeFamilyIndex(), vulkanObjectHandler->getGraphicsFamilyIndex()};
-	HBAO hbao{ device, HBAO_WIDTH_DEFAULT, HBAO_HEIGHT_DEFAULT, depthBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
-	createShadowMapResourceSet(device, shadowMapsRS, shadowMaps, shadowCubeMaps, caster.getShadowViewMatrices());
-	createPBRResourceSet(device, generalSampler, pbrRS, brdfLUT, hbao.getAO());
+	createBRDFLUTResourceSet(device, linearSampler, BRDFLUTRS, brdfLUT);
+	createShadowMapResourceSet(device, shadowMapsRS, shadowMaps, shadowCubeMaps, caster.getShadowViewMatrices(), nearestSampler, shadowSamplingRotationTexture, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 	createDirecLightingResourceSet(device, directLightingRS, directionalLight, clusterer.getSortedLights(), clusterer.getSortedTypeData(), clusterer.getTileData(), clusterer.getZBin());
+	gi.initialize(device, drawDataRS, transformMatricesRS, materialsTexturesRS, BRDFLUTRS, shadowMapsRS, linearSampler);
+	gi.initializeDebug(device, coordinateTransformation.getResourceSet(), window.getWidth(), window.getHeight(), baseHostBuffer, linearSampler, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
 	DeferredLighting deferredLighting{device, window.getWidth(), window.getHeight(), 
 		depthBuffer, 
 		hbao,
 		coordinateTransformation.getResourceSet(), transformMatricesRS, 
-		materialsTexturesRS, shadowMapsRS, skyboxLightingRS, 
-		drawDataRS, pbrRS, directLightingRS, generalSampler};
+		materialsTexturesRS, shadowMapsRS, 
+		gi.getIndirectDiffuseLightingResourceSet(), gi.getIndirectSpecularLightingResourceSet(), gi.getIndirectLightingMetadataResourceSet(),
+		drawDataRS, BRDFLUTRS, directLightingRS, linearSampler };
 	deferredLighting.updateTileWidth(clusterer.getWidthInTiles());
 	TAA taa{ device, depthBuffer, deferredLighting.getFramebuffer(), coordinateTransformation.getResourceSet(), cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
 	rUnitOBBs.initVisualizationResources(device, window.getWidth(), window.getHeight(), coordinateTransformation.getResourceSet());
-	 
-	 
+
 	PipelineAssembler assembler{ device };
 	
 	assembler.setDynamicState(PipelineAssembler::DYNAMIC_STATE_DEFAULT);
@@ -308,7 +336,7 @@ int main()
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.0f, VK_CULL_MODE_NONE);
 	assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_SKYBOX, VK_COMPARE_OP_EQUAL);
 	assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEFAULT, VK_FORMAT_R16G16B16A16_SFLOAT);
-	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, coordinateTransformation.getResourceSet(), skyboxLightingRS) };
+	Pipeline skyboxPipeline{ createSkyboxPipeline(assembler, coordinateTransformation.getResourceSet(), skyboxRS) };
 	
 	assembler.setInputAssemblyState(PipelineAssembler::INPUT_ASSEMBLY_STATE_LINE_DRAWING);
 	assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_DEFAULT, 1.5f);
@@ -346,6 +374,53 @@ int main()
 	presentInfo.pWaitSemaphores = &readyToPresentSemaphore;
 	std::tuple<VkImage, VkImageView, uint32_t> swapchainImageData{};
 
+
+	constexpr bool profile = true;
+	constexpr uint32_t queryNum = 12;
+	TimestampQueries<queryNum> queries{ *vulkanObjectHandler };
+	renderingData.gpuTasks.resize(queryNum);
+	constexpr uint32_t gqQueryOffset = 0;
+	constexpr uint32_t gqQueryCount = 8;
+	constexpr uint32_t queryIndexHiZ = 0;
+	constexpr uint32_t queryIndexShadowMaps = 1;
+	constexpr uint32_t queryIndexTileTest = 2;
+	constexpr uint32_t queryIndexUVbufferDraw = 3;
+	constexpr uint32_t queryIndexLightingPass = 4;
+	constexpr uint32_t queryIndexHBAO = 5;
+	constexpr uint32_t queryIndexTAA = 6;
+	constexpr uint32_t queryIndexGIInjectLights = 7;
+	constexpr uint32_t cqQueryOffset = 8;
+	constexpr uint32_t cqQueryCount = 4;
+	constexpr uint32_t queryIndexGICreateROMA = 8;
+	constexpr uint32_t queryIndexGITraceProbes = 9;
+	constexpr uint32_t queryIndexGIComputeIrradianceAndVisibility = 10;
+	constexpr uint32_t queryIndexGITraceSpecular = 11;
+	renderingData.gpuTasks[queryIndexHiZ].name = "HiZ";
+	renderingData.gpuTasks[queryIndexHiZ].color = legit::Colors::asbestos;
+	renderingData.gpuTasks[queryIndexShadowMaps].name = "Shadow maps";
+	renderingData.gpuTasks[queryIndexShadowMaps].color = legit::Colors::midnightBlue;
+	renderingData.gpuTasks[queryIndexTileTest].name = "Tile test";
+	renderingData.gpuTasks[queryIndexTileTest].color = legit::Colors::alizarin;
+	renderingData.gpuTasks[queryIndexUVbufferDraw].name = "(Deferred) UV-buffer draw";
+	renderingData.gpuTasks[queryIndexUVbufferDraw].color = legit::Colors::turqoise;
+	renderingData.gpuTasks[queryIndexLightingPass].name = "(Deferred) Lighting pass";
+	renderingData.gpuTasks[queryIndexLightingPass].color = legit::Colors::greenSea;
+	renderingData.gpuTasks[queryIndexHBAO].name = "HBAO";
+	renderingData.gpuTasks[queryIndexHBAO].color = legit::Colors::wetAsphalt;
+	renderingData.gpuTasks[queryIndexTAA].name = "TAA";
+	renderingData.gpuTasks[queryIndexTAA].color = legit::Colors::silver;
+	renderingData.gpuTasks[queryIndexGICreateROMA].name = "(GI) Create ROMA";
+	renderingData.gpuTasks[queryIndexGICreateROMA].color = legit::Colors::emerald;
+	renderingData.gpuTasks[queryIndexGITraceProbes].name = "(GI) Trace probes";
+	renderingData.gpuTasks[queryIndexGITraceProbes].color = legit::Colors::peterRiver;
+	renderingData.gpuTasks[queryIndexGIComputeIrradianceAndVisibility].name = "(GI) Compute irradiance";
+	renderingData.gpuTasks[queryIndexGIComputeIrradianceAndVisibility].color = legit::Colors::belizeHole;
+	renderingData.gpuTasks[queryIndexGIInjectLights].name = "(GI) Inject lights";
+	renderingData.gpuTasks[queryIndexGIInjectLights].color = legit::Colors::nephritis;
+	renderingData.gpuTasks[queryIndexGITraceSpecular].name = "(GI) Trace specular";
+	renderingData.gpuTasks[queryIndexGITraceSpecular].color = legit::Colors::carrot;
+
+
 	SyncOperations::EventHolder<3> events{ device };
 
 	VkCommandBuffer cbPreprocessing{};
@@ -354,6 +429,7 @@ int main()
 	VkCommandBuffer cbCompute{};
 	uint32_t cbSetIndex{ cmdBufferSet.createInterchangeableSet(2, CommandBufferSet::ASYNC_COMPUTE_CB) };
 	uint32_t currentCBindex{ 1 };
+	uint32_t currentProbesIndex{ 0 };
 	
 	typedef oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg> node_t;
 	typedef const oneapi::tbb::flow::continue_msg& msg_t;
@@ -368,10 +444,13 @@ int main()
 			swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
 
 			deferredLighting.updateCameraPosition(camInfo.camPos);
+			deferredLighting.updateGISceneCenter(gi.getScenePosition());
 
 			coordinateTransformation.updateProjectionMatrixJitter();
 			coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
 			clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
+
+			currentProbesIndex = gi.getIndirectLightingCurrentSet();
 		} };
 	node_t nodeFrustumCulling{ flowGraph, [&](msg_t)
 		{
@@ -385,7 +464,14 @@ int main()
 		{
 			cbPreprocessing = cmdBufferSet.beginPerThreadRecording(0);
 
+			if (profile) queries.cmdReset(cbPreprocessing, gqQueryOffset, gqQueryCount);
+
 			culling.cmdTransferSetDrawCountToZero(cbPreprocessing);
+
+			if (profile) queries.cmdWriteStart(cbPreprocessing, queryIndexHiZ);
+			depthBuffer.cmdCalcHiZ(cbPreprocessing);
+			if (profile) queries.cmdWriteEnd(cbPreprocessing, queryIndexHiZ);
+
 			SyncOperations::cmdExecuteBarrier(cbPreprocessing, culling.getDependency());
 			culling.cmdDispatchCullOccluded(cbPreprocessing);
 			clusterer.cmdTransferClearTileBuffer(cbPreprocessing);
@@ -394,13 +480,19 @@ int main()
 	node_t nodePreprocessCB2{ flowGraph, [&](msg_t)
 		{
 			hbao.cmdTransferClearBuffers(cbPreprocessing);
+
+			if (profile) queries.cmdWriteStart(cbPreprocessing, queryIndexShadowMaps);
 			caster.cmdRenderShadowMaps(cbPreprocessing, vertexData, indexData);
+			if (profile) queries.cmdWriteEnd(cbPreprocessing, queryIndexShadowMaps);
+
 			uint32_t indices[]{ 0 };
 			events.cmdWait(cbPreprocessing, 1, indices, &clusterer.getDependency()); //Event 1 wait
 		} };
 	node_t nodePreprocessCB3{ flowGraph, [&](msg_t)
 		{
+			if (profile) queries.cmdWriteStart(cbPreprocessing, queryIndexTileTest);
 			clusterer.cmdPassConductTileTest(cbPreprocessing);
+			if (profile) queries.cmdWriteEnd(cbPreprocessing, queryIndexTileTest);
 		} };
 	node_t nodePreprocessCB4{ flowGraph, [&](msg_t)
 		{
@@ -417,8 +509,22 @@ int main()
 				{ {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 					VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT)} });
 
-				
-				deferredLighting.cmdPassDrawToUVBuffer(cbDraw, culling, vertexData, indexData);
+				gi.cmdInjectLights(cbDraw, queries, queryIndexGIInjectLights, profile);
+
+				if (renderingData.voxelDebug != UiData::NONE_VOXEL_DEBUG)
+				{
+					SyncOperations::cmdExecuteBarrier(cbDraw, { {SyncOperations::constructImageBarrier(
+						VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+						VK_ACCESS_NONE, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+						VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+						depthBuffer.getImageHandle(), depthBuffer.getDepthBufferSubresourceRange())} });
+				}
+				else
+				{
+					if (profile) queries.cmdWriteStart(cbDraw, queryIndexUVbufferDraw);
+					deferredLighting.cmdPassDrawToUVBuffer(cbDraw, culling, vertexData, indexData);
+					if (profile) queries.cmdWriteEnd(cbDraw, queryIndexUVbufferDraw);
+				}
 
 				SyncOperations::cmdExecuteBarrier(cbDraw,
 					{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -426,15 +532,24 @@ int main()
 						VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
 						depthBuffer.getImageHandle(), depthBuffer.getDepthBufferSubresourceRange())} });
 
+				if (profile) queries.cmdWriteStart(cbDraw, queryIndexHBAO);
 				hbao.cmdDispatchHBAO(cbDraw);
 				SyncOperations::cmdExecuteBarrier(cbDraw, hbao.getDependency());
 				hbao.cmdDispatchHBAOBlur(cbDraw);
+				if (profile) queries.cmdWriteEnd(cbDraw, queryIndexHBAO);
+
 
 				SyncOperations::cmdExecuteBarrier(cbDraw, deferredLighting.getDependency());
 
 				deferredLighting.updateLightBinWidth(clusterer.getCurrentBinWidth());
-				deferredLighting.cmdDispatchLightingCompute(cbDraw);
-				
+
+				if (renderingData.voxelDebug == UiData::NONE_VOXEL_DEBUG)
+				{
+					if (profile) queries.cmdWriteStart(cbDraw, queryIndexLightingPass);
+					deferredLighting.cmdDispatchLightingCompute(cbDraw, currentProbesIndex);
+					if (profile) queries.cmdWriteEnd(cbDraw, queryIndexLightingPass);
+				}
+
 				SyncOperations::cmdExecuteBarrier(cbDraw, 
 					{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
 						VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
@@ -492,9 +607,11 @@ int main()
 					.baseArrayLayer = 0,
 					.layerCount = 1 })} });
 
+			if (profile) queries.cmdWriteStart(cbPostprocessing, queryIndexTAA);
 			taa.adjustSmoothingFactor(WorldState::deltaTime, camInfo.speed, camInfo.camPosChanged);
 			taa.updateJitterValue(coordinateTransformation.getCurrentJitter());
 			taa.cmdDispatchTAA(cbPostprocessing, std::get<1>(swapchainImageData));
+			if (profile) queries.cmdWriteEnd(cbPostprocessing, queryIndexTAA);
 			
 			SyncOperations::cmdExecuteBarrier(cbPostprocessing,
 				{{SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
@@ -530,7 +647,27 @@ int main()
 				if (renderingData.showOBBs)
 					rUnitOBBs.cmdVisualizeOBBs(cbPostprocessing);
 
-				if (renderingData.drawSpaceLines)
+				if (renderingData.voxelDebug == UiData::BOM_VOXEL_DEBUG)
+					gi.cmdDrawBOM(cbPostprocessing, camInfo.camPos);
+				else if (renderingData.voxelDebug == UiData::ROM_VOXEL_DEBUG)
+					gi.cmdDrawROM(cbPostprocessing, camInfo.camPos, renderingData.indexROM);
+				else if (renderingData.voxelDebug == UiData::ALBEDO_VOXEL_DEBUG)
+					gi.cmdDrawAlbedo(cbPostprocessing, camInfo.camPos);
+				else if (renderingData.voxelDebug == UiData::METALNESS_VOXEL_DEBUG)
+					gi.cmdDrawMetalness(cbPostprocessing, camInfo.camPos);
+				else if (renderingData.voxelDebug == UiData::ROUGHNESS_VOXEL_DEBUG)
+					gi.cmdDrawRoughness(cbPostprocessing, camInfo.camPos);
+				else if (renderingData.voxelDebug == UiData::EMISSION_VOXEL_DEBUG)
+					gi.cmdDrawEmission(cbPostprocessing, camInfo.camPos);
+
+				if (renderingData.probeDebug == UiData::RADIANCE_PROBE_DEBUG)
+					gi.cmdDrawRadianceProbes(cbPostprocessing);
+				else if (renderingData.probeDebug == UiData::IRRADIANCE_PROBE_DEBUG)
+					gi.cmdDrawIrradianceProbes(cbPostprocessing);
+				else if (renderingData.probeDebug == UiData::VISIBILITY_PROBE_DEBUG)
+					gi.cmdDrawVisibilityProbes(cbPostprocessing);
+
+				if (renderingData.drawSpaceGrid)
 				{
 					VkBuffer lineVertexBindings[1]{ spaceLinesVertexData.getBufferHandle() };
 					VkDeviceSize lineVertexBindingOffsets[1]{ spaceLinesVertexData.getOffset() };
@@ -546,9 +683,10 @@ int main()
 			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
 			ui.begin("Settings");
 			ui.stats(renderingData, drawCount);
-			ui.lightSettings(renderingData, pLight, sLight);
+			ui.lightSettings(renderingData, pointLights, spotLights);
 			ui.misc(renderingData);
 			ui.end();
+			ui.profiler(renderingData, profile);
 			ui.endUIPass(cbPostprocessing);
 
 			SyncOperations::cmdExecuteBarrier(cbPostprocessing, 
@@ -569,11 +707,12 @@ int main()
 			currentCBindex = currentCBindex ? 0 : 1;
 			cbCompute = cmdBufferSet.beginInterchangeableRecording(cbSetIndex, currentCBindex);
 
-			depthBuffer.cmdCalcHiZ(cbCompute);
+			if (profile) queries.cmdReset(cbCompute, cqQueryOffset, cqQueryCount);
+			gi.cmdComputeIndirect(cbCompute, coordinateTransformation.getInverseViewProjectionMatrix(), camInfo.camPos, queries, queryIndexGICreateROMA, queryIndexGITraceSpecular, queryIndexGITraceProbes, queryIndexGIComputeIrradianceAndVisibility, profile);
 
 			cmdBufferSet.endRecording(cbCompute);
 		} };
-
+	
 	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodePostprocessCB);
 	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeComputeCB);
 	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeFrustumCulling);
@@ -584,17 +723,19 @@ int main()
 	oneapi::tbb::flow::make_edge(nodePreprocessCB2, nodePreprocessCB3);
 	oneapi::tbb::flow::make_edge(nodePreprocessCB3, nodePreprocessCB4);
 	clusterer.connectToFlowGraph(flowGraph, nodeAcquireSwapchainUpdateViewMatrices, nodePrepareDataForShadowMapRender, nodePreprocessCB3);
+	
+	voxelize(gi, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), indirectDrawCmdData, vertexData, indexData, drawCount, 0, sizeof(IndirectData));
 
 	vkDeviceWaitIdle(device);
 	WorldState::initialize();
 	while (!glfwWindowShouldClose(window))
 	{
-		TIME_MEASURE_START(100, 0);
-
 		WorldState::refreshFrameTime();
 
 		nodeAcquireSwapchainUpdateViewMatrices.try_put(oneapi::tbb::flow::continue_msg{});
 		flowGraph.wait_for_all();
+
+		queries.updateResults();
 
 		submitAndWait(*vulkanObjectHandler, 
 			cmdBufferSet, cbPreprocessing, cbDraw, cbPostprocessing, cbCompute, cbSetIndex, currentCBindex, 
@@ -602,13 +743,16 @@ int main()
 			presentInfo, 
 			std::get<2>(swapchainImageData), swapChains[0]);
 
-		glfwPollEvents();
+		queries.uploadQueryDataToProfilerTasks(renderingData.gpuTasks.data(), renderingData.gpuTasks.size());
 
-		TIME_MEASURE_END(100, 0);
+		//vkDeviceWaitIdle(device);
+
+		glfwPollEvents();
 	}
 	
 	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
-	vkDestroySampler(device, generalSampler, nullptr);
+	vkDestroySampler(device, linearSampler, nullptr);
+	vkDestroySampler(device, nearestSampler, nullptr);
 	vkDestroySemaphore(device, swapchainSemaphore, nullptr);
 	vkDestroySemaphore(device, readyToPresentSemaphore, nullptr);
 	glfwTerminate();
@@ -756,8 +900,9 @@ void createResourceSets(VkDevice device,
 	const BufferMapped& transformMatrices,
 	ResourceSet& materialsTexturesRS, 
 	const ImageListContainer& imageLists,
-	ResourceSet& skyboxLightingRS, 
+	ResourceSet& skyboxRS, 
 	const ImageCubeMap& skybox,
+	ResourceSet& distantProbeRS,
 	const ImageCubeMap& radiance,
 	const ImageCubeMap& irradiance)
 {
@@ -785,17 +930,22 @@ void createResourceSets(VkDevice device,
 
 	VkDescriptorSetLayoutBinding skyboxBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo skyboxImageInfo{ .sampler = skybox.getSampler(), .imageView = skybox.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding radianceBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo radianceImageInfo{ .sampler = radiance.getSampler(), .imageView = radiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding irradianceBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo irradianceImageInfo{ .sampler = irradiance.getSampler(), .imageView = irradiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	skyboxLightingRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-		std::array{ skyboxBinding, radianceBinding, irradianceBinding },
+	skyboxRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ skyboxBinding },
 		std::array<VkDescriptorBindingFlags, 0>{},
 		std::vector<std::vector<VkDescriptorDataEXT>>{ 
-			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &skyboxImageInfo} } ,
-			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &radianceImageInfo} } ,
-			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &irradianceImageInfo} } },
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &skyboxImageInfo} } },
+		true);
+	VkDescriptorSetLayoutBinding radianceBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo radianceImageInfo{ .sampler = radiance.getSampler(), .imageView = radiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+	VkDescriptorSetLayoutBinding irradianceBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo irradianceImageInfo{ .sampler = irradiance.getSampler(), .imageView = irradiance.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+	distantProbeRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ radianceBinding, irradianceBinding },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &radianceImageInfo} },
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &irradianceImageInfo} }},
 		true);
 }
 
@@ -821,7 +971,12 @@ void createShadowMapResourceSet(VkDevice device,
 	ResourceSet& shadowMapsRS,
 	const ImageListContainer& shadowMapLists,
 	const std::vector<ImageList>& shadowCubeMapLists, 
-	const BufferBaseHostAccessible& shadowMapViewMatrices)
+	const BufferBaseHostAccessible& shadowMapViewMatrices,
+	VkSampler nearestSampler,
+	Image& shadowSamplingRotationTexture,
+	BufferBaseHostAccessible& stagingBase, 
+	CommandBufferSet& cmdBufferSet, 
+	VkQueue queue)
 {
 	VkDescriptorSetLayoutBinding shadowMapsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	std::vector<VkDescriptorImageInfo> shadowMapsImageData(shadowMapLists.getImageListCount());
@@ -839,38 +994,92 @@ void createShadowMapResourceSet(VkDevice device,
 		shadowCubeMapsImageData[i] = { .imageView = shadowCubeMapLists[i].getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		shadowCubeMapsDescData[i].pSampledImage = &shadowCubeMapsImageData[i];
 	}
-	VkDescriptorSetLayoutBinding samplerBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
-	VkSampler samplerData{ shadowMapLists.getSampler() };
-	VkDescriptorSetLayoutBinding viewMatricesBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorSetLayoutBinding linearSamplerBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkSampler linearSamplerData{ shadowMapLists.getSampler() };
+	VkDescriptorSetLayoutBinding nearestSamplerBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkSampler nearestSamplerData{ nearestSampler };
+	VkDescriptorSetLayoutBinding viewMatricesBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT viewMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = shadowMapViewMatrices.getDeviceAddress(), .range = shadowMapViewMatrices.getSize() };
 
+	VkDescriptorSetLayoutBinding offsetTextureBinding{ .binding = 5, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo offsetTextureImageInfo{ .sampler = nearestSampler, .imageView = shadowSamplingRotationTexture.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL};
+
 	shadowMapsRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-		std::array{ shadowMapsBinding, shadowCubeMapsBinding, samplerBinding, viewMatricesBinding },
-		std::array<VkDescriptorBindingFlags, 4>{ VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, 0 , 0},
+		std::array{ shadowMapsBinding, shadowCubeMapsBinding, linearSamplerBinding, nearestSamplerBinding, viewMatricesBinding, offsetTextureBinding },
+		std::array<VkDescriptorBindingFlags, 6>{ VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, 0 , 0, 0, 0 },
 		std::vector<std::vector<VkDescriptorDataEXT>>{ 
 			shadowMapsDescData, 
 			shadowCubeMapsDescData, 
-			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampler = &samplerData }},
-			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pStorageBuffer = &viewMatricesAddressInfo }} },
+			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampler = &linearSamplerData }},
+			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampler = &nearestSamplerData }},
+			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pStorageBuffer = &viewMatricesAddressInfo }},
+			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampledImage = &offsetTextureImageInfo }},
+		},
 		true);
+
+
+	std::random_device rd{};
+	std::mt19937 mt(rd());
+	std::uniform_real_distribution<float> dist(0.0, 1.0);
+	constexpr int strataCountHor{ 4 };
+	constexpr int strataCountVert{ 2 };
+	constexpr float stratumHorSize{ 1.0f / 4.0f };
+	constexpr float stratumVertSize{ 1.0f / 2.0f };
+
+	BufferMapped staging{ stagingBase, sizeof(uint32_t) * 2 * 2 * 32 * 32 };
+	uint32_t* data{ reinterpret_cast<uint32_t*>(staging.getData()) };
+
+	int n{ 0 };
+	for (int j{ 0 }; j < strataCountVert * 32; ++j)
+	{
+		for (int i{ 0 }; i < strataCountHor * 32;)
+		{
+			float u = dist(mt);
+			float x1 = std::cos(2 * glm::pi<float>() * u);
+			float y1 = std::sin(2 * glm::pi<float>() * u);
+			++i;
+			float v = dist(mt);
+			float x2 = std::cos(2 * glm::pi<float>() * v);
+			float y2 = std::sin(2 * glm::pi<float>() * v);
+			++i;
+			*(data + n) = glm::packSnorm4x8(glm::vec4(x1, y1, x2, y2));
+			++n;
+		}
+	}
+
+	VkCommandBuffer cb{ cmdBufferSet.beginTransientRecording() };
+		SyncOperations::cmdExecuteBarrier(cb, 
+			{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_TRANSFER_BIT, 
+			VK_ACCESS_NONE, VK_ACCESS_TRANSFER_WRITE_BIT, 
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
+			shadowSamplingRotationTexture.getImageHandle(), shadowSamplingRotationTexture.getSubresourceRange())}});
+		shadowSamplingRotationTexture.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), staging.getOffset(), 0, 0, shadowSamplingRotationTexture.getWidth(), shadowSamplingRotationTexture.getHeight());
+		SyncOperations::cmdExecuteBarrier(cb,
+			{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_NONE,
+			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_NONE,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+			shadowSamplingRotationTexture.getImageHandle(), shadowSamplingRotationTexture.getSubresourceRange())} });
+	cmdBufferSet.endRecording(cb);
+
+	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
+	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(queue);
+
+	cmdBufferSet.resetAllTransient();
 }
 
-void createPBRResourceSet(VkDevice device,
+void createBRDFLUTResourceSet(VkDevice device,
 	VkSampler generalSampler,
-	ResourceSet& pbrRS,
-	const Image& brdfLUT,
-	const Image& aoImage)
+	ResourceSet& brdfLUTRS,
+	const Image& brdfLUT)
 {
 	VkDescriptorSetLayoutBinding lutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo lutImageInfo{ .sampler = generalSampler, .imageView = brdfLUT.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding aoImageBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo aoImageInfo{ .sampler = generalSampler, .imageView = aoImage.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
-	pbrRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-		std::array{ lutBinding, aoImageBinding },
+	brdfLUTRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ lutBinding },
 		std::array<VkDescriptorBindingFlags, 0>{},
 		std::vector<std::vector<VkDescriptorDataEXT>>{
-			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &lutImageInfo} },
-			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &aoImageInfo} }},
+			std::vector<VkDescriptorDataEXT>{ {.pCombinedImageSampler = &lutImageInfo} }},
 		true);
 }
 
@@ -1119,7 +1328,20 @@ void fillDrawData(const BufferMapped& perDrawDataIndices, std::vector<StaticMesh
 	}
 }
 
-VkSampler createGeneralSampler(VkDevice device, float maxAnisotropy)
+void voxelize(GI& gi, CommandBufferSet& cmdBufferSet, VkQueue queue, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride)
+{
+	VkCommandBuffer cbtr{ cmdBufferSet.beginTransientRecording() };
+		gi.cmdVoxelize(cbtr, indirectDrawCmdData, vertexData, indexData, drawCmdCount, 0, sizeof(IndirectData));
+	cmdBufferSet.endRecording(cbtr);
+
+	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cbtr };
+	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(queue);
+
+	cmdBufferSet.resetAllTransient();
+}
+
+VkSampler createLinearSampler(VkDevice device, float maxAnisotropy)
 {
 	VkSamplerCreateInfo samplerCI{
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -1142,6 +1364,30 @@ VkSampler createGeneralSampler(VkDevice device, float maxAnisotropy)
 	vkCreateSampler(device, &samplerCI, nullptr, &sampler);
 	return sampler;
 }
+VkSampler createNearestSampler(VkDevice device, float maxAnisotropy)
+{
+	VkSamplerCreateInfo samplerCI{
+			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+			.magFilter = VK_FILTER_NEAREST,
+			.minFilter = VK_FILTER_NEAREST,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = VK_FALSE,
+			.maxAnisotropy = maxAnisotropy,
+			.compareEnable = VK_FALSE,
+			.compareOp = VK_COMPARE_OP_ALWAYS,
+			.minLod = 0.0f,
+			.maxLod = 128.0f,
+			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+			.unnormalizedCoordinates = VK_FALSE };
+	VkSampler sampler{};
+	vkCreateSampler(device, &samplerCI, nullptr, &sampler);
+	return sampler;
+}
+
 
 void submitAndWait(VulkanObjectHandler& vulkanObjectHandler,
 	CommandBufferSet& cmdBufferSet, VkCommandBuffer cbPreprocessing, VkCommandBuffer cbDraw, VkCommandBuffer cbPostprocessing, VkCommandBuffer cbCompute,
@@ -1149,48 +1395,49 @@ void submitAndWait(VulkanObjectHandler& vulkanObjectHandler,
 	TimelineSemaphore& semaphore, TimelineSemaphore& semaphoreCompute, VkSemaphore swapchainSemaphore, VkSemaphore readyToPresentSemaphore,
 	VkPresentInfoKHR& presentInfo, uint32_t swapchainIndex, VkSwapchainKHR& swapChain)
 {
-	VkSubmitInfo submitInfos[3]{};
+	VkSubmitInfo submitInfos[4]{};
 	VkTimelineSemaphoreSubmitInfo semaphoreSubmit[3]{};
 	uint64_t timelineVal{ semaphore.getValue() };
 	uint64_t timelineValCompute{ semaphoreCompute.getValue() };
 
-	uint64_t waitValues0[]{ timelineValCompute };
-	uint64_t signalValues0[]{ ++timelineVal };
-	VkSemaphore waitSemaphores0[]{ semaphoreCompute.getHandle() };
-	VkSemaphore signalSemaphores0[]{ semaphore.getHandle() };
-	VkPipelineStageFlags stageFlags0[]{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
-	VkCommandBuffer cbs0[]{ cbPreprocessing, cbDraw };
-	semaphoreSubmit[0] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues0), waitValues0, ARRAYSIZE(signalValues0), signalValues0);
-	submitInfos[0] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit,
-		.waitSemaphoreCount = ARRAYSIZE(waitSemaphores0), .pWaitSemaphores = waitSemaphores0, .pWaitDstStageMask = stageFlags0,
-		.commandBufferCount = ARRAYSIZE(cbs0),.pCommandBuffers = cbs0,
-		.signalSemaphoreCount = ARRAYSIZE(signalSemaphores0), .pSignalSemaphores = signalSemaphores0 };
-	static bool firstIt{ true }; if (firstIt) { firstIt = false; submitInfos[0].waitSemaphoreCount = 0; }
+	submitInfos[0] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1,.pCommandBuffers = &cbPreprocessing};
 
-	uint64_t signalValues1[]{ ++timelineVal, 0 };
-	VkSemaphore waitSemaphores1[]{ swapchainSemaphore };
-	VkSemaphore signalSemaphores1[]{ semaphore.getHandle(), readyToPresentSemaphore };
-	VkPipelineStageFlags stageFlags1[]{ VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
-	semaphoreSubmit[1] = TimelineSemaphore::getSubmitInfo(0, nullptr, ARRAYSIZE(signalValues1), signalValues1);
-	submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 1,
+	uint64_t waitValues1[]{ timelineValCompute };
+	uint64_t signalValues1[]{ ++timelineVal };
+	VkSemaphore waitSemaphores1[]{ semaphoreCompute.getHandle() };
+	VkSemaphore signalSemaphores1[]{ semaphore.getHandle() };
+	VkPipelineStageFlags stageFlags1[]{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+	semaphoreSubmit[0] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues1), waitValues1, ARRAYSIZE(signalValues1), signalValues1);
+	submitInfos[1] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit,
 		.waitSemaphoreCount = ARRAYSIZE(waitSemaphores1), .pWaitSemaphores = waitSemaphores1, .pWaitDstStageMask = stageFlags1,
-		.commandBufferCount = 1, .pCommandBuffers = &cbPostprocessing,
+		.commandBufferCount = 1,.pCommandBuffers = &cbDraw,
 		.signalSemaphoreCount = ARRAYSIZE(signalSemaphores1), .pSignalSemaphores = signalSemaphores1 };
+	static bool firstIt{ true }; if (firstIt) { firstIt = false; submitInfos[1].waitSemaphoreCount = 0; }
+
+	uint64_t signalValues2[]{ ++timelineVal, 0 };
+	VkSemaphore waitSemaphores2[]{ swapchainSemaphore };
+	VkSemaphore signalSemaphores2[]{ semaphore.getHandle(), readyToPresentSemaphore };
+	VkPipelineStageFlags stageFlags2[]{ VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+	semaphoreSubmit[1] = TimelineSemaphore::getSubmitInfo(0, nullptr, ARRAYSIZE(signalValues2), signalValues2);
+	submitInfos[2] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 1,
+		.waitSemaphoreCount = ARRAYSIZE(waitSemaphores2), .pWaitSemaphores = waitSemaphores2, .pWaitDstStageMask = stageFlags2,
+		.commandBufferCount = 1, .pCommandBuffers = &cbPostprocessing,
+		.signalSemaphoreCount = ARRAYSIZE(signalSemaphores2), .pSignalSemaphores = signalSemaphores2 };
 
 
-	uint64_t waitValues3[]{ signalValues0[0] };
+	uint64_t waitValues3[]{ signalValues1[0] };
 	uint64_t signalValues3[]{ ++timelineValCompute };
 	VkSemaphore waitSemaphores3[]{ semaphore.getHandle() };
 	VkSemaphore signalSemaphores3[]{ semaphoreCompute.getHandle() };
-	VkPipelineStageFlags stageFlags3{ VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+	VkPipelineStageFlags stageFlags3{ VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
 	semaphoreSubmit[2] = TimelineSemaphore::getSubmitInfo(ARRAYSIZE(waitValues3), waitValues3, ARRAYSIZE(signalValues3), signalValues3);
-	submitInfos[2] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 2,
+	submitInfos[3] = VkSubmitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .pNext = semaphoreSubmit + 2,
 		.waitSemaphoreCount = ARRAYSIZE(waitSemaphores3), .pWaitSemaphores = waitSemaphores3, .pWaitDstStageMask = &stageFlags3,
 		.commandBufferCount = 1, .pCommandBuffers = &cbCompute,
 		.signalSemaphoreCount = ARRAYSIZE(signalSemaphores3), .pSignalSemaphores = signalSemaphores3 };
 
-	vkQueueSubmit(vulkanObjectHandler.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 2, submitInfos, VK_NULL_HANDLE);
-	vkQueueSubmit(vulkanObjectHandler.getQueue(VulkanObjectHandler::COMPUTE_QUEUE_TYPE), 1, submitInfos + 2, VK_NULL_HANDLE);
+	vkQueueSubmit(vulkanObjectHandler.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), 3, submitInfos, VK_NULL_HANDLE);
+	vkQueueSubmit(vulkanObjectHandler.getQueue(VulkanObjectHandler::COMPUTE_QUEUE_TYPE), 1, submitInfos + 3, VK_NULL_HANDLE);
 
 	presentInfo.pImageIndices = &swapchainIndex;
 	if (!vulkanObjectHandler.checkSwapchain(vkQueuePresentKHR(vulkanObjectHandler.getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), &presentInfo)))

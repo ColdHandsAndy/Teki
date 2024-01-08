@@ -1,0 +1,182 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive						: enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8     : enable
+
+#include "gi_data.h"
+
+//Math
+#define PI 3.141592653589
+#define TWO_PI (2.0 * PI)
+#define ONE_OVER_PI (1.0 / PI)
+#define ONE_OVER_TWO_PI (1.0 / TWO_PI)
+#define SQRT_2 1.41421356237309
+#define ONE_OVER_SQRT_2 0.7071067811865475244
+
+layout(local_size_x = DDGI_PROBE_LIGHT_SIDE_SIZE, local_size_y = DDGI_PROBE_LIGHT_SIDE_SIZE, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, r11f_g11f_b10f) uniform writeonly image2D RadianceProbes;
+layout(set = 0, binding = 1, r16f) uniform writeonly image2D DistanceProbes;
+layout(set = 1, binding = 0) uniform MD
+{
+	GIMetaData data;
+} giMetaData;
+
+layout(set = 2, binding = 0, r32ui) uniform readonly uimage3D ROMA[ROM_NUMBER];
+layout(set = 2, binding = 1) uniform ViewMatricesROMA
+{
+	mat3x4 viewmats[ROM_NUMBER];
+} viewmatsROMA;
+
+layout(set = 3, binding = 0, rgba16ui) uniform readonly uimage3D EmissionMetRoughVoxelMap;
+layout(set = 4, binding = 0, rgba8ui) uniform readonly uimage3D AlbedoNormalVoxelMap;
+
+layout(set = 5, binding = 0) uniform sampler2D IrradianceProbes;
+layout(set = 5, binding = 1) uniform sampler2D VisibilityProbes;
+
+layout(set = 6, binding = 0) uniform sampler2D brdfLUT;
+
+vec3 getProbeLighting(ProbeGridData gridData, vec3 relPos, vec3 N, vec3 V, float roughness, float alpha, vec3 F0, vec3 albedo, float diffAO)
+{
+	relPos += (N * 0.2 + V * 0.8) * gridData.shadowBias;
+
+	vec3 gridPos = relPos - gridData.relOriginProbePos;
+	vec3 gridCoord = gridPos * vec3(gridData.probeInvDistX, gridData.probeInvDistY, gridData.probeInvDistZ);
+	vec3 baseProbeCoord = floor(gridCoord);
+	vec3 trilValues = gridCoord - baseProbeCoord;
+
+	bool outOfBounds = false;
+	vec3 gridCenter = (gridData.relOriginProbePos + gridData.relEndProbePos) * 0.5;
+	vec3 gridExtents = (gridData.relEndProbePos - gridData.relOriginProbePos) * 0.5;
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		outOfBounds = abs(relPos[axis] - gridCenter[axis]) > gridExtents[axis];
+	}
+
+	vec3 diffLD = vec3(0.0);
+	if (!outOfBounds)
+		diffLD = sampleProbeVolume(gridData, N, gridPos, gridCoord, baseProbeCoord, trilValues, IrradianceProbes, VisibilityProbes);
+
+	float NdotV = max(dot(N, V), 0.0);
+	vec2 DFG = texture(brdfLUT, vec2(NdotV, roughness)).xy;
+	vec3 Fr = max(vec3(1.0 - alpha), F0) - F0;
+    vec3 kS = F0 + Fr * pow(1.0 - NdotV, 5.0);
+    vec3 FssEss = kS * DFG.x + DFG.y;
+    float Ems = (1.0 - (DFG.x + DFG.y));
+    vec3 Favg = F0 + (1.0 - F0) / 21.0;
+    vec3 FmsEms = Ems * FssEss * Favg / (1.0 - Favg * Ems);
+    vec3 kD = albedo * (1.0 - FssEss - FmsEms) * diffAO;
+
+    return (FmsEms + kD) * diffLD;
+}
+
+
+void traceROMA(out vec3 radiance, out float distanceToHit, ProbeGridData gridData, VoxelizationData voxelData, vec3 rayOriginOccupationLocal, uint indexROMA, bool positiveDir)
+{
+	mat3 viewmat = 
+		mat3(vec3(viewmatsROMA.viewmats[indexROMA][0].x, viewmatsROMA.viewmats[indexROMA][1].x, viewmatsROMA.viewmats[indexROMA][2].x), 
+			 vec3(viewmatsROMA.viewmats[indexROMA][0].y, viewmatsROMA.viewmats[indexROMA][1].y, viewmatsROMA.viewmats[indexROMA][2].y), 
+			 vec3(viewmatsROMA.viewmats[indexROMA][0].z, viewmatsROMA.viewmats[indexROMA][1].z, viewmatsROMA.viewmats[indexROMA][2].z));
+	ivec3 rayOriginROM = ivec3((viewmat * rayOriginOccupationLocal + vec3(1.0)) * 0.5 * voxelData.resolutionROM);
+	
+	if (!(all(greaterThanEqual(rayOriginROM, ivec3(0))) && all(lessThan(rayOriginROM, ivec3(voxelData.resolutionROM)))))
+	{
+		radiance = vec3(0.0, 0.0, 0.0);
+		distanceToHit = 0.0;
+		return;
+	}
+	
+	int stripIndex = rayOriginROM.z / 32;
+	uint rayStrip = imageLoad(ROMA[indexROMA], ivec3(rayOriginROM.xy, stripIndex)).x;
+	
+	int hitAdjZ = -1;
+	int hitStripZ = stripIndex;
+	
+	int originMoveLSB = rayOriginROM.z % 32;
+	int originMoveMSB = 31 - rayOriginROM.z % 32;
+
+	hitAdjZ = positiveDir ? findLSB((rayStrip >> originMoveLSB) << originMoveLSB) : findMSB((rayStrip << originMoveMSB) >> originMoveMSB);
+	
+	const uint stripCount = voxelData.resolutionROM / 32;
+	
+	int dirAdd = positiveDir ? 1 : -1;
+	for (int i = 1; i < stripCount; ++i)
+	{
+		stripIndex += dirAdd;
+		if (stripIndex >= 0 && stripIndex < stripCount)
+		{
+			rayStrip = imageLoad(ROMA[indexROMA], ivec3(rayOriginROM.xy, stripIndex)).x;
+			if (hitAdjZ == -1)
+			{
+				hitAdjZ = positiveDir ? findLSB(rayStrip) : findMSB(rayStrip);
+				hitStripZ = stripIndex;
+			}
+		}
+	}
+	
+	ivec3 rayIntersecROM = ivec3(rayOriginROM.xy, hitStripZ * 32 + hitAdjZ);
+
+	vec3 rayHitOccupationLocal = transpose(viewmat) * ((vec3(rayIntersecROM) + vec3(0.5)) / voxelData.resolutionROM * 2.0 - 1.0);
+
+	ivec3 rayIntersecVM = ivec3(((rayHitOccupationLocal) * 0.5 + 0.5) * voxelData.resolutionVM);
+
+	vec3 albedo;
+	vec3 normal;
+	unpackMaterialVM(albedo, normal, imageLoad(AlbedoNormalVoxelMap, rayIntersecVM));
+	vec3 emission;
+	float metalness;
+	float roughness;
+	unpackEmissionVM(emission, metalness, roughness, imageLoad(EmissionMetRoughVoxelMap, rayIntersecVM));
+
+	vec3 F0 = mix(vec3(0.04), albedo, metalness);
+
+	radiance = vec3(0.0);
+
+	vec3 hitRelPos = rayHitOccupationLocal * voxelData.occupationHalfMeterSize;
+	vec3 origRelPos = rayOriginOccupationLocal * voxelData.occupationHalfMeterSize;
+	vec3 vecV = origRelPos - hitRelPos;
+	float vDist = length(vecV);
+	radiance += getProbeLighting(gridData, hitRelPos, normal, vecV / vDist, roughness, roughness * roughness, F0, albedo, 1.0);
+	radiance += emission;
+
+	radiance = hitAdjZ == -1 ? vec3(0.0, 0.0, 0.0) : radiance;
+
+	distanceToHit = min(vDist, gridData.probeFurthestActiveDistance);
+}
+uint getIndexROMA(int invocationIndex, bool positiveDirInvocation)
+{
+	const uint[32] indexLookUp
+		= uint[32]
+		(
+			31, 23, 15, 7,   0, 8,  16, 24,
+			30, 22, 14, 6,   1, 9,  17, 25,
+			29, 21, 13, 5,   2, 10, 18, 26,
+			28, 20, 12, 4,   3, 11, 19, 27
+		);
+	return positiveDirInvocation ? invocationIndex : indexLookUp[invocationIndex - 32];
+}
+
+void main()
+{
+	ProbeGridData gridData = giMetaData.data.cascades[0].gridData;
+	VoxelizationData voxelData = giMetaData.data.cascades[0].voxelData;
+
+	uvec3 probeID = uvec3(gl_WorkGroupID.x % gridData.probeCountZ, gl_WorkGroupID.y, gl_WorkGroupID.x / gridData.probeCountZ);
+	ivec2 probeOuterCoord = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+	ivec2 probeInnerCoord = ivec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y);
+	
+	int invocationIndex = probeInnerCoord.y * DDGI_PROBE_LIGHT_SIDE_SIZE + probeInnerCoord.x;
+	bool positiveDirInvocation = invocationIndex < 32;
+	uint indexROMA = getIndexROMA(invocationIndex, positiveDirInvocation);
+	
+	vec3 probeOrigin = vec3((2.0 / gridData.probeCountX) * probeID.x + (1.0 / gridData.probeCountX) - 1.0, 
+							(2.0 / gridData.probeCountY) * probeID.y + (1.0 / gridData.probeCountY) - 1.0, 
+							(2.0 / gridData.probeCountZ) * probeID.z + (1.0 / gridData.probeCountZ) - 1.0); //Already in [-1.0 : 1.0] 
+							
+	vec3 radiance;
+	float distanceToHit;
+	traceROMA(radiance, distanceToHit, gridData, voxelData, probeOrigin, indexROMA, positiveDirInvocation);
+	
+	imageStore(RadianceProbes, probeOuterCoord, vec4(radiance, 0.0));
+	imageStore(DistanceProbes, probeOuterCoord, vec4(distanceToHit, vec3(0.0)));
+}

@@ -27,8 +27,6 @@ private:
 	uint32_t m_graphicsQueueFamilyIndex{};
 	uint32_t m_computeQueueFamilyIndex{};
 	uint32_t m_transferQueueFamilyIndex{};
-	
-	void (*m_descriptorBufferDestruction)();
 
 public:
 	MemoryManager() = delete;
@@ -46,9 +44,9 @@ private:
 	friend class BufferBaseHostAccessible;
 	friend class ImageBase;
 	friend class Image;
-	friend class ImageMS;
 	friend class ImageList;
 	friend class ImageCubeMap;
+	friend class DescriptorManager;
 	friend class ResourceSet;
 };
 

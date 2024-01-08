@@ -163,6 +163,7 @@ public:
 			.fillModeNonSolid = VK_TRUE,
 			.wideLines = VK_TRUE,
 			.samplerAnisotropy = VK_TRUE,
+			.fragmentStoresAndAtomics = VK_TRUE,
 			.shaderInt64 = VK_TRUE,
 			.shaderInt16 = VK_TRUE
 		}

@@ -375,7 +375,7 @@ void Clusterer::uploadBuffersData(CommandBufferSet& cmdBufferSet, VkQueue queue)
 	vkQueueWaitIdle(queue);
 
 }
-void Clusterer::getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type)
+uint32_t Clusterer::getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type)
 {
 	uint32_t newIndex = m_lightData.size();
 	EASSERT(newIndex < MAX_LIGHTS, "App", "Number of lights exceeds the maximum.");
@@ -383,6 +383,8 @@ void Clusterer::getNewLight(LightFormat** lightData, glm::vec4** boundingSphere,
 	*boundingSphere = &m_boundingSpheres.emplace_back();
 
 	m_typeData.push_back(type);
+
+	return newIndex;
 }
 
 void Clusterer::createVisualizationPipelines(const ResourceSet& viewprojRS, uint32_t windowWidth, uint32_t windowHeight)
