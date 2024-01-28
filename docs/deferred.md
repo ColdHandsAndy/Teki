@@ -12,3 +12,5 @@ Opaque geometry is rendered into multiple image-buffers.
 Main screen-space pass.
 #### Forward pass   
 Pass for transparent geometry.
+
+###### References: [[1]](https://advances.realtimerendering.com/s2015/aaltonenhaar_siggraph2015_combined_final_footer_220dpi.pdf) [[2]](https://therealmjp.github.io/posts/bindless-texturing-for-deferred-rendering-and-decals/)
