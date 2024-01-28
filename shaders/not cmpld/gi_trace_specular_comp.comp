@@ -47,6 +47,7 @@ layout(set = 5, binding = 1) uniform sampler2D VisibilityProbes;
 
 layout(set = 6, binding = 0) uniform sampler2D BRDFLUT;
 
+
 vec3 getProbeLighting(ProbeGridData gridData, vec3 relPos, vec3 N, vec3 V, float roughness, float alpha, vec3 F0, vec3 albedo, float diffAO)
 {
 	relPos += (N * 0.2 + V * 0.8) * gridData.shadowBias;
@@ -92,27 +93,35 @@ void traceFreeROMA(out vec3 radiance, out float hitDist, ProbeGridData gridData,
 
 	if (!(all(greaterThanEqual(ivec3(rayOriginROM), ivec3(0))) && all(lessThan(ivec3(rayOriginROM), ivec3(voxelData.resolutionROM)))))
 	{
-		radiance = vec3(0.0, 0.0, 0.0);
-		hitDist = 0.0;
+		radiance = vec3(0.0);
+		hitDist = FLT16_MAX;
 		return;
 	}
 
+	bool rayNoCollision = false;
+	ivec3 rayCoord = ivec3(rayOriginROM);
 	for (int i = 0; i < voxelData.resolutionROM; ++i)
 	{
-		int stripIndex = int(rayOriginROM.z / 32.0);
-		uint rayStrip = imageLoad(ROMA[indexROMA], ivec3(ivec2(rayOriginROM.xy), stripIndex)).x;
-		if (bool(rayStrip & (1 << (int(rayOriginROM.z) % 32))))
+		int stripIndex = int(rayCoord.z / 32.0);
+		uint rayStrip = imageLoad(ROMA[indexROMA], ivec3(rayCoord.xy, stripIndex)).x;
+		if (bool(rayStrip & (1 << (rayCoord.z % 32))))
 			break;
 		rayOriginROM += traceStep;
-		if (!(all(greaterThanEqual(ivec3(rayOriginROM), ivec3(0))) && all(lessThan(ivec3(rayOriginROM), ivec3(voxelData.resolutionROM)))))
+		rayCoord = ivec3(rayOriginROM);
+		if (!(all(greaterThanEqual(rayCoord, ivec3(0))) && all(lessThan(rayCoord, ivec3(voxelData.resolutionROM)))))
 		{
-			radiance = vec3(0.0, 0.0, 0.0);
-			hitDist = 0.0;
-			return;
+			rayNoCollision = true;
+			break;
 		}
 	}
+	if (rayNoCollision)
+	{
+		radiance = vec3(0.0);
+		hitDist = FLT16_MAX;
+		return;
+	}
 
-	ivec3 rayIntersecROM = ivec3(rayOriginROM);
+	ivec3 rayIntersecROM = rayCoord;
 
 	vec3 rayHitOccupationLocal = transpose(viewmat) * ((vec3(rayIntersecROM) + vec3(0.5)) / voxelData.resolutionROM * 2.0 - 1.0);
 
@@ -165,7 +174,7 @@ void main()
 	vec2 screenUV = screenCoords * giMetaData.data.specData.invSpecImageRes;
 
 	vec3 worldPos = getWorldPositionFromDepth(pushConstants.worldFromNDC, screenUV, depth);
-	vec2 octohedral = clamp(encodeOctohedralZeroToOne(refdir), 0.0 + FLT_EPSILON, 1.0 - FLT_EPSILON);
+	vec2 octohedral = clamp(encodeOctohedralZeroToOne(refdir), 0.0 + FLT32_EPSILON, 1.0 - FLT32_EPSILON);
 	
 	int indexROMA = int(int(octohedral.y * GI_ROM_INDEX_MULTIPLIER) * GI_ROM_INDEX_MULTIPLIER + int(octohedral.x * GI_ROM_INDEX_MULTIPLIER));
 	bool positiveDir = indexROMA < 32;

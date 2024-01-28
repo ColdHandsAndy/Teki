@@ -26,7 +26,7 @@
 #define SCENE_ORIGIN glm::vec3(0.0)
 
 #define OCCUPANCY_RESOLUTION 128
-#define BIT_TO_METER_SCALE (1.0 / 4.0)
+#define BIT_TO_METER_SCALE (32.0 / OCCUPANCY_RESOLUTION)
 #define OCCUPANCY_METER_SIZE float(OCCUPANCY_RESOLUTION * BIT_TO_METER_SCALE)
 
 #define BOM_PACKED_WIDTH (OCCUPANCY_RESOLUTION / 4)
@@ -152,6 +152,11 @@ private:
 		uint32_t viewmatIndex;
 		uint32_t type;
 	} m_pcDataLightInjection{};
+
+	struct
+	{
+		uint32_t skyboxEnabled;
+	} m_pcDataTraceProbes{};
 
 	struct 
 	{ 
@@ -280,7 +285,7 @@ public:
 	}
 
 	void initialize(VkDevice device,
-		const ResourceSet& drawDataRS, const ResourceSet& transformMatricesRS, const ResourceSet& materialsTexturesRS, const ResourceSet& BRDFLUTRS, const ResourceSet& shadowMapsRS, VkSampler generalSampler);
+		const ResourceSet& drawDataRS, const ResourceSet& transformMatricesRS, const ResourceSet& materialsTexturesRS, const ResourceSet& distantProbeRS, const ResourceSet& BRDFLUTRS, const ResourceSet& shadowMapsRS, VkSampler generalSampler);
 
 	void cmdVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride);
 	
@@ -293,6 +298,7 @@ public:
 		const uint32_t queryIndexGITraceSpecular,
 		const uint32_t queryIndexGITraceProbes,
 		const uint32_t queryIndexGIComputeIrradianceAndVisibility, 
+		bool skyboxEnabled,
 		bool profile)
 	{
 		changeCurrentBuffers();
@@ -357,7 +363,7 @@ public:
 		}
 
 		if (profile) queries.cmdWriteStart(cb, queryIndexGITraceProbes);
-		cmdDispatchTraceProbes(cb);
+		cmdDispatchTraceProbes(cb, skyboxEnabled);
 		if (profile) queries.cmdWriteEnd(cb, queryIndexGITraceProbes);
 
 		if (profile) queries.cmdWriteStart(cb, queryIndexGITraceSpecular);
@@ -494,7 +500,7 @@ private:
 	void cmdDispatchCreateROMA(VkCommandBuffer cb);
 	void cmdDispatchInjectLights(VkCommandBuffer cb);
 	void cmdDispatchMergeEmission(VkCommandBuffer cb);
-	void cmdDispatchTraceProbes(VkCommandBuffer cb);
+	void cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled);
 	void cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFromNDC, const glm::vec3& campos);
 	void cmdDispatchComputeIrradianceAndVisibility(VkCommandBuffer cb);
 	void cmdDispatchBlurSpecular(VkCommandBuffer cb);

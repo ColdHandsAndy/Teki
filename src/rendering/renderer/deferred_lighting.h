@@ -43,6 +43,7 @@ private:
 		float nearPlane;
 		glm::vec3 giSceneCenter;
 		float farPlane;
+		uint32_t skyboxEnabled;
 	} m_pcData;
 
 public:
@@ -56,6 +57,7 @@ public:
 		const ResourceSet& indirectDiffiseLightingRS,
 		const ResourceSet& indirectSpecularLightingRS,
 		const ResourceSet& indirectLightingMetadataRS,
+		const ResourceSet& distantProbeRS,
 		const ResourceSet& drawDataRS,
 		const ResourceSet& pbrRS,
 		const ResourceSet& directLightingRS,
@@ -82,6 +84,10 @@ public:
 	void updateGISceneCenter(const glm::vec3& giSceneCenter)
 	{
 		m_pcData.giSceneCenter = giSceneCenter;
+	}
+	void updateSkyboxState(bool enabled)
+	{
+		m_pcData.skyboxEnabled = enabled ? 1u : 0u;
 	}
 
 	const Image& getFramebuffer() const

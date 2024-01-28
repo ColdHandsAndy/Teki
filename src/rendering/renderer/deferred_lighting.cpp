@@ -10,6 +10,7 @@ DeferredLighting::DeferredLighting(VkDevice device, uint32_t width, uint32_t hei
 	const ResourceSet& indirectDiffiseLightingRS,
 	const ResourceSet& indirectSpecularLightingRS,
 	const ResourceSet& indirectLightingMetadataRS,
+	const ResourceSet& distantProbeRS,
 	const ResourceSet& drawDataRS,
 	const ResourceSet& BRDFLUTRS,
 	const ResourceSet& directLightingRS,
@@ -67,10 +68,11 @@ DeferredLighting::DeferredLighting(VkDevice device, uint32_t width, uint32_t hei
 		true);
 
 
-	std::array<std::reference_wrapper<const ResourceSet>, 10> resourceSets1{
+	std::array<std::reference_wrapper<const ResourceSet>, 11> resourceSets1{
 		viewprojRS, m_resSet, 
 		materialsTexturesRS, shadowMapsRS, 
 		indirectDiffiseLightingRS, indirectSpecularLightingRS, indirectLightingMetadataRS,
+		distantProbeRS,
 		drawDataRS, 
 		BRDFLUTRS, 
 		directLightingRS };

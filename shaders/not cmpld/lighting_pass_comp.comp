@@ -50,6 +50,7 @@ layout(push_constant) uniform PushConsts
 	float nearPlane;
 	vec3 giSceneCenter;
 	float farPlane;
+	uint skyboxEnabled;
 } pushConstants;
 
 #define COORDINATE_TRANSFORMATION_SET_INDEX 0
@@ -85,33 +86,35 @@ layout(set = 6, binding = 0) uniform MD
 	GIMetaData data;
 } giMetaData;
 
-layout(set = 7, binding = 0) buffer DrawDataBuffer 
+layout(set = 7, binding = 0) uniform samplerCube samplerCubeMapRad;
+
+layout(set = 8, binding = 0) buffer DrawDataBuffer 
 {
     DrawData data[];
 } drawData;
 
-layout(set = 8, binding = 0) uniform sampler2D brdfLUT;
+layout(set = 9, binding = 0) uniform sampler2D brdfLUT;
 
 struct DirectionalLightLayout
 {
     vec3 spectrum;
     vec3 direction;
 };
-layout(std140, set = 9, binding = 0) uniform DirectionalLight
+layout(std140, set = 10, binding = 0) uniform DirectionalLight
 {
     DirectionalLightLayout light;
 } dirLight;
-layout(set = 9, binding = 1) buffer LightsData
+layout(set = 10, binding = 1) buffer LightsData
 {
 	UnifiedLightData lights[];
 } lightsData;
 const uint TYPE_POINT = 0;
 const uint TYPE_SPOT = 1;
-layout(std430, set = 9, binding = 2) buffer TypeData
+layout(std430, set = 10, binding = 2) buffer TypeData
 {
 	uint8_t types[];
 } typeData;
-layout(set = 9, binding = 3) buffer TilesData
+layout(set = 10, binding = 3) buffer TilesData
 {
 	uint tilesWords[];
 } tilesData;
@@ -120,7 +123,7 @@ struct ZBin
 	uint16_t minI;
 	uint16_t maxI;
 };
-layout(set = 9, binding = 4) buffer ZBinData
+layout(set = 10, binding = 4) buffer ZBinData
 {
 	ZBin data[];
 } zBinData;
@@ -152,6 +155,7 @@ vec3 calculateIndirectLighting(vec3 worldPos, vec3 N, vec3 V, vec3 R, float Ndot
 	if (true)
 		diffLD = sampleProbeVolume(gridData, N, gridPos, gridCoord, baseProbeCoord, trilValues, IrradianceProbes, VisibilityProbes);
 
+	//
 	//float csZ = dot(V, cameraZAxis);
     //float k = (alpha) * 18;
     //float mip = log2((k + k * distToHit) / sqrt(abs(csZ)));
@@ -172,7 +176,8 @@ vec3 calculateIndirectLighting(vec3 worldPos, vec3 N, vec3 V, vec3 R, float Ndot
 	vec2 reprRefUV = vec2(ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5);
 	vec3 gl = texture(SpecularImages[0], reprRefUV).xyz;
 	vec3 rg = texture(SpecularImages[1], reprRefUV).xyz;
-	if (subgroupMax(roughness) < 0.1)
+	bool subgroupGlossy = subgroupMax(roughness) < 0.1;
+	if (subgroupGlossy)
 	{
 		specLD = mix(gl, rg, roughness * 10.0);
 	}
@@ -183,6 +188,7 @@ vec3 calculateIndirectLighting(vec3 worldPos, vec3 N, vec3 V, vec3 R, float Ndot
 		else
 			specLD = sampleProbeVolume(gridData, R, gridPos, gridCoord, baseProbeCoord, trilValues, IrradianceProbes, VisibilityProbes);
 	}
+	//
 
 	vec3 Fr = max(vec3(1.0 - alpha), F0) - F0;
     vec3 kS = F0 + Fr * pow(1.0 - NdotV, 5.0);

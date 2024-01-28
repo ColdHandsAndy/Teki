@@ -374,6 +374,7 @@ void Clusterer::uploadBuffersData(CommandBufferSet& cmdBufferSet, VkQueue queue)
 	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(queue);
 
+	cmdBufferSet.resetAllTransient();
 }
 uint32_t Clusterer::getNewLight(LightFormat** lightData, glm::vec4** boundingSphere, LightFormat::Types type)
 {

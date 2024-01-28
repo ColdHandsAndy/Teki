@@ -1,7 +1,13 @@
 #ifndef MISC_HEADER
 #define MISC_HEADER
 
-#define FLT_EPSILON 1.19209e-07
+#define FLT32_MAX 3.402823466e+38
+#define FLT32_MIN 1.175494351e-38
+#define FLT32_EPSILON 1.19209e-07
+
+#define FLT16_MAX 65504.0
+#define FLT16_MIN 5.96046448e-08
+#define FLT16_EPSILON 0.00097656
 
 //Texture array coord from direction vector
 vec3 getTexArrayCoordinateFromDirection(vec3 v)

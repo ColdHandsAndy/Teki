@@ -31,6 +31,7 @@ struct UiData
     bool drawBVs{ false };
     bool drawLightProxies{ true };
     bool drawSpaceGrid{ false };
+    bool skyboxEnabled{ true };
     bool hiZvis{ false };
     int hiZmipLevel{ 0 };
     int voxelDebug{ NONE_VOXEL_DEBUG };

@@ -64,7 +64,7 @@ GI::~GI()
 }
 
 void GI::initialize(VkDevice device,
-	const ResourceSet& drawDataRS, const ResourceSet& transformMatricesRS, const ResourceSet& materialsTexturesRS, const ResourceSet& BRDFLUTRS, const ResourceSet& shadowMapsRS, VkSampler generalSampler)
+	const ResourceSet& drawDataRS, const ResourceSet& transformMatricesRS, const ResourceSet& materialsTexturesRS, const ResourceSet& distantProbeRS, const ResourceSet& BRDFLUTRS, const ResourceSet& shadowMapsRS, VkSampler generalSampler)
 {
 	VkDescriptorSetLayoutBinding bindingBOM{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo imageInfoBOM{ .imageView = m_baseOccupancyMap.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
@@ -348,8 +348,13 @@ void GI::initialize(VkDevice device,
 		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataROM)}} });
 
 
-	std::array<std::reference_wrapper<const ResourceSet>, 7> resourceSetsTraceProbes{ m_resSetProbesWrite, m_resSetGIMetadata, m_resSetReadROMA, m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead, m_resSetIndirectDiffuseLighting, BRDFLUTRS };
-	m_traceProbes.initializaCompute(device, "shaders/cmpld/gi_probe_tracing_comp.spv", resourceSetsTraceProbes);
+	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSetsTraceProbes{
+		m_resSetProbesWrite, m_resSetGIMetadata, 
+		m_resSetReadROMA, 
+		m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead, 
+		m_resSetIndirectDiffuseLighting, distantProbeRS, BRDFLUTRS };
+	m_traceProbes.initializaCompute(device, "shaders/cmpld/gi_probe_tracing_comp.spv", resourceSetsTraceProbes,
+	{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataTraceProbes)}} });
 
 
 	std::array<std::reference_wrapper<const ResourceSet>, 3> resourceSetsComputeIrradiance{ m_resSetRadianceProbesRead, m_resSetIrradProbesWrite, m_resSetMappedDirections };
@@ -614,6 +619,9 @@ void GI::cmdDispatchInjectLights(VkCommandBuffer cb)
 			vkCmdPushConstants(cb, m_injectLight.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_pcDataLightInjection), &m_pcDataLightInjection);
 			vkCmdDispatch(cb, injectionSize, injectionSize, 1);
 		}
+
+		SyncOperations::cmdExecuteBarrier(cb, { {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
+			VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT)} });
 	}
 }
 void GI::cmdDispatchMergeEmission(VkCommandBuffer cb)
@@ -624,13 +632,15 @@ void GI::cmdDispatchMergeEmission(VkCommandBuffer cb)
 	constexpr uint32_t groupSize{ 4 };
 	vkCmdDispatch(cb, DISPATCH_SIZE(VOXELMAP_RESOLUTION, groupSize), DISPATCH_SIZE(VOXELMAP_RESOLUTION, groupSize), DISPATCH_SIZE(VOXELMAP_RESOLUTION, groupSize));
 }
-void GI::cmdDispatchTraceProbes(VkCommandBuffer cb)
+void GI::cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled)
 {
 	m_traceProbes.setResourceInUse(2, m_currentBuffers);
 	m_traceProbes.setResourceInUse(5, m_currentNewProbes);
 	m_traceProbes.cmdBind(cb);
 	m_traceProbes.cmdBindResourceSets(cb);
 
+	m_pcDataTraceProbes.skyboxEnabled = skyboxEnabled ? 1u : 0u;
+	vkCmdPushConstants(cb, m_traceProbes.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &m_pcDataTraceProbes);
 	constexpr uint32_t groupSizeX{ DDGI_PROBE_LIGHT_SIDE_SIZE };
 	constexpr uint32_t groupSizeY{ DDGI_PROBE_LIGHT_SIDE_SIZE };
 	constexpr uint32_t groupSizeZ{ 1 };

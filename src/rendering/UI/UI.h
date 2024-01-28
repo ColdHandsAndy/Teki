@@ -57,6 +57,7 @@ public:
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.Fonts->AddFontFromFileTTF("internal/imGui font/AccidentalPresidency.ttf", 20.0);
 
         setStyle(ImGui::GetStyle());
 
@@ -241,6 +242,7 @@ public:
         if (ImGui::TreeNode("Debug"))
         {
             ImGui::Checkbox("Space grid", &data.drawSpaceGrid);
+            ImGui::Checkbox("Skybox", &data.skyboxEnabled);
             ImGui::Checkbox("OBBs", &data.showOBBs);
             if (ImGui::TreeNode("Voxel debug"))
             {
