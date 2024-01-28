@@ -620,8 +620,8 @@ void GI::cmdDispatchInjectLights(VkCommandBuffer cb)
 			vkCmdDispatch(cb, injectionSize, injectionSize, 1);
 		}
 
-		SyncOperations::cmdExecuteBarrier(cb, { {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
-			VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT)} });
+		SyncOperations::cmdExecuteBarrier(cb, { {SyncOperations::constructMemoryBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)} });
 	}
 }
 void GI::cmdDispatchMergeEmission(VkCommandBuffer cb)
