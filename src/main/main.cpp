@@ -46,6 +46,7 @@
 #include "src/rendering/renderer/clusterer.h"
 #include "src/rendering/renderer/culling.h"
 #include "src/rendering/scene/parse_scene.h"
+#include "src/rendering/scene/camera.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/data_abstraction/mesh.h"
 #include "src/rendering/data_abstraction/runit.h"
@@ -77,23 +78,6 @@
 #define DEVICE_BUFFER_DEFAULT_SIZE 268435456ll
 
 namespace fs = std::filesystem;
-
-struct CamInfo
-{
-	/*glm::vec3 camPos{ 0.0, 0.0, -10.0 };
-	glm::vec3 camFront{ 0.0, 0.0, 1.0 };*/
-	glm::vec3 camPos{ -0.961, 1.327, -10.12 };
-	glm::vec3 camFront{ 0.366, -0.189, 0.911 };
-	double speed{ 10.0 };
-	double sensetivity{ 1.9 };
-	glm::vec2 lastCursorP{};
-	bool camPosChanged{ false };
-} camInfo;
-
-struct InputAccessedData
-{
-	CamInfo* cameraInfo{ &camInfo };
-} inputAccessedData;
 
 std::shared_ptr<VulkanObjectHandler> initializeVulkan(const Window& window);
 
@@ -142,12 +126,11 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 void transformOBBs(OBBs& boundingBoxes, std::vector<StaticMesh>& staticMeshes, int drawCount, const std::vector<glm::mat4>& modelMatrices);
 void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBoxes);
 
-void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster, DeferredLighting& deferredLighting);
+void fillFrustumData(CoordinateTransformation& coordinateTransformation, Camera& camera, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster, DeferredLighting& deferredLighting);
 void fillModelMatrices(const BufferMapped& modelTransformDataSSBO, const std::vector<glm::mat4>& modelMatrices);
 void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
 
-void mouseCallback(GLFWwindow* window, double xpos, double ypos);
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+void processInput(const Window& window, Camera& camera, float deltaTime, bool disableCursor);
 
 void voxelize(GI& gi, CommandBufferSet& cmdBufferSet, VkQueue queue, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride);
 
@@ -166,10 +149,9 @@ int main()
 
 	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
 	//Window window{ "Teki" };
+	Camera camera{NEAR_PLANE, FAR_PLANE, glm::radians(80.0f), static_cast<float>(window.getWidth()) / static_cast<float>(window.getHeight())};
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
-	glfwSetCursorPosCallback(window, mouseCallback);
-	glfwSetKeyCallback(window, keyCallback);
-	glfwSetWindowUserPointer(window, &inputAccessedData);
+	glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
 
 	std::shared_ptr<VulkanObjectHandler> vulkanObjectHandler{ initializeVulkan(window) };
 
@@ -348,7 +330,7 @@ int main()
 	Pipeline spaceLinesPipeline{ createSpaceLinesPipeline(assembler, coordinateTransformation.getResourceSet()) };
 
 
-	fillFrustumData(coordinateTransformation, window, clusterer, hbao, frustumInfo, caster, deferredLighting);
+	fillFrustumData(coordinateTransformation, camera, clusterer, hbao, frustumInfo, caster, deferredLighting);
 	fillModelMatrices(transformMatrices, modelMatrices);
 	fillDrawData(drawData, staticMeshes, drawCount);
 
@@ -436,7 +418,7 @@ int main()
 	typedef oneapi::tbb::flow::continue_node<oneapi::tbb::flow::continue_msg> node_t;
 	typedef const oneapi::tbb::flow::continue_msg& msg_t;
 	oneapi::tbb::flow::graph flowGraph{};
-	node_t nodeAcquireSwapchainUpdateViewMatrices{ flowGraph, [&](msg_t)
+	node_t nodePrepare{ flowGraph, [&](msg_t)
 		{
 			if (!vulkanObjectHandler->checkSwapchain(vkAcquireNextImageKHR(device, vulkanObjectHandler->getSwapchain(), UINT64_MAX, swapchainSemaphore, VK_NULL_HANDLE, &swapchainIndex)))
 			{
@@ -445,12 +427,12 @@ int main()
 			}
 			swapchainImageData = vulkanObjectHandler->getSwapchainImageData(swapchainIndex);
 
-			deferredLighting.updateCameraPosition(camInfo.camPos);
+			deferredLighting.updateCameraPosition(camera.getPosition());
 			deferredLighting.updateGISceneCenter(gi.getScenePosition());
 			deferredLighting.updateSkyboxState(renderingData.skyboxEnabled);
 
 			coordinateTransformation.updateProjectionMatrixJitter();
-			coordinateTransformation.updateViewMatrix(camInfo.camPos, camInfo.camPos + camInfo.camFront, glm::vec3{ 0.0, 1.0, 0.0 });
+			coordinateTransformation.updateViewMatrix(camera.getPosition(), camera.getPosition() + camera.getForwardDirection(), camera.getUpDirection());
 			clusterer.submitViewMatrix(coordinateTransformation.getViewMatrix());
 
 			currentProbesIndex = gi.getIndirectLightingCurrentSet();
@@ -615,7 +597,7 @@ int main()
 					.layerCount = 1 })} });
 
 			if (profile) queries.cmdWriteStart(cbPostprocessing, queryIndexTAA);
-			taa.adjustSmoothingFactor(WorldState::deltaTime, camInfo.speed, camInfo.camPosChanged);
+			taa.adjustSmoothingFactor(WorldState::deltaTime, camera.getSpeed(), camera.cameraPositionChanged());
 			taa.updateJitterValue(coordinateTransformation.getCurrentJitter());
 			taa.cmdDispatchTAA(cbPostprocessing, std::get<1>(swapchainImageData));
 			if (profile) queries.cmdWriteEnd(cbPostprocessing, queryIndexTAA);
@@ -655,17 +637,17 @@ int main()
 					rUnitOBBs.cmdVisualizeOBBs(cbPostprocessing);
 
 				if (renderingData.voxelDebug == UiData::BOM_VOXEL_DEBUG)
-					gi.cmdDrawBOM(cbPostprocessing, camInfo.camPos);
+					gi.cmdDrawBOM(cbPostprocessing, camera.getPosition());
 				else if (renderingData.voxelDebug == UiData::ROM_VOXEL_DEBUG)
-					gi.cmdDrawROM(cbPostprocessing, camInfo.camPos, renderingData.indexROM);
+					gi.cmdDrawROM(cbPostprocessing, camera.getPosition(), renderingData.indexROM);
 				else if (renderingData.voxelDebug == UiData::ALBEDO_VOXEL_DEBUG)
-					gi.cmdDrawAlbedo(cbPostprocessing, camInfo.camPos);
+					gi.cmdDrawAlbedo(cbPostprocessing, camera.getPosition());
 				else if (renderingData.voxelDebug == UiData::METALNESS_VOXEL_DEBUG)
-					gi.cmdDrawMetalness(cbPostprocessing, camInfo.camPos);
+					gi.cmdDrawMetalness(cbPostprocessing, camera.getPosition());
 				else if (renderingData.voxelDebug == UiData::ROUGHNESS_VOXEL_DEBUG)
-					gi.cmdDrawRoughness(cbPostprocessing, camInfo.camPos);
+					gi.cmdDrawRoughness(cbPostprocessing, camera.getPosition());
 				else if (renderingData.voxelDebug == UiData::EMISSION_VOXEL_DEBUG)
-					gi.cmdDrawEmission(cbPostprocessing, camInfo.camPos);
+					gi.cmdDrawEmission(cbPostprocessing, camera.getPosition());
 
 				if (renderingData.probeDebug == UiData::RADIANCE_PROBE_DEBUG)
 					gi.cmdDrawRadianceProbes(cbPostprocessing);
@@ -681,7 +663,7 @@ int main()
 					vkCmdBindVertexBuffers(cbPostprocessing, 0, 1, lineVertexBindings, lineVertexBindingOffsets);
 					spaceLinesPipeline.cmdBindResourceSets(cbPostprocessing);
 					spaceLinesPipeline.cmdBind(cbPostprocessing);
-					vkCmdPushConstants(cbPostprocessing, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camInfo.camPos);
+					vkCmdPushConstants(cbPostprocessing, spaceLinesPipeline.getPipelineLayoutHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(glm::vec3), &camera.getPosition());
 					vkCmdDraw(cbPostprocessing, lineVertNum, 1, 0, 0);
 				}
 			vkCmdEndRendering(cbPostprocessing);
@@ -718,7 +700,7 @@ int main()
 			{
 				gi.cmdComputeIndirect(cbCompute, 
 					coordinateTransformation.getInverseViewProjectionMatrix(), 
-					camInfo.camPos, 
+					camera.getPosition(),
 					queries, 
 					queryIndexGICreateROMA, queryIndexGITraceSpecular, queryIndexGITraceProbes, queryIndexGIComputeIrradianceAndVisibility, 
 					renderingData.skyboxEnabled,
@@ -728,16 +710,16 @@ int main()
 			cmdBufferSet.endRecording(cbCompute);
 		} };
 	
-	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodePostprocessCB);
-	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeComputeCB);
-	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeFrustumCulling);
-	oneapi::tbb::flow::make_edge(nodeAcquireSwapchainUpdateViewMatrices, nodeDrawCB);
+	oneapi::tbb::flow::make_edge(nodePrepare, nodePostprocessCB);
+	oneapi::tbb::flow::make_edge(nodePrepare, nodeComputeCB);
+	oneapi::tbb::flow::make_edge(nodePrepare, nodeFrustumCulling);
+	oneapi::tbb::flow::make_edge(nodePrepare, nodeDrawCB);
 	oneapi::tbb::flow::make_edge(nodeFrustumCulling, nodePreprocessCB1);
 	oneapi::tbb::flow::make_edge(nodePreprocessCB1, nodePreprocessCB2);
 	oneapi::tbb::flow::make_edge(nodePrepareDataForShadowMapRender, nodePreprocessCB2);
 	oneapi::tbb::flow::make_edge(nodePreprocessCB2, nodePreprocessCB3);
 	oneapi::tbb::flow::make_edge(nodePreprocessCB3, nodePreprocessCB4);
-	clusterer.connectToFlowGraph(flowGraph, nodeAcquireSwapchainUpdateViewMatrices, nodePrepareDataForShadowMapRender, nodePreprocessCB3);
+	clusterer.connectToFlowGraph(flowGraph, nodePrepare, nodePrepareDataForShadowMapRender, nodePreprocessCB3);
 	
 	voxelize(gi, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE), indirectDrawCmdData, vertexData, indexData, drawCount, 0, sizeof(IndirectData));
 
@@ -746,8 +728,11 @@ int main()
 	while (!glfwWindowShouldClose(window))
 	{
 		WorldState::refreshFrameTime();
+		glfwPollEvents();
 
-		nodeAcquireSwapchainUpdateViewMatrices.try_put(oneapi::tbb::flow::continue_msg{});
+		processInput(window, camera, WorldState::deltaTime, ui.cursorOnUI());
+
+		nodePrepare.try_put(oneapi::tbb::flow::continue_msg{});
 		flowGraph.wait_for_all();
 
 		queries.updateResults();
@@ -761,8 +746,6 @@ int main()
 		queries.uploadQueryDataToProfilerTasks(renderingData.gpuTasks.data(), renderingData.gpuTasks.size());
 
 		//vkDeviceWaitIdle(device);
-
-		glfwPollEvents();
 	}
 	
 	EASSERT(vkDeviceWaitIdle(device) == VK_SUCCESS, "Vulkan", "Device wait failed.");
@@ -839,75 +822,6 @@ void loadDefaultTextures(ImageListContainer& imageLists, BufferBaseHostAccessibl
 	vkQueueWaitIdle(queue);
 
 	cmdBufferSet.resetAll();
-}
-
-void mouseCallback(GLFWwindow* window, double xpos, double ypos)
-{
-	static bool mouseWasCaptured{ false };
-	if (ImGui::GetIO().WantCaptureMouse == true)
-	{
-		mouseWasCaptured = true;
-		return;
-	}
-
-	CamInfo* camInfo{ reinterpret_cast<InputAccessedData*>(glfwGetWindowUserPointer(window))->cameraInfo };
-
-	double xOffs{};
-	double yOffs{};
-	static bool firstCall{ true };
-	static int width{};
-	static int height{};
-
-	if (firstCall)
-	{
-		xOffs = 0.0f;
-		yOffs = 0.0f;
-		glfwGetWindowSize(window, &width, &height);
-		firstCall = false;
-	}
-	else
-	{
-		xOffs = (xpos - camInfo->lastCursorP.x) / width;
-		yOffs = (ypos - camInfo->lastCursorP.y ) / height;
-	}
-
-	glm::vec3 upWVec{ 0.0, 1.0, 0.0 };
-	glm::vec3 sideVec{ glm::normalize(glm::cross(upWVec, camInfo->camFront)) };
-	glm::vec3 upRelVec{ glm::normalize(glm::cross(camInfo->camFront, sideVec)) };
-
-	int stateL = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-	if (stateL == GLFW_PRESS && mouseWasCaptured != true)
-	{
-		camInfo->camFront = glm::rotate(camInfo->camFront, static_cast<float>(xOffs * camInfo->sensetivity), upWVec);
-		glm::vec3 newFront{ glm::rotate(camInfo->camFront, static_cast<float>(yOffs* camInfo->sensetivity), sideVec) };
-		if (!(glm::abs(glm::dot(upWVec, newFront)) > 0.999))
-			camInfo->camFront = newFront;
-	}
-
-	bool sideMoved{ false };
-	int stateR = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
-	if (stateR == GLFW_PRESS && mouseWasCaptured != true)
-	{
-		camInfo->camPos += static_cast<float>(-xOffs * camInfo->speed) * sideVec + static_cast<float>(yOffs * camInfo->speed) * upRelVec;
-		sideMoved = true;
-	}
-
-	bool frontMoved{ false };
-	int stateM = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
-	if (stateM == GLFW_PRESS && mouseWasCaptured != true)
-	{
-		camInfo->camPos += static_cast<float>(-yOffs * camInfo->speed) * camInfo->camFront;
-		frontMoved = true;
-	}
-
-	camInfo->lastCursorP = {xpos, ypos};
-
-	camInfo->camPosChanged = sideMoved || frontMoved;
-
-	mouseWasCaptured = false;
-}
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
 }
 
 void createResourceSets(VkDevice device,
@@ -1274,12 +1188,12 @@ void getBoundingSpheres(BufferMapped& indirectDataBuffer, const OBBs& boundingBo
 	}
 }
 
-void fillFrustumData(CoordinateTransformation& coordinateTransformation, Window& window, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster, DeferredLighting& deferredLighting)
+void fillFrustumData(CoordinateTransformation& coordinateTransformation, Camera& camera, Clusterer& clusterer, HBAO& hbao, FrustumInfo& frustumInfo, ShadowCaster& caster, DeferredLighting& deferredLighting)
 {
-	float nearPlane{ NEAR_PLANE };
-	float farPlane{ FAR_PLANE };
-	float aspect{ static_cast<float>(static_cast<double>(window.getWidth()) / window.getHeight()) };
-	float FOV{ glm::radians(80.0) };
+	float nearPlane{ camera.getNear() };
+	float farPlane{ camera.getFar() };
+	float aspect{ camera.getAspect() };
+	float FOV{ camera.getFOV() };
 
 	coordinateTransformation.updateProjectionMatrix(FOV, aspect, nearPlane, farPlane);
 	clusterer.submitFrustum(nearPlane, farPlane, aspect, FOV);
@@ -1349,6 +1263,62 @@ void fillDrawData(const BufferMapped& perDrawDataIndices, std::vector<StaticMesh
 			drawDataIndices += sizeof(uint8_t) * 12;
 		}
 	}
+}
+
+void processInput(const Window& window, Camera& camera, float deltaTime, bool disableCursor)
+{
+	bool cameraMoved = false;
+
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+	{
+		camera.move(Camera::FORWARD, deltaTime);
+		cameraMoved = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+	{
+		camera.move(Camera::LEFT, deltaTime);
+		cameraMoved = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+	{
+		camera.move(Camera::BACK, deltaTime);
+		cameraMoved = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+	{
+		camera.move(Camera::RIGHT, deltaTime);
+		cameraMoved = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+	{
+		camera.move(Camera::UP, deltaTime);
+		cameraMoved = true;
+	}
+	if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+	{
+		camera.move(Camera::DOWN, deltaTime);
+		cameraMoved = true;
+	}
+
+	double xpos{};
+	double ypos{};
+	glfwGetCursorPos(window, &xpos, &ypos);
+	static bool invalidateLastCursorPos = false;
+	if (!disableCursor)
+	{
+		if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
+		{
+			camera.moveFrom2DInput(glm::vec2(static_cast<float>(xpos / window.getWidth()), static_cast<float>(ypos / window.getHeight())), invalidateLastCursorPos);
+			invalidateLastCursorPos = false;
+		}
+		else
+		{
+			invalidateLastCursorPos = true;
+		}
+	}
+
+	if (!cameraMoved)
+		camera.setCameraPositionLeftUnchanged();
 }
 
 void voxelize(GI& gi, CommandBufferSet& cmdBufferSet, VkQueue queue, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride)

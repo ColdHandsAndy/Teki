@@ -248,6 +248,7 @@
     <ClInclude Include="src\rendering\renderer\timeline_semaphore.h" />
     <ClInclude Include="src\rendering\renderer\deferred_lighting.h" />
     <ClInclude Include="src\rendering\renderer\world_transform.h" />
+    <ClInclude Include="src\rendering\scene\camera.h" />
     <ClInclude Include="src\rendering\scene\parse_scene.h" />
     <ClInclude Include="src\rendering\shader_management\shader_operations.h" />
     <ClInclude Include="src\rendering\UI\UI.h" />

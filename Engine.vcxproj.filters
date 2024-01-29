@@ -206,6 +206,9 @@
     <ClInclude Include="src\tools\timestamp_queries.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\rendering\scene\camera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\frag_shader.fs">

@@ -96,6 +96,11 @@ public:
         ImGui::DestroyContext();
 	}
 
+    bool cursorOnUI() const
+    {
+        return ImGui::GetIO().WantCaptureMouse;
+    }
+
     void startUIPass(VkCommandBuffer cb, VkImageView outputAttachment)
     {
         VkRenderingAttachmentInfo attachmentInfo{};

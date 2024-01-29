@@ -71,7 +71,7 @@ void main()
 		vec3 normal;
 		unpackMaterialVM(albedo, normal, imageLoad(AlbedoNormalVoxelMap, ivec3(voxelCoord.x, voxelCoord.y, voxelCoord.z)));
 
-		renderVoxel = uint(any(greaterThan(albedo, vec3(0.001))));
+		renderVoxel = uint(any(greaterThan(albedo, vec3(0.0001))));
 		outColor = albedo;
 		vec3 origin = vec3(0.5) * pushConstants.voxelSize * (1.0 - pushConstants.resolution);
 		gl_Position = vec4(origin + pushConstants.voxelSize * voxelCoord, 1.0);
@@ -83,7 +83,7 @@ void main()
 		float metalness;
 		unpackEmissionVM(emission, metalness, roughness, imageLoad(EmissionMetRoughVoxelMap, ivec3(voxelCoord.x, voxelCoord.y, voxelCoord.z)));
 
-		renderVoxel = uint(metalness > 0.001);
+		renderVoxel = uint(metalness > 0.0001);
 		outColor = vec3(metalness);
 		vec3 origin = vec3(0.5) * pushConstants.voxelSize * (1.0 - pushConstants.resolution);
 		gl_Position = vec4(origin + pushConstants.voxelSize * voxelCoord, 1.0);
@@ -95,7 +95,7 @@ void main()
 		float metalness;
 		unpackEmissionVM(emission, metalness, roughness, imageLoad(EmissionMetRoughVoxelMap, ivec3(voxelCoord.x, voxelCoord.y, voxelCoord.z)));
 
-		renderVoxel = uint(roughness > 0.001);
+		renderVoxel = uint(roughness > 0.0001);
 		outColor = vec3(roughness);
 		vec3 origin = vec3(0.5) * pushConstants.voxelSize * (1.0 - pushConstants.resolution);
 		gl_Position = vec4(origin + pushConstants.voxelSize * voxelCoord, 1.0);
@@ -107,7 +107,7 @@ void main()
 		float metalness;
 		unpackEmissionVM(emission, metalness, roughness, imageLoad(EmissionMetRoughVoxelMap, ivec3(voxelCoord.x, voxelCoord.y, voxelCoord.z)));
 
-		renderVoxel = uint(any(greaterThan(emission, vec3(0.001))));
+		renderVoxel = uint(any(greaterThan(emission, vec3(0.0001))));
 		outColor = emission;
 		vec3 origin = vec3(0.5) * pushConstants.voxelSize * (1.0 - pushConstants.resolution);
 		gl_Position = vec4(origin + pushConstants.voxelSize * voxelCoord, 1.0);
