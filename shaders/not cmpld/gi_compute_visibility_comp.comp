@@ -95,7 +95,7 @@ void main()
 	const float smallestDivisor = 1e-9 * DDGI_PROBE_VISIBILITY_SIDE_SIZE * DDGI_PROBE_VISIBILITY_SIDE_SIZE;
 	vec2 visibility = visibility_weight_sums.xy / max(visibility_weight_sums.z, smallestDivisor);
 
-	visibility = mix(imageLoad(VisibilityProbesHistory, probeOuterCoord).xy, visibility, vec2(DDGI_HYSTERESIS));
+	visibility = mix(imageLoad(VisibilityProbesHistory, probeOuterCoord).xy, visibility, vec2(DDGI_HYSTERESIS_VISIBILITY));
 	
 	imageStore(VisibilityProbesNew, probeOuterCoord, vec4(visibility, 0.0, 0.0));
 	

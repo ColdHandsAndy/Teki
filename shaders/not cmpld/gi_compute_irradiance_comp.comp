@@ -81,8 +81,26 @@ void main()
 
 	irradiance = pow(irradiance, vec3(DDGI_INVERSE_IRRADIANCE_GAMMA));
 
+	vec3 historyIrradiance = imageLoad(IrradianceProbesHistory, probeOuterCoord).xyz * DDGI_IRRADIANCE_SCALE;
+
+	float hysteresis = DDGI_HYSTERESIS_IRRADIANCE;
+
+	const float significantChangeThreshold = 0.48;
+    const float newDistributionChangeThreshold = 1.05;
+
+	float changeMagnitude = abs(max(max(irradiance.r - historyIrradiance.r, irradiance.g - historyIrradiance.g), irradiance.b - historyIrradiance.b));
+
+    if (changeMagnitude > newDistributionChangeThreshold) 
+	{
+        hysteresis = 1.0;
+    }
+    else if (changeMagnitude > significantChangeThreshold) 
+	{
+        hysteresis = max(0.0, hysteresis + 0.15);
+    }
+
 	//To reduce flickering (frequency response?) can reapply EMA multiple times, but also need to decrease hysteresis
-	irradiance = mix(imageLoad(IrradianceProbesHistory, probeOuterCoord).xyz * DDGI_IRRADIANCE_SCALE, irradiance, vec3(DDGI_HYSTERESIS));
+	irradiance = mix(historyIrradiance, irradiance, vec3(hysteresis));
 
 	imageStore(IrradianceProbesNew, probeOuterCoord, vec4(irradiance * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	
