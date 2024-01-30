@@ -25,7 +25,7 @@ layout(push_constant) uniform PushConsts
 	float invProbeMaxActiveDistance;
 } pushConstants;
 
-layout(set = 1, binding = 0, r11f_g11f_b10f) uniform readonly image2D RadianceProbes;
+layout(set = 1, binding = 0, rgba16f) uniform readonly image2D RadianceProbes;
 layout(set = 1, binding = 1) uniform sampler2D IrradianceProbes;
 layout(set = 1, binding = 2) uniform sampler2D VisibilityProbes;
 
@@ -81,8 +81,8 @@ void main()
 	else if (pushConstants.debugType == DEBUG_TYPE_IRRADIANCE)
 	{
 		ivec2 probeOuterCoord = ivec2(DDGI_PROBE_LIGHT_SIDE_SIZE_WITH_BORDERS * inProbeID.x + inProbeID.z * (DDGI_PROBE_LIGHT_SIDE_SIZE_WITH_BORDERS * pushConstants.probeCountX), DDGI_PROBE_LIGHT_SIDE_SIZE_WITH_BORDERS * inProbeID.y);
-		vec3 irradiance = texture(IrradianceProbes, (probeOuterCoord + ivec2(1, 1) + getProbeCoordSampling(normal)) * pushConstants.invIrradianceTextureResolution).xyz;
-		irradiance = pow(irradiance, vec3(DDGI_IRRADIANCE_GAMMA * 0.5));
+		vec3 irradiance = texture(IrradianceProbes, (probeOuterCoord + ivec2(1, 1) + getProbeCoordSampling(normal)) * pushConstants.invIrradianceTextureResolution).xyz * DDGI_IRRADIANCE_SCALE;
+		irradiance = pow(irradiance, vec3(DDGI_IRRADIANCE_GAMMA));
 		res = TimothyTonemapper(irradiance);
 	}
 	else if (pushConstants.debugType == DEBUG_TYPE_VISIBILITY)

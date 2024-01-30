@@ -86,7 +86,7 @@ layout(set = 6, binding = 0) uniform MD
 	GIMetaData data;
 } giMetaData;
 
-layout(set = 7, binding = 0) uniform samplerCube samplerCubeMapRad;
+layout(set = 7, binding = 0) uniform samplerCube SamplerCubeMapRad;
 
 layout(set = 8, binding = 0) buffer DrawDataBuffer 
 {

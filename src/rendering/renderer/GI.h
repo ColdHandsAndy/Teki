@@ -164,6 +164,7 @@ private:
 		glm::vec3 sceneCenter; 
 		float pad; 
 		glm::vec3 campos; 
+		uint32_t skyboxEnabled;
 	} m_pcDataTraceSpecular{};
 
 	struct 
@@ -367,7 +368,7 @@ public:
 		if (profile) queries.cmdWriteEnd(cb, queryIndexGITraceProbes);
 
 		if (profile) queries.cmdWriteStart(cb, queryIndexGITraceSpecular);
-		cmdDispatchTraceSpecular(cb, inverseViewProjectionMatrix, camPos);
+		cmdDispatchTraceSpecular(cb, inverseViewProjectionMatrix, camPos, skyboxEnabled);
 		if (profile) queries.cmdWriteEnd(cb, queryIndexGITraceSpecular);
 
 		changeHistoryAndNewProbes();
@@ -501,7 +502,7 @@ private:
 	void cmdDispatchInjectLights(VkCommandBuffer cb);
 	void cmdDispatchMergeEmission(VkCommandBuffer cb);
 	void cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled);
-	void cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFromNDC, const glm::vec3& campos);
+	void cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFromNDC, const glm::vec3& campos, bool skyboxEnabled);
 	void cmdDispatchComputeIrradianceAndVisibility(VkCommandBuffer cb);
 	void cmdDispatchBlurSpecular(VkCommandBuffer cb);
 

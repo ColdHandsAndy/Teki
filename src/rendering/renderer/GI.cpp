@@ -9,7 +9,7 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 		CompileTimeArray::uniform_array_from_args<Image, ROM_NUMBER>
 			(device, VK_FORMAT_R32_UINT, ROM_PACKED_WIDTH, ROM_PACKED_HEIGHT, ROM_PACKED_DEPTH, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false)
 	},
-	m_ddgiRadianceProbes{ device, VK_FORMAT_B10G11R11_UFLOAT_PACK32,
+	m_ddgiRadianceProbes{ device, VK_FORMAT_R16G16B16A16_SFLOAT,
 		DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_X_COUNT * DDGI_PROBE_Z_COUNT, DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_Y_COUNT,
 		VK_IMAGE_USAGE_STORAGE_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
@@ -19,7 +19,7 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_ddgiIrradianceProbes{
 		CompileTimeArray::uniform_array_from_args<Image, 2>
-			(device, VK_FORMAT_B10G11R11_UFLOAT_PACK32,
+			(device, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
 			DDGI_PROBE_LIGHT_SIDE_SIZE_WITH_BORDERS * DDGI_PROBE_X_COUNT * DDGI_PROBE_Z_COUNT, DDGI_PROBE_LIGHT_SIDE_SIZE_WITH_BORDERS * DDGI_PROBE_Y_COUNT,
 			VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			VK_IMAGE_ASPECT_COLOR_BIT, false)
@@ -371,11 +371,11 @@ void GI::initialize(VkDevice device,
 	std::array<std::reference_wrapper<const ResourceSet>, 2> resourceSetsMergeEmission{ m_resSetEmissionMetRoughRead, m_resSetDynamicEmissionWrite };
 	m_mergeEmission.initializaCompute(device, "shaders/cmpld/gi_emission_merge_comp.spv", resourceSetsMergeEmission);
 
-	std::array<std::reference_wrapper<const ResourceSet>, 7> resourceSetsTraceSpecular{ 
+	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSetsTraceSpecular{ 
 		m_resSetSpecularWrite, m_resSetGIMetadata,
 		m_resSetReadROMA, 
 		m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead,
-		m_resSetIndirectDiffuseLighting, BRDFLUTRS };
+		m_resSetIndirectDiffuseLighting, distantProbeRS, BRDFLUTRS };
 	m_traceSpecular.initializaCompute(device, "shaders/cmpld/gi_trace_specular_comp.spv", resourceSetsTraceSpecular,
 	{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataTraceSpecular)}} });
 
@@ -646,7 +646,7 @@ void GI::cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled)
 	constexpr uint32_t groupSizeZ{ 1 };
 	vkCmdDispatch(cb, DISPATCH_SIZE(DDGI_PROBE_X_COUNT * DDGI_PROBE_Z_COUNT * DDGI_PROBE_LIGHT_SIDE_SIZE, groupSizeX), DISPATCH_SIZE(DDGI_PROBE_Y_COUNT * DDGI_PROBE_LIGHT_SIDE_SIZE, groupSizeY), 1);
 }
-void GI::cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFromNDC, const glm::vec3& campos)
+void GI::cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFromNDC, const glm::vec3& campos, bool skyboxEnabled)
 {
 	m_traceSpecular.setResourceInUse(2, m_currentBuffers);
 	m_traceSpecular.setResourceInUse(5, m_currentNewProbes);
@@ -656,6 +656,7 @@ void GI::cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFrom
 	m_pcDataTraceSpecular.sceneCenter = SCENE_ORIGIN;
 	m_pcDataTraceSpecular.worldFromNDC = worldFromNDC;
 	m_pcDataTraceSpecular.campos = campos;
+	m_pcDataTraceSpecular.skyboxEnabled = skyboxEnabled ? 1u : 0u;
 	vkCmdPushConstants(cb, m_traceSpecular.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_pcDataTraceSpecular), &m_pcDataTraceSpecular);
 	constexpr uint32_t groupSizeX{ 8 };
 	constexpr uint32_t groupSizeY{ 8 };

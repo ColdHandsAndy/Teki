@@ -10,6 +10,8 @@
 #define DDGI_HYSTERESIS 0.05
 #define DDGI_IRRADIANCE_GAMMA 5.0
 #define DDGI_INVERSE_IRRADIANCE_GAMMA (1.0 / DDGI_IRRADIANCE_GAMMA)
+#define DDGI_IRRADIANCE_SCALE 4.3379
+#define DDGI_IRRADIANCE_INVERSE_SCALE (1.0 / DDGI_IRRADIANCE_SCALE)
 #define DDGI_VISIBILIYY_SHARPNESS 32
 
 #define PI 3.141592653589
@@ -113,7 +115,7 @@ void getProbeData(out vec3 irradiance, out vec2 visibility, vec3 samplingDirecti
 {
 	vec2 sampleCoords = (getOuterProbeCoordSampling(gridCoord, float(probeCountX)) + getInnerProbeCoordSampling(samplingDirection)) * invProbeTextureResolution;
 
-	irradiance = texture(IProbes, sampleCoords).xyz;
+	irradiance = texture(IProbes, sampleCoords).xyz * DDGI_IRRADIANCE_SCALE;
 	visibility = texture(VProbes, sampleCoords).xy;
 }
 vec3 sampleProbeVolume(ProbeGridData gridData, vec3 sampleDir, vec3 gridPos, vec3 gridCoord, vec3 baseProbeCoord, vec3 trilValues, sampler2D IrradianceProbes, sampler2D VisibilityProbes)

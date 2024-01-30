@@ -7,10 +7,10 @@
 
 layout(local_size_x = DDGI_PROBE_LIGHT_SIDE_SIZE, local_size_y = DDGI_PROBE_LIGHT_SIDE_SIZE, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, r11f_g11f_b10f) uniform readonly image2D RadianceProbes;
+layout(set = 0, binding = 0, rgba16f) uniform readonly image2D RadianceProbes;
 
-layout(set = 1, binding = 0, r11f_g11f_b10f) uniform readonly image2D IrradianceProbesHistory;
-layout(set = 1, binding = 1, r11f_g11f_b10f) uniform writeonly image2D IrradianceProbesNew;
+layout(set = 1, binding = 0, rgb10_a2) uniform readonly image2D IrradianceProbesHistory;
+layout(set = 1, binding = 1, rgb10_a2) uniform writeonly image2D IrradianceProbesNew;
 
 layout(set = 2, binding = 0) uniform RayDirections
 {
@@ -23,7 +23,6 @@ vec3 getNormalOctohedral(ivec2 probeInnerCoord)
 	return decodeOctohedralNegOneToPosOne(octC);
 }
 
-//temp solution before edge copy pass
 void copyEdges(vec3 value, ivec2 probeInnerCoord, ivec2 probeOuterCoord)
 {
 	bool firstRow = probeInnerCoord.y == 0;
@@ -32,22 +31,22 @@ void copyEdges(vec3 value, ivec2 probeInnerCoord, ivec2 probeOuterCoord)
 	bool lastCol = probeInnerCoord.x == DDGI_PROBE_LIGHT_SIDE_SIZE - 1;
 
 	if (firstRow)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y - 1), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y - 1), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	else if (lastRow)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y + 1), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.x * 2, probeOuterCoord.y + 1), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	if (firstCol)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - 1, probeOuterCoord.y + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - 1, probeOuterCoord.y + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	else if (lastCol)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + 1, probeOuterCoord.y + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + 1, probeOuterCoord.y + (DDGI_PROBE_LIGHT_SIDE_SIZE - 1) - probeInnerCoord.y * 2), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	
 	if (firstRow && firstCol)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	else if (firstRow && lastCol)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y + DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	else if (lastRow && firstCol)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x + DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	else if (lastRow && lastCol)
-		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value, 0.0));
+		imageStore(IrradianceProbesNew, ivec2(probeOuterCoord.x - DDGI_PROBE_LIGHT_SIDE_SIZE, probeOuterCoord.y - DDGI_PROBE_LIGHT_SIDE_SIZE), vec4(value * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 }
 
 void main()
@@ -82,9 +81,10 @@ void main()
 
 	irradiance = pow(irradiance, vec3(DDGI_INVERSE_IRRADIANCE_GAMMA));
 
-	irradiance = mix(imageLoad(IrradianceProbesHistory, probeOuterCoord).xyz, irradiance, vec3(DDGI_HYSTERESIS));
+	//To reduce flickering (frequency response?) can reapply EMA multiple times, but also need to decrease hysteresis
+	irradiance = mix(imageLoad(IrradianceProbesHistory, probeOuterCoord).xyz * DDGI_IRRADIANCE_SCALE, irradiance, vec3(DDGI_HYSTERESIS));
 
-	imageStore(IrradianceProbesNew, probeOuterCoord, vec4(irradiance, 0.0));
+	imageStore(IrradianceProbesNew, probeOuterCoord, vec4(irradiance * DDGI_IRRADIANCE_INVERSE_SCALE, 0.0));
 	
 	copyEdges(irradiance, probeInnerCoord, probeOuterCoord);
 }
