@@ -161,18 +161,18 @@ vec3 calculateIndirectLighting(vec3 worldPos, vec3 N, vec3 V, vec3 R, float Ndot
     //float mip = log2((k + k * distToHit) / sqrt(abs(csZ)));
 	//uint mipLevel = clamp(uint(mip), 0, 4);
 	float ndcX = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][0], coordTransformData.ndcFromWorldPrev[1][0], coordTransformData.ndcFromWorldPrev[2][0])) + coordTransformData.ndcFromWorldPrev[3][0];
-    float ndcY = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][1], coordTransformData.ndcFromWorldPrev[1][1], coordTransformData.ndcFromWorldPrev[2][1])) + coordTransformData.ndcFromWorldPrev[3][1];
-    float ndcW = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][3], coordTransformData.ndcFromWorldPrev[1][3], coordTransformData.ndcFromWorldPrev[2][3])) + coordTransformData.ndcFromWorldPrev[3][3];
-    ndcX /= ndcW;
-    ndcY /= ndcW;
+	float ndcY = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][1], coordTransformData.ndcFromWorldPrev[1][1], coordTransformData.ndcFromWorldPrev[2][1])) + coordTransformData.ndcFromWorldPrev[3][1];
+	float ndcW = dot(worldPos, vec3(coordTransformData.ndcFromWorldPrev[0][3], coordTransformData.ndcFromWorldPrev[1][3], coordTransformData.ndcFromWorldPrev[2][3])) + coordTransformData.ndcFromWorldPrev[3][3];
+	ndcX /= ndcW;
+	ndcY /= ndcW;
 	vec2 reprUV = vec2(ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5);
 	float distToHit = texture(DistanceToHit, reprUV).x;
 	vec3 penPos = worldPos - (V * distToHit);
 	ndcX = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][0], coordTransformData.ndcFromWorldPrev[1][0], coordTransformData.ndcFromWorldPrev[2][0])) + coordTransformData.ndcFromWorldPrev[3][0];
-    ndcY = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][1], coordTransformData.ndcFromWorldPrev[1][1], coordTransformData.ndcFromWorldPrev[2][1])) + coordTransformData.ndcFromWorldPrev[3][1];
-    ndcW = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][3], coordTransformData.ndcFromWorldPrev[1][3], coordTransformData.ndcFromWorldPrev[2][3])) + coordTransformData.ndcFromWorldPrev[3][3];
-    ndcX /= ndcW;
-    ndcY /= ndcW;
+	ndcY = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][1], coordTransformData.ndcFromWorldPrev[1][1], coordTransformData.ndcFromWorldPrev[2][1])) + coordTransformData.ndcFromWorldPrev[3][1];
+	ndcW = dot(penPos, vec3(coordTransformData.ndcFromWorldPrev[0][3], coordTransformData.ndcFromWorldPrev[1][3], coordTransformData.ndcFromWorldPrev[2][3])) + coordTransformData.ndcFromWorldPrev[3][3];
+	ndcX /= ndcW;
+	ndcY /= ndcW;
 	vec2 reprRefUV = vec2(ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5);
 	vec3 gl = texture(SpecularImages[0], reprRefUV).xyz;
 	vec3 rg = texture(SpecularImages[1], reprRefUV).xyz;
@@ -489,7 +489,7 @@ void main()
 
 	float depth = texelFetch(Depth, screenCoord, 0).x;
 	bool noWrite = (depth == 0.0);
-	if (subgroupAnd(noWrite))
+	if (noWrite)
 		return;
 
 	vec2 screenUV = (vec2(screenCoord) + vec2(0.5)) * pushConstants.invResolution;

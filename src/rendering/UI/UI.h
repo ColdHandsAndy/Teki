@@ -155,81 +155,90 @@ public:
         {
             ImGui::Checkbox("Light bounding volumes", &data.drawBVs);
             ImGui::Checkbox("Light proxies", &data.drawLightProxies);
-            if (ImGui::TreeNode("Spot settings"))
+            if (ImGui::TreeNode("Spot lights settings"))
             {
                 {
-                    static int index{ 0 };
-                    bool i = ImGui::SliderInt("Light index", &index, 0, spotLights.size() - 1);
-                    static glm::vec3 pos{ 0.0f };
-                    bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
-                    static glm::vec2 anglesAB{ 0.0f };
-                    static glm::vec3 dir{ 0.0f, -1.0f, 0.0f };
-                    bool d = ImGui::DragFloat2("Direction", &anglesAB.x, 0.5f, -180.0f, 180.0f);
-                    static float length{ 1.0f };
-                    bool l = ImGui::SliderFloat("Length", &length, 0.0f, 50.0f);
-                    static glm::vec3 color{};
-                    bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
-                    static float power{ 1.0f };
-                    bool pw = ImGui::DragFloat("Power", &power, 5.0f, 0.0f, 30000.0f);
-                    static float lightSize{ 0.1f };
-                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
-                    static float cutoff{ 22.5f };
-                    bool cf = ImGui::SliderFloat("Cutoff", &cutoff, 0.0f, 90.0f);
-                    static float falloff{ 20.0f };
-                    bool ff = ImGui::SliderFloat("Falloff", &falloff, 0.0f, 90.0f);
+                    if (spotLights.size() == 0)
+                        ImGui::TextColored({1.0, 0.0, 0.0, 1.0}, "No spot lights.");
+                    else
+                    {
+                        static int index{ 0 };
+                        bool i = ImGui::SliderInt("Light index", &index, 0, spotLights.size() - 1);
+                        glm::vec3 pos{ spotLights[index].getPosition() };
+                        bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
+                        glm::vec2 anglesAB{ 0.0f };
+                        glm::vec3 dir{ 0.0f, -1.0f, 0.0f };
+                        bool d = ImGui::DragFloat2("Direction", &anglesAB.x, 0.5f, -180.0f, 180.0f);
+                        float length{ spotLights[index].getLength() };
+                        bool l = ImGui::SliderFloat("Length", &length, 0.0f, 50.0f);
+                        glm::vec3 color{ spotLights[index].getColor() };
+                        bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
+                        float power{ spotLights[index].getPower() };
+                        bool pw = ImGui::DragFloat("Power", &power, 5.0f, 0.0f, 30000.0f);
+                        float lightSize{ spotLights[index].getSize() };
+                        bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
+                        float cutoff{ spotLights[index].getCutoff() };
+                        bool cf = ImGui::SliderFloat("Cutoff", &cutoff, 0.0f, 90.0f);
+                        float falloff{ spotLights[index].getFalloff() };
+                        bool ff = ImGui::SliderFloat("Falloff", &falloff, 0.0f, 90.0f);
 
-                    LightTypes::SpotLight& sLight{ spotLights[index] };
+                        LightTypes::SpotLight& sLight{ spotLights[index] };
 
-                    if (s)
-                        sLight.changeSize(lightSize);
-                    if (c)
-                        sLight.changeColor(color);
-                    if (pw)
-                        sLight.changePower(power);
-                    if (d)
-                        sLight.changeDirection(glm::rotateY(glm::rotateZ(dir, glm::radians(anglesAB.x)), glm::radians(anglesAB.y)));
-                    if (l)
-                        sLight.changeLength(length);
-                    if (p)
-                        sLight.changePosition(pos);
-                    if (cf)
-                        sLight.changeCutoff(glm::radians(cutoff));
-                    if (ff)
-                        sLight.changeFalloff(glm::radians(falloff));
+                        if (s)
+                            sLight.changeSize(lightSize);
+                        if (c)
+                            sLight.changeColor(color);
+                        if (pw)
+                            sLight.changePower(power);
+                        if (d)
+                            sLight.changeDirection(glm::rotateY(glm::rotateZ(dir, glm::radians(anglesAB.x)), glm::radians(anglesAB.y)));
+                        if (l)
+                            sLight.changeLength(length);
+                        if (p)
+                            sLight.changePosition(pos);
+                        if (cf)
+                            sLight.changeCutoff(glm::radians(cutoff));
+                        if (ff)
+                            sLight.changeFalloff(glm::radians(falloff));
+                    }
                 }
                 ImGui::TreePop();
             }
-            if (ImGui::TreeNode("Point settings"))
+            if (ImGui::TreeNode("Point lights settings"))
             {
                 {
-                    static int index{ 0 };
-                    bool i = ImGui::SliderInt("Light index", &index, 0, pointLights.size() - 1);
-                    static glm::vec3 pos{};
-                    bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
-                    static float radius{};
-                    bool r = ImGui::SliderFloat("Radius", &radius, 0.0f, 50.0f);
-                    static glm::vec3 color{};
-                    bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
-                    static float power{ 1.0f };
-                    bool pw = ImGui::DragFloat("Power", &power, 5.0f, 0.0f, 30000.0f);
-                    static float lightSize{};
-                    bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
+                    if (pointLights.size() == 0)
+                        ImGui::TextColored({ 1.0, 0.0, 0.0, 1.0 }, "No point lights.");
+                    else
+                    {
+                        static int index{ 0 };
+                        bool i = ImGui::SliderInt("Light index", &index, 0, pointLights.size() - 1);
+                        glm::vec3 pos{ pointLights[index].getPosition() };
+                        bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
+                        float radius{ pointLights[index].getRadius() };
+                        bool r = ImGui::SliderFloat("Radius", &radius, 0.0f, 50.0f);
+                        glm::vec3 color{ pointLights[index].getColor() };
+                        bool c = ImGui::ColorPicker3("Color", &color.x, ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha);
+                        float power{ pointLights[index].getPower() };
+                        bool pw = ImGui::DragFloat("Power", &power, 5.0f, 0.0f, 30000.0f);
+                        float lightSize{ pointLights[index].getSize() };
+                        bool s = ImGui::SliderFloat("Light size", &lightSize, 0.0f, 2.0f);
 
-                    LightTypes::PointLight& pLight{ pointLights[index] };
+                        LightTypes::PointLight& pLight{ pointLights[index] };
 
-                    if (pw)
-                        pLight.changePower(power);
-                    if (p)
-                        pLight.changePosition(pos);
-                    if (s)
-                        pLight.changeSize(lightSize);
-                    if (c)
-                        pLight.changeColor(color);
-                    if (r)
-                        pLight.changeRadius(radius);
-
-                    ImGui::TreePop();
+                        if (pw)
+                            pLight.changePower(power);
+                        if (p)
+                            pLight.changePosition(pos);
+                        if (s)
+                            pLight.changeSize(lightSize);
+                        if (c)
+                            pLight.changeColor(color);
+                        if (r)
+                            pLight.changeRadius(radius);
+                    }
                 }
+                ImGui::TreePop();
             }
             ImGui::TreePop();
         }

@@ -63,6 +63,9 @@ namespace LightTypes
 		LightBase(const glm::vec3& lightColor, float lightPower) : m_color{ lightColor }, m_power{ lightPower } {}
 
 	public:
+		const glm::vec3& getColor() const { return m_color; };
+		float getPower() const { return m_power; };
+
 		void changeColor(const glm::vec3& color)
 		{
 			m_color = color;
@@ -122,6 +125,10 @@ namespace LightTypes
 				m_data->shadowListIndex = -1;
 			}
 		}
+
+		const glm::vec3& getPosition() const { return m_data->position; };
+		float getRadius() const { return m_data->length; };
+		float getSize() const { return m_data->lightSize; };
 
 		void changeAll(const glm::vec3& position, const glm::vec3& lightColor, float lightPower, float radius, float lightSize = 0.0f)
 		{
@@ -205,6 +212,13 @@ namespace LightTypes
 				m_data->shadowListIndex = -1;
 			}
 		}
+
+		const glm::vec3& getPosition() const { return m_data->position; };
+		const glm::vec3& getDirection() const { return m_data->lightDir; };
+		float getLength() const { return m_data->length; };
+		float getFalloff() const { return glm::degrees(glm::acos(m_data->falloffCos)); };
+		float getCutoff() const { return glm::degrees(glm::acos(m_data->cutoffCos)); };
+		float getSize() const { return m_data->lightSize; };
 
 		void changeAll(const glm::vec3& position, const glm::vec3& lightColor, float lightPower, float length, const glm::vec3& lightDir, float lightSize = 0.0f, float falloffAngle = -1.0f, float cutoffAngle = -1.0f)
 		{

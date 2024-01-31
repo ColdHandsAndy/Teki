@@ -147,8 +147,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
-	Window window{ "Teki" };
+	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
+	//Window window{ "Teki" };
 	Camera camera{NEAR_PLANE, FAR_PLANE, glm::radians(80.0f), static_cast<float>(window.getWidth()) / static_cast<float>(window.getHeight())};
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
@@ -281,14 +281,16 @@ int main()
 	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
 	dirLight.plantData(directionalLight.getData());
 	std::array<LightTypes::PointLight, 5> pointLights{ 
-		LightTypes::PointLight(glm::vec3{2.560f, 5.320f, 4.760f}, glm::vec3{0.8f, 0.4f, 0.2f}, 4176.0f, 50.0f, 2048, 0.0, true),
-		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
-		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
-		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
-		LightTypes::PointLight(glm::vec3{4.5f, 3.2f, 0.0f}, glm::vec3{0.8f, 0.4f, 0.2f}, 200.0f, 0.0f, 256, 0.0, true),
+		LightTypes::PointLight(glm::vec3{-2.72f, -4.0f, -2.96f}, glm::vec3{0.8f, 0.4f, 0.2f}, 150.0f, 6.49f, 512, 0.0, true),
+		LightTypes::PointLight(glm::vec3{-2.0f, -2.55f, -8.76f}, glm::vec3{0.18f, 0.04f, 0.25f}, 200.0f, 7.82f, 512, 0.0, true),
+		LightTypes::PointLight(glm::vec3{7.08f, -4.7f, -0.88f}, glm::vec3{0.96f, 0.9f, 0.99f}, 235.0f, 6.87f, 512, 0.0, true),
+		LightTypes::PointLight(glm::vec3{-1.08f, -1.8f, 9.72f}, glm::vec3{0.25f, 0.97f, 0.8f}, 45.0f, 9.54f, 512, 0.0, true),
+		LightTypes::PointLight(glm::vec3{-6.4f, -5.96f, 5.9f}, glm::vec3{0.95f, 0.5f, 0.1f}, 65.0f, 9.92f, 512, 0.0, true),
 	};
-	std::array<LightTypes::SpotLight, 1> spotLights{ 
-		LightTypes::SpotLight(glm::vec3{-8.5f, 14.0f, -3.5f}, glm::vec3{0.6f, 0.5f, 0.7f}, 1000.0f, 0.0f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(25.0), glm::radians(30.0), 1024, 0.0, true)
+	std::array<LightTypes::SpotLight, 3> spotLights{ 
+		LightTypes::SpotLight(glm::vec3{-6.68, 1.96, 4.72}, glm::vec3{1.0f}, 1000.0f, 26.5f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(40.0), glm::radians(48.0), 1024, 0.0, true),
+		LightTypes::SpotLight(glm::vec3{7.04, -6.0, 2.96}, glm::vec3{1.0f}, 1000.0f, 12.4f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(38.0), glm::radians(43.0), 1024, 0.0, true),
+		LightTypes::SpotLight(glm::vec3{-1.4, -2.72, 14.08}, glm::vec3{1.0f}, 1000.0f, 13.74f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(30.0), glm::radians(35.0), 1024, 0.0, true),
 	};
 
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
@@ -729,6 +731,8 @@ int main()
 	{
 		WorldState::refreshFrameTime();
 		glfwPollEvents();
+
+
 
 		processInput(window, camera, WorldState::deltaTime, ui.cursorOnUI());
 

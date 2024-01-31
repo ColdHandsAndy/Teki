@@ -161,7 +161,7 @@ public:
 		}
 		
 		if (!m_indicesForShadowMaps.empty())
-			std::sort(m_indicesForShadowMaps.begin(), m_indicesForShadowMaps.end(), [](auto& one, auto& two) -> bool { return one.shadowMapIndices.listIndex < two.shadowMapIndices.listIndex; });
+			std::sort(m_indicesForShadowMaps.begin(), m_indicesForShadowMaps.end(), [](auto& one, auto& two) -> bool { return one.shadowMapIndices.listIndex > two.shadowMapIndices.listIndex; });
 	}
 
 	void cmdRenderShadowMaps(VkCommandBuffer cb, const Buffer& vertexData, const Buffer& indexData)
@@ -801,7 +801,7 @@ private:
 				pcData.viewMatrixIndex = m_indicesForShadowMaps[i + j].viewMatIndex;
 				pcData.proj00 = m_indicesForShadowMaps[i + j].proj00;
 				pcData.proj11 = -pcData.proj00;
-				auto& drawIndices{ m_drawCommandIndices[m_indicesForShadowMaps[i].drawsIndex] };
+				auto& drawIndices{ m_drawCommandIndices[m_indicesForShadowMaps[i + j].drawsIndex] };
 				IndirectData* drawCommands{ reinterpret_cast<IndirectData*>(m_indirectDrawCmdData->getData()) };
 				for (int k{ 0 }; k < drawIndices.size(); ++k)
 				{
