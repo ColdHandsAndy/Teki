@@ -1,7 +1,7 @@
 #version 460
 
 #define SIGMA 10.0
-#define BSIGMA 1.0
+#define BSIGMA 8.5
 #define MSIZE 7
 #define OFFSET ((MSIZE - 1) / 2)
 

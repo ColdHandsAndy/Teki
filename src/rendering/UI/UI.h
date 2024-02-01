@@ -166,7 +166,7 @@ public:
                         bool i = ImGui::SliderInt("Light index", &index, 0, spotLights.size() - 1);
                         glm::vec3 pos{ spotLights[index].getPosition() };
                         bool p = ImGui::DragFloat3("Position", &pos.x, 0.04f);
-                        glm::vec2 anglesAB{ 0.0f };
+                        static glm::vec2 anglesAB{ 0.0f };
                         glm::vec3 dir{ 0.0f, -1.0f, 0.0f };
                         bool d = ImGui::DragFloat2("Direction", &anglesAB.x, 0.5f, -180.0f, 180.0f);
                         float length{ spotLights[index].getLength() };
@@ -248,6 +248,7 @@ public:
         if (profile)
         {
             m_profilersWindow.gpuGraph.LoadFrameData(data.gpuTasks.data(), data.gpuTasks.size());
+            m_profilersWindow.cpuGraph.LoadFrameData(data.cpuTasks.data(), data.cpuTasks.size());
             m_profilersWindow.Render();
         }
     }
@@ -258,7 +259,23 @@ public:
             ImGui::Checkbox("Space grid", &data.drawSpaceGrid);
             ImGui::Checkbox("Skybox", &data.skyboxEnabled);
             ImGui::Checkbox("OBBs", &data.showOBBs);
-            if (ImGui::TreeNode("Voxel debug"))
+#define DISABLE_INDIRECT 0x00000001
+#define DISPLAY_LIGHT_HEAT_MAP 0x00000002
+            static bool disableIndirect{ false };
+            static bool showLightHeatMap{ false };
+            ImGui::Checkbox("Show light heat map", &showLightHeatMap);
+            ImGui::Checkbox("Disable indirect lighting", &disableIndirect);
+            if (showLightHeatMap)
+                data.lightingPassDebugOptionsBitfield |= DISPLAY_LIGHT_HEAT_MAP;
+            else
+                data.lightingPassDebugOptionsBitfield &= ~DISPLAY_LIGHT_HEAT_MAP;
+            if (disableIndirect)
+                data.lightingPassDebugOptionsBitfield |= DISABLE_INDIRECT;
+            else
+                data.lightingPassDebugOptionsBitfield &= ~DISABLE_INDIRECT;
+#undef DISABLE_INDIRECT
+#undef DISPLAY_LIGHT_HEAT_MAP
+            if (ImGui::TreeNode("Voxelization debug"))
             {
                 ImGui::RadioButton("None", &data.voxelDebug, UiData::NONE_VOXEL_DEBUG);
                 ImGui::RadioButton("Show BOM", &data.voxelDebug, UiData::BOM_VOXEL_DEBUG);

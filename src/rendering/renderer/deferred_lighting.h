@@ -44,6 +44,7 @@ private:
 		glm::vec3 giSceneCenter;
 		float farPlane;
 		uint32_t skyboxEnabled;
+		uint32_t debugOptionsBitfield;
 	} m_pcData;
 
 public:
@@ -88,6 +89,10 @@ public:
 	void updateSkyboxState(bool enabled)
 	{
 		m_pcData.skyboxEnabled = enabled ? 1u : 0u;
+	}
+	void updateDebugOptionsBitfield(uint32_t bitfield)
+	{
+		m_pcData.debugOptionsBitfield = bitfield;
 	}
 
 	const Image& getFramebuffer() const

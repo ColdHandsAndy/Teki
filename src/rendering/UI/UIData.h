@@ -27,13 +27,11 @@ struct UiData
     };
 
 
-
+    uint32_t lightingPassDebugOptionsBitfield{ 0 };
     bool drawBVs{ false };
     bool drawLightProxies{ true };
     bool drawSpaceGrid{ false };
     bool skyboxEnabled{ true };
-    bool hiZvis{ false };
-    int hiZmipLevel{ 0 };
     int voxelDebug{ NONE_VOXEL_DEBUG };
     int probeDebug{ NONE_PROBE_DEBUG };
     bool showOBBs{ false };
@@ -42,7 +40,7 @@ struct UiData
     uint32_t frustumCulledCount{ 0 };
     BufferMapped finalDrawCount;
     std::vector<legit::ProfilerTask> gpuTasks{};
-    //std::vector<legit::ProfilerTask> cpuTasks{};
+    std::vector<legit::ProfilerTask> cpuTasks{};
 };
 
 

@@ -288,9 +288,9 @@ int main()
 		LightTypes::PointLight(glm::vec3{-6.4f, -5.96f, 5.9f}, glm::vec3{0.95f, 0.5f, 0.1f}, 65.0f, 9.92f, 512, 0.0, true),
 	};
 	std::array<LightTypes::SpotLight, 3> spotLights{ 
-		LightTypes::SpotLight(glm::vec3{-6.68, 1.96, 4.72}, glm::vec3{1.0f}, 1000.0f, 26.5f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(40.0), glm::radians(48.0), 1024, 0.0, true),
-		LightTypes::SpotLight(glm::vec3{7.04, -6.0, 2.96}, glm::vec3{1.0f}, 1000.0f, 12.4f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(38.0), glm::radians(43.0), 1024, 0.0, true),
-		LightTypes::SpotLight(glm::vec3{-1.4, -2.72, 14.08}, glm::vec3{1.0f}, 1000.0f, 13.74f, glm::vec3{0.0, -1.0, 0.3}, glm::radians(30.0), glm::radians(35.0), 1024, 0.0, true),
+		LightTypes::SpotLight(glm::vec3{-6.68, 1.96, 4.72}, glm::vec3{1.0f}, 1000.0f, 26.5f, glm::vec3{-1.0, -2.5, -2.0}, glm::radians(40.0), glm::radians(48.0), 1024, 0.0, true),
+		LightTypes::SpotLight(glm::vec3{7.04, -6.0, 2.96}, glm::vec3{1.0f}, 1000.0f, 12.4f, glm::vec3{0.0, 1.8, 1.0}, glm::radians(38.0), glm::radians(43.0), 1024, 0.0, true),
+		LightTypes::SpotLight(glm::vec3{-1.4, -2.72, 14.08}, glm::vec3{1.0f}, 1000.0f, 13.74f, glm::vec3{1.0, -0.7, -0.3}, glm::radians(30.0), glm::radians(35.0), 1024, 0.0, true),
 	};
 
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
@@ -405,7 +405,11 @@ int main()
 	renderingData.gpuTasks[queryIndexGIInjectLights].color = legit::Colors::nephritis;
 	renderingData.gpuTasks[queryIndexGITraceSpecular].name = "(GI) Trace specular";
 	renderingData.gpuTasks[queryIndexGITraceSpecular].color = legit::Colors::carrot;
-
+	renderingData.cpuTasks.resize(2);
+	renderingData.cpuTasks[0].name = "Frame preparation and recording";
+	renderingData.cpuTasks[0].color = legit::Colors::emerald;
+	renderingData.cpuTasks[1].name = "Submit, Wait and Present";
+	renderingData.cpuTasks[1].color = legit::Colors::amethyst;
 
 	SyncOperations::EventHolder<3> events{ device };
 
@@ -432,6 +436,7 @@ int main()
 			deferredLighting.updateCameraPosition(camera.getPosition());
 			deferredLighting.updateGISceneCenter(gi.getScenePosition());
 			deferredLighting.updateSkyboxState(renderingData.skyboxEnabled);
+			deferredLighting.updateDebugOptionsBitfield(renderingData.lightingPassDebugOptionsBitfield);
 
 			coordinateTransformation.updateProjectionMatrixJitter();
 			coordinateTransformation.updateViewMatrix(camera.getPosition(), camera.getPosition() + camera.getForwardDirection(), camera.getUpDirection());
@@ -732,20 +737,54 @@ int main()
 		WorldState::refreshFrameTime();
 		glfwPollEvents();
 
+		//
+		//static glm::vec3 posStart{ 1.0, -4.0, 0.0 };
+		//static float camPath{ 1.0 };
+		//float newZPos{ posStart.z + static_cast<float>(0.9 * WorldState::deltaTime) * camPath };
+		//if (newZPos > 13.0)
+		//{
+		//	camPath = -camPath;
+		//	newZPos = 13.0;
+		//}
+		//else if (newZPos < -13.0)
+		//{
+		//	camPath = -camPath;
+		//	newZPos = -13.0;
+		//}
+		//posStart.z = newZPos;
+		//camera.setPosition(posStart);
+		//static glm::vec3 dirForward{ 0.0, 0.0, 1.0 };
+		//dirForward = glm::rotateY(dirForward, static_cast<float>(0.15 * WorldState::deltaTime));
+		//camera.setForwardDirection(dirForward);
 
+		auto init{ pointLights[4].getPosition() };
+		init.y = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 6.9 - 5.9;
+		pointLights[4].changePosition(init);
+		init = pointLights[3].getPosition();
+		init.x = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 4.6 - 1.4;
+		pointLights[3].changePosition(init);
+		init = spotLights[0].getDirection();
+		spotLights[0].changeDirection(glm::rotateY(init, static_cast<float>(0.3 * WorldState::deltaTime)));
+		//
 
 		processInput(window, camera, WorldState::deltaTime, ui.cursorOnUI());
 
+		double startTime = glfwGetTime();
+
+		renderingData.cpuTasks[0].startTime = glfwGetTime() - startTime;
 		nodePrepare.try_put(oneapi::tbb::flow::continue_msg{});
 		flowGraph.wait_for_all();
+		renderingData.cpuTasks[0].endTime = glfwGetTime() - startTime;
 
 		queries.updateResults();
 
+		renderingData.cpuTasks[1].startTime = glfwGetTime() - startTime;
 		submitAndWait(*vulkanObjectHandler, 
 			cmdBufferSet, cbPreprocessing, cbDraw, cbPostprocessing, cbCompute, cbSetIndex, currentCBindex, 
 			semaphore, semaphoreCompute, swapchainSemaphore, readyToPresentSemaphore, 
 			presentInfo, 
 			std::get<2>(swapchainImageData), swapChains[0]);
+		renderingData.cpuTasks[1].endTime = glfwGetTime() - startTime;
 
 		queries.uploadQueryDataToProfilerTasks(renderingData.gpuTasks.data(), renderingData.gpuTasks.size());
 
