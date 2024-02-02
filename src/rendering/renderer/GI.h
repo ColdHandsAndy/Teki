@@ -37,6 +37,7 @@
 #define VOXEL_TO_METER_SCALE (BIT_TO_METER_SCALE * (OCCUPANCY_RESOLUTION / VOXELMAP_RESOLUTION))
 
 #define ROM_NUMBER 32
+#define STABLE_ROM_NUMBER 4
 #define ROM_PACKED_WIDTH OCCUPANCY_RESOLUTION
 #define ROM_PACKED_HEIGHT OCCUPANCY_RESOLUTION
 #define ROM_PACKED_DEPTH (OCCUPANCY_RESOLUTION / 32)
@@ -75,7 +76,9 @@ private:
 	std::array<Image, 2> m_ddgiIrradianceProbes;
 	std::array<Image, 2> m_ddgiVisibilityProbes;
 	std::array<Image, ROM_NUMBER> m_rayAlignedOccupancyMapArray;
+	std::array<Image, STABLE_ROM_NUMBER> m_rayAlignedOccupancyMapArrayStable;
 	BufferMapped m_ROMAtransformMatrices[2]{};
+	BufferMapped m_stableROMAtransformMatrices[2]{};
 	BufferMapped m_mappedDirections[2]{};
 
 	uint16_t m_injectedLightsCount{ 0 };
@@ -85,6 +88,7 @@ private:
 	ResourceSet m_resSetReadBOM{};
 	ResourceSet m_resSetWriteROMA{};
 	ResourceSet m_resSetReadROMA{};
+	ResourceSet m_resSetReadStableROMA{};
 	ResourceSet m_resSetAlbedoNormalWrite{};
 	ResourceSet m_resSetAlbedoNormalRead{};
 	ResourceSet m_resSetEmissionMetRoughWrite{};
@@ -132,6 +136,7 @@ private:
 		uint32_t indexROM{};
 		alignas(16) glm::vec3 directionY{};
 		alignas(16) glm::vec3 originROMInLocalBOM{};
+		uint32_t stable;
 	} m_pcDataROM{};
 
 	struct

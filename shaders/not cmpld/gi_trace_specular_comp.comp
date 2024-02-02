@@ -34,11 +34,11 @@ layout(set = 1, binding = 0) uniform MD
 	GIMetaData data;
 } giMetaData;
 
-layout(set = 2, binding = 0, r32ui) uniform readonly uimage3D ROMA[ROM_NUMBER];
-layout(set = 2, binding = 1) uniform ViewMatricesROMA
+layout(set = 2, binding = 0, r32ui) uniform readonly uimage3D StableROMA[8];
+layout(set = 2, binding = 1) uniform ViewMatricesStableROMA
 {
-	mat3x4 viewmats[ROM_NUMBER];
-} viewmatsROMA;
+	mat3x4 viewmats[8];
+} viewmatsStableROMA;
 
 layout(set = 3, binding = 0, rgba16ui) uniform readonly uimage3D EmissionMetRoughVoxelMap;
 layout(set = 4, binding = 0, rgba8ui) uniform readonly uimage3D AlbedoNormalVoxelMap;
@@ -88,9 +88,9 @@ vec3 getProbeLighting(ProbeGridData gridData, vec3 relPos, vec3 N, vec3 V, float
 void traceFreeROMA(out vec3 radiance, out float hitDist, ProbeGridData gridData, VoxelizationData voxelData, vec3 rayOriginOccupationLocal, vec3 traceDir, int indexROMA)
 {
 	mat3 viewmat = 
-		mat3(vec3(viewmatsROMA.viewmats[indexROMA][0].x, viewmatsROMA.viewmats[indexROMA][1].x, viewmatsROMA.viewmats[indexROMA][2].x), 
-			 vec3(viewmatsROMA.viewmats[indexROMA][0].y, viewmatsROMA.viewmats[indexROMA][1].y, viewmatsROMA.viewmats[indexROMA][2].y), 
-			 vec3(viewmatsROMA.viewmats[indexROMA][0].z, viewmatsROMA.viewmats[indexROMA][1].z, viewmatsROMA.viewmats[indexROMA][2].z));
+		mat3(vec3(viewmatsStableROMA.viewmats[indexROMA][0].x, viewmatsStableROMA.viewmats[indexROMA][1].x, viewmatsStableROMA.viewmats[indexROMA][2].x), 
+			 vec3(viewmatsStableROMA.viewmats[indexROMA][0].y, viewmatsStableROMA.viewmats[indexROMA][1].y, viewmatsStableROMA.viewmats[indexROMA][2].y), 
+			 vec3(viewmatsStableROMA.viewmats[indexROMA][0].z, viewmatsStableROMA.viewmats[indexROMA][1].z, viewmatsStableROMA.viewmats[indexROMA][2].z));
 	vec3 rayOriginROM = vec3((viewmat * rayOriginOccupationLocal + vec3(1.0)) * 0.5 * voxelData.resolutionROM);
 	vec3 traceStep = viewmat * traceDir;
 
@@ -106,7 +106,7 @@ void traceFreeROMA(out vec3 radiance, out float hitDist, ProbeGridData gridData,
 	for (int i = 0; i < voxelData.resolutionROM; ++i)
 	{
 		int stripIndex = int(rayCoord.z / 32.0);
-		uint rayStrip = imageLoad(ROMA[indexROMA], ivec3(rayCoord.xy, stripIndex)).x;
+		uint rayStrip = imageLoad(StableROMA[indexROMA], ivec3(rayCoord.xy, stripIndex)).x;
 		if (bool(rayStrip & (1 << (rayCoord.z % 32))))
 			break;
 		rayOriginROM += traceStep;
@@ -153,15 +153,17 @@ void traceFreeROMA(out vec3 radiance, out float hitDist, ProbeGridData gridData,
 
 int getIndexROMA(int invocationIndex, bool positiveDirInvocation)
 {
-	const int[32] indexLookUp
-		= int[32]
+	const int[STABLE_ROM_NUMBER] indexLookUp
+		= int[STABLE_ROM_NUMBER]
+		//(
+		//	7, 3, 0, 4,
+		//	6, 2, 1, 5
+		//);
 		(
-			31, 23, 15, 7,   0, 8,  16, 24,
-			30, 22, 14, 6,   1, 9,  17, 25,
-			29, 21, 13, 5,   2, 10, 18, 26,
-			28, 20, 12, 4,   3, 11, 19, 27
+			3, 0,
+			2, 1
 		);
-	return positiveDirInvocation ? invocationIndex : indexLookUp[invocationIndex - 32];
+	return positiveDirInvocation ? invocationIndex : indexLookUp[invocationIndex - STABLE_ROM_NUMBER];
 }
 
 void main()
@@ -172,6 +174,8 @@ void main()
 	ivec2 screenCoords = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
 
 	float depth = imageLoad(Depth, ivec2(screenCoords.x, screenCoords.y)).x;
+	if (depth == 0.0)
+		return;
 	vec3 refdir = decodeOctohedralZeroToOne(imageLoad(Refdir, ivec2(screenCoords.x, screenCoords.y)).xy);
 
 	vec2 screenUV = screenCoords * giMetaData.data.specData.invSpecImageRes;
@@ -179,8 +183,8 @@ void main()
 	vec3 worldPos = getWorldPositionFromDepth(pushConstants.worldFromNDC, screenUV, depth);
 	vec2 octohedral = clamp(encodeOctohedralZeroToOne(refdir), 0.0 + FLT32_EPSILON, 1.0 - FLT32_EPSILON);
 	
-	int indexROMA = int(int(octohedral.y * GI_ROM_INDEX_MULTIPLIER) * GI_ROM_INDEX_MULTIPLIER + int(octohedral.x * GI_ROM_INDEX_MULTIPLIER));
-	bool positiveDir = indexROMA < 32;
+	int indexROMA = int(int(octohedral.y * 2) * 4 + int(octohedral.x * 4));
+	bool positiveDir = indexROMA < STABLE_ROM_NUMBER;
 	indexROMA = getIndexROMA(indexROMA, positiveDir);
 	
 	vec3 normal = normalize((normalize(pushConstants.campos - worldPos) + refdir));

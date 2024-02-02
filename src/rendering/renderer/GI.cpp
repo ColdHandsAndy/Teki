@@ -9,6 +9,10 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 		CompileTimeArray::uniform_array_from_args<Image, ROM_NUMBER>
 			(device, VK_FORMAT_R32_UINT, ROM_PACKED_WIDTH, ROM_PACKED_HEIGHT, ROM_PACKED_DEPTH, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false)
 	},
+	m_rayAlignedOccupancyMapArrayStable{
+		CompileTimeArray::uniform_array_from_args<Image, STABLE_ROM_NUMBER>
+			(device, VK_FORMAT_R32_UINT, ROM_PACKED_WIDTH, ROM_PACKED_HEIGHT, ROM_PACKED_DEPTH, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false) 
+	},
 	m_ddgiRadianceProbes{ device, VK_FORMAT_R16G16B16A16_SFLOAT,
 		DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_X_COUNT * DDGI_PROBE_Z_COUNT, DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_Y_COUNT,
 		VK_IMAGE_USAGE_STORAGE_BIT,
@@ -54,6 +58,7 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 	m_sphereVertexData{ baseDeviceBuffer },
 	m_pcDataBOM{ OCCUPANCY_METER_SIZE / 2.0, OCCUPANCY_RESOLUTION, VOXELMAP_RESOLUTION },
 	m_ROMAtransformMatrices{ {baseHostBuffer, sizeof(glm::mat4x3) * ROM_NUMBER}, {baseHostBuffer, sizeof(glm::mat4x3) * ROM_NUMBER} },
+	m_stableROMAtransformMatrices{ {baseHostBuffer, sizeof(glm::mat4x3) * 8}, {baseHostBuffer, sizeof(glm::mat4x3) * 8} },
 	m_mappedDirections{ {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE}, {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE} },
 	m_giMetadata{ baseHostBuffer, sizeof(GIMetaData) },
 	m_clusterer{ &clusterer }
@@ -91,11 +96,20 @@ void GI::initialize(VkDevice device,
 		imageInfosROMA[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 		descDataROMA[i].pStorageImage = &imageInfosROMA[i];
 	}
+	VkDescriptorSetLayoutBinding bindingStableROMA{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 8, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT };
+	std::array<VkDescriptorImageInfo, STABLE_ROM_NUMBER> imageInfosStableROMA{};
+	std::vector<VkDescriptorDataEXT> descDataStableROMA(STABLE_ROM_NUMBER);
+	for (int i{ 0 }; i < imageInfosStableROMA.size(); ++i)
+	{
+		imageInfosStableROMA[i].imageView = m_rayAlignedOccupancyMapArrayStable[i].getImageView();
+		imageInfosStableROMA[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		descDataStableROMA[i].pStorageImage = &imageInfosStableROMA[i];
+	}
 	m_resSetWriteROMA.initializeSet(device, 1, {},
-		std::array{ bindingROMA },
+		std::array{ bindingROMA, bindingStableROMA },
 		std::array<VkDescriptorBindingFlags, 0>{},
 		std::vector<std::vector<VkDescriptorDataEXT>>{
-		descDataROMA},
+		descDataROMA, descDataStableROMA},
 		false);
 	for (int i{ 0 }; i < imageInfosROMA.size(); ++i)
 	{
@@ -115,6 +129,26 @@ void GI::initialize(VkDevice device,
 		std::vector<std::vector<VkDescriptorDataEXT>>{
 		descDataROMA,
 			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &viewmatsROMAAddressInfo0}, { .pUniformBuffer = &viewmatsROMAAddressInfo1 } }},
+		false);
+	for (int i{ 0 }; i < imageInfosStableROMA.size(); ++i)
+	{
+		imageInfosStableROMA[i].imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+	}
+	VkDescriptorSetLayoutBinding bindingViewmatsStableROMA{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT };
+	VkDescriptorAddressInfoEXT viewmatsStableROMAAddressInfo0{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_stableROMAtransformMatrices[0].getDeviceAddress(), .range = m_stableROMAtransformMatrices[0].getSize() };
+	VkDescriptorAddressInfoEXT viewmatsStableROMAAddressInfo1{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_stableROMAtransformMatrices[1].getDeviceAddress(), .range = m_stableROMAtransformMatrices[1].getSize() };
+	descDataStableROMA.resize(STABLE_ROM_NUMBER * 2);
+	for (int i{ 0 }; i < imageInfosStableROMA.size(); ++i)
+	{
+		descDataStableROMA[STABLE_ROM_NUMBER + i].pStorageImage = &imageInfosStableROMA[i];
+	}
+	bindingStableROMA.binding = 0;
+	m_resSetReadStableROMA.initializeSet(device, 2, {},
+		std::array{ bindingStableROMA, bindingViewmatsStableROMA },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+		descDataStableROMA,
+			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &viewmatsStableROMAAddressInfo0}, { .pUniformBuffer = &viewmatsStableROMAAddressInfo1 } }},
 		false);
 
 	VkDescriptorSetLayoutBinding bindingEmissionMetRoughVM{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
@@ -373,7 +407,7 @@ void GI::initialize(VkDevice device,
 
 	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSetsTraceSpecular{ 
 		m_resSetSpecularWrite, m_resSetGIMetadata,
-		m_resSetReadROMA, 
+		m_resSetReadStableROMA,
 		m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead,
 		m_resSetIndirectDiffuseLighting, distantProbeRS, BRDFLUTRS };
 	m_traceSpecular.initializaCompute(device, "shaders/cmpld/gi_trace_specular_comp.spv", resourceSetsTraceSpecular,
@@ -525,6 +559,7 @@ void GI::cmdDispatchCreateROMA(VkCommandBuffer cb)
 		v = ((i / strataCountVert) + haltonSequence.getElement(n, 1)) * stratumVertSize;
 		//u = ((i % strataCountHor) + 0.5) * stratumHorSize;
 		//v = ((i / strataCountVert) + 0.5) * stratumVertSize;
+		m_pcDataROM.stable = 0u;
 		m_pcDataROM.directionZ = generateHemisphereDirectionOctohedral(u, v);
 		m_pcDataROM.directionX =
 			glm::normalize(std::abs(m_pcDataROM.directionZ.y) < 0.9999
@@ -534,6 +569,41 @@ void GI::cmdDispatchCreateROMA(VkCommandBuffer cb)
 				glm::cross(glm::vec3{ 0.0, 0.0, glm::sign(-m_pcDataROM.directionZ.y) }, m_pcDataROM.directionZ));
 		m_pcDataROM.directionY = glm::cross(m_pcDataROM.directionZ, m_pcDataROM.directionX);
 		glm::mat3x4* trMat{ reinterpret_cast<glm::mat3x4*>(m_ROMAtransformMatrices[m_currentBuffers].getData()) + i };
+		(*trMat)[0] = glm::vec4{ m_pcDataROM.directionX, 0.0 };
+		(*trMat)[1] = glm::vec4{ m_pcDataROM.directionY, 0.0 };
+		(*trMat)[2] = glm::vec4{ m_pcDataROM.directionZ, 0.0 };
+		m_pcDataROM.indexROM = i;
+		m_pcDataROM.resolution = OCCUPANCY_RESOLUTION;
+		glm::vec3 originShift{ m_pcDataROM.directionX + m_pcDataROM.directionY + m_pcDataROM.directionZ };
+		m_pcDataROM.originROMInLocalBOM = (glm::vec3(1.0f) - originShift) * (static_cast<float>(OCCUPANCY_RESOLUTION / 2));
+		m_pcDataROM.originROMInLocalBOM += originShift * 0.5f;
+		vkCmdPushConstants(cb, m_createROMA.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_pcDataROM), &m_pcDataROM);
+		constexpr uint32_t groupSizeX{ 8 };
+		constexpr uint32_t groupSizeY{ 8 };
+		constexpr uint32_t groupSizeZ{ 1 };
+		vkCmdDispatch(cb, DISPATCH_SIZE(ROM_PACKED_WIDTH, groupSizeX), DISPATCH_SIZE(ROM_PACKED_HEIGHT, groupSizeY), DISPATCH_SIZE(ROM_PACKED_DEPTH, groupSizeZ));
+	}
+
+	constexpr int strataCountHorStable{ 2 };
+	constexpr int strataCountVertStable{ 4 };
+	constexpr float stratumHorSizeStable{ 1.0f / 2 };
+	constexpr float stratumVertSizeStable{ 1.0f / 4 };
+	for (int i{ 0 }; i < STABLE_ROM_NUMBER; ++i)
+	{
+		float u{};
+		float v{};
+		u = ((i % strataCountHorStable) + 0.5) * stratumHorSizeStable;
+		v = ((i / strataCountVertStable) + 0.5) * stratumVertSizeStable;
+		m_pcDataROM.stable = 1u;
+		m_pcDataROM.directionZ = generateHemisphereDirectionOctohedral(u, v);
+		m_pcDataROM.directionX =
+			glm::normalize(std::abs(m_pcDataROM.directionZ.y) < 0.9999
+				?
+				glm::cross(glm::vec3{ 0.0, 1.0, 0.0 }, m_pcDataROM.directionZ)
+				:
+				glm::cross(glm::vec3{ 0.0, 0.0, glm::sign(-m_pcDataROM.directionZ.y) }, m_pcDataROM.directionZ));
+		m_pcDataROM.directionY = glm::cross(m_pcDataROM.directionZ, m_pcDataROM.directionX);
+		glm::mat3x4* trMat{ reinterpret_cast<glm::mat3x4*>(m_stableROMAtransformMatrices[m_currentBuffers].getData()) + i };
 		(*trMat)[0] = glm::vec4{ m_pcDataROM.directionX, 0.0 };
 		(*trMat)[1] = glm::vec4{ m_pcDataROM.directionY, 0.0 };
 		(*trMat)[2] = glm::vec4{ m_pcDataROM.directionZ, 0.0 };

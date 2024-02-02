@@ -59,7 +59,7 @@ float PCF(float bias, float receiverDepth, vec3 uv, samplerShadow samplerSM, tex
 
 	float biasedReceiverDepth = receiverDepth - bias;
 
-	const float radius = 0.8;
+	const float radius = 0.7;
 
 	int rotTexSize = textureSize(rotationImage, 0).x;
 	ivec2 offsetsFirstCoord = ivec2(screenCoord.x * 0.5, screenCoord.y) % rotTexSize;

@@ -11,10 +11,12 @@ layout(push_constant) uniform PushConsts
 	vec3 directionY;
 	uint pad;
 	vec3 originROMInLocalBOM;
+	uint stable;
 } pushConstants;
 
 layout(set = 0, binding = 0, r32ui) uniform readonly uimage3D BOM;
 layout(set = 1, binding = 0, r32ui) uniform writeonly uimage3D ROMA[32];
+layout(set = 1, binding = 1, r32ui) uniform writeonly uimage3D StableROMA[4];
 
 void fillROMA(ivec3 storeCoord, vec3 coordBOM, vec3 zDir)
 {
@@ -36,7 +38,10 @@ void fillROMA(ivec3 storeCoord, vec3 coordBOM, vec3 zDir)
 		coordBOM += zDir;
 	}
 	
-	imageStore(ROMA[pushConstants.indexROM], storeCoord, uvec4(occupancy));
+	if (bool(pushConstants.stable))
+		imageStore(StableROMA[pushConstants.indexROM], storeCoord, uvec4(occupancy));
+	else
+		imageStore(ROMA[pushConstants.indexROM], storeCoord, uvec4(occupancy));
 }
 
 void main()
