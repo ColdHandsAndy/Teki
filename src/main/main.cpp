@@ -217,7 +217,7 @@ int main()
 			.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
 			.unnormalizedCoordinates = VK_FALSE } };
 	loadDefaultTextures(materialsTextures, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
-	ImageListContainer shadowMaps{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, false,
+	ImageListContainer shadowMaps{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, false,
 		VkSamplerCreateInfo{
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 			.magFilter = VK_FILTER_LINEAR,
@@ -280,7 +280,7 @@ int main()
 
 	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
 	dirLight.plantData(directionalLight.getData());
-	std::array<LightTypes::PointLight, 5> pointLights{ 
+	/*std::array<LightTypes::PointLight, 5> pointLights{ 
 		LightTypes::PointLight(glm::vec3{-2.72f, -4.0f, -2.96f}, glm::vec3{0.8f, 0.4f, 0.2f}, 150.0f, 6.49f, 512, 0.0, true),
 		LightTypes::PointLight(glm::vec3{-2.0f, -2.55f, -8.76f}, glm::vec3{0.18f, 0.04f, 0.25f}, 200.0f, 7.82f, 512, 0.0, true),
 		LightTypes::PointLight(glm::vec3{7.08f, -4.7f, -0.88f}, glm::vec3{0.96f, 0.9f, 0.99f}, 235.0f, 6.87f, 512, 0.0, true),
@@ -291,6 +291,12 @@ int main()
 		LightTypes::SpotLight(glm::vec3{-6.68, 1.96, 4.72}, glm::vec3{1.0f}, 1000.0f, 26.5f, glm::vec3{-1.0, -2.5, -2.0}, glm::radians(40.0), glm::radians(48.0), 1024, 0.0, true),
 		LightTypes::SpotLight(glm::vec3{7.04, -6.0, 2.96}, glm::vec3{1.0f}, 1000.0f, 12.4f, glm::vec3{0.0, 1.8, 1.0}, glm::radians(38.0), glm::radians(43.0), 1024, 0.0, true),
 		LightTypes::SpotLight(glm::vec3{-1.4, -2.72, 14.08}, glm::vec3{1.0f}, 1000.0f, 13.74f, glm::vec3{1.0, -0.7, -0.3}, glm::radians(30.0), glm::radians(35.0), 1024, 0.0, true),
+	};*/
+	std::array<LightTypes::PointLight, 1> pointLights{
+		LightTypes::PointLight(glm::vec3{0.0f, 3.0f, 0.0}, glm::vec3{0.8f, 0.4f, 0.2f}, 1500.0f, 0.0f, 1024, 0.0, true),
+	};
+	std::array<LightTypes::SpotLight, 1> spotLights{
+		LightTypes::SpotLight(glm::vec3{0.0f, 8.0f, 0.0f}, glm::vec3{1.0f}, 2000.0f, 0.0f, glm::vec3{0.0, -1.0, 0.0}, glm::radians(40.0), glm::radians(48.0), 2048, 0.0, true),
 	};
 
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
@@ -361,9 +367,9 @@ int main()
 	std::tuple<VkImage, VkImageView, uint32_t> swapchainImageData{};
 
 
-	constexpr bool profile = true;
+	bool& profile = renderingData.profilingEnabled;
 	constexpr uint32_t queryNum = 12;
-	TimestampQueries<queryNum> queries{ *vulkanObjectHandler };
+	TimestampQueries<queryNum> queries{ *vulkanObjectHandler, baseHostCachedBuffer };
 	renderingData.gpuTasks.resize(queryNum);
 	constexpr uint32_t gqQueryOffset = 0;
 	constexpr uint32_t gqQueryCount = 8;
@@ -456,9 +462,15 @@ int main()
 		{
 			cbPreprocessing = cmdBufferSet.beginPerThreadRecording(0);
 
-			if (profile) queries.cmdReset(cbPreprocessing, gqQueryOffset, gqQueryCount);
+			if (profile) 
+			{
+				queries.cmdUpdateResults(cbPreprocessing, gqQueryOffset, gqQueryCount);
+				queries.cmdReset(cbPreprocessing, gqQueryOffset, gqQueryCount);
+			}
 
 			culling.cmdTransferSetDrawCountToZero(cbPreprocessing);
+			caster.cmdTransferClearShadowMaps(cbPreprocessing);
+			events.cmdSet(cbPreprocessing, 1, caster.getDependency());
 
 			if (profile) queries.cmdWriteStart(cbPreprocessing, queryIndexHiZ);
 			depthBuffer.cmdCalcHiZ(cbPreprocessing);
@@ -467,18 +479,20 @@ int main()
 			SyncOperations::cmdExecuteBarrier(cbPreprocessing, culling.getDependency());
 			culling.cmdDispatchCullOccluded(cbPreprocessing);
 			clusterer.cmdTransferClearTileBuffer(cbPreprocessing);
-			events.cmdSet(cbPreprocessing, 0, clusterer.getDependency()); //Event 1 set
+			events.cmdSet(cbPreprocessing, 0, clusterer.getDependency());
 		} };
 	node_t nodePreprocessCB2{ flowGraph, [&](msg_t)
 		{
 			hbao.cmdTransferClearBuffers(cbPreprocessing);
 
+			uint32_t indicesSM[]{ 1 };
+			events.cmdWait(cbPreprocessing, 1, indicesSM, &caster.getDependency());
 			if (profile) queries.cmdWriteStart(cbPreprocessing, queryIndexShadowMaps);
 			caster.cmdRenderShadowMaps(cbPreprocessing, vertexData, indexData);
 			if (profile) queries.cmdWriteEnd(cbPreprocessing, queryIndexShadowMaps);
 
 			uint32_t indices[]{ 0 };
-			events.cmdWait(cbPreprocessing, 1, indices, &clusterer.getDependency()); //Event 1 wait
+			events.cmdWait(cbPreprocessing, 1, indices, &clusterer.getDependency());
 		} };
 	node_t nodePreprocessCB3{ flowGraph, [&](msg_t)
 		{
@@ -682,7 +696,7 @@ int main()
 			ui.lightSettings(renderingData, pointLights, spotLights);
 			ui.misc(renderingData);
 			ui.end();
-			ui.profiler(renderingData, profile);
+			ui.profiler(renderingData);
 			ui.endUIPass(cbPostprocessing);
 
 			SyncOperations::cmdExecuteBarrier(cbPostprocessing, 
@@ -703,7 +717,11 @@ int main()
 			currentCBindex = currentCBindex ? 0 : 1;
 			cbCompute = cmdBufferSet.beginInterchangeableRecording(cbSetIndex, currentCBindex);
 
-			if (profile) queries.cmdReset(cbCompute, cqQueryOffset, cqQueryCount);
+			if (profile) 
+			{
+				queries.cmdUpdateResults(cbCompute, cqQueryOffset, cqQueryCount);
+				queries.cmdReset(cbCompute, cqQueryOffset, cqQueryCount);
+			}
 			{
 				gi.cmdComputeIndirect(cbCompute, 
 					coordinateTransformation.getInverseViewProjectionMatrix(), 
@@ -723,7 +741,7 @@ int main()
 	oneapi::tbb::flow::make_edge(nodePrepare, nodeDrawCB);
 	oneapi::tbb::flow::make_edge(nodeFrustumCulling, nodePreprocessCB1);
 	oneapi::tbb::flow::make_edge(nodePreprocessCB1, nodePreprocessCB2);
-	oneapi::tbb::flow::make_edge(nodePrepareDataForShadowMapRender, nodePreprocessCB2);
+	oneapi::tbb::flow::make_edge(nodePrepareDataForShadowMapRender, nodePreprocessCB1);
 	oneapi::tbb::flow::make_edge(nodePreprocessCB2, nodePreprocessCB3);
 	oneapi::tbb::flow::make_edge(nodePreprocessCB3, nodePreprocessCB4);
 	clusterer.connectToFlowGraph(flowGraph, nodePrepare, nodePrepareDataForShadowMapRender, nodePreprocessCB3);
@@ -740,7 +758,7 @@ int main()
 		//
 		//static glm::vec3 posStart{ 1.0, -4.0, 0.0 };
 		//static float camPath{ 1.0 };
-		//float newZPos{ posStart.z + static_cast<float>(0.9 * WorldState::deltaTime) * camPath };
+		//float newZPos{ posStart.z + static_cast<float>(1.2 * WorldState::deltaTime) * camPath };
 		//if (newZPos > 13.0)
 		//{
 		//	camPath = -camPath;
@@ -754,17 +772,17 @@ int main()
 		//posStart.z = newZPos;
 		//camera.setPosition(posStart);
 		//static glm::vec3 dirForward{ 0.0, 0.0, 1.0 };
-		//dirForward = glm::rotateY(dirForward, static_cast<float>(0.15 * WorldState::deltaTime));
+		//dirForward = glm::rotateY(dirForward, static_cast<float>(0.19 * WorldState::deltaTime));
 		//camera.setForwardDirection(dirForward);
 
-		auto init{ pointLights[4].getPosition() };
-		init.y = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 6.9 - 5.9;
-		pointLights[4].changePosition(init);
-		init = pointLights[3].getPosition();
-		init.x = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 4.6 - 1.4;
-		pointLights[3].changePosition(init);
-		init = spotLights[0].getDirection();
-		spotLights[0].changeDirection(glm::rotateY(init, static_cast<float>(0.3 * WorldState::deltaTime)));
+		//auto init{ pointLights[4].getPosition() };
+		//init.y = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 6.9 - 5.9;
+		//pointLights[4].changePosition(init);
+		//init = pointLights[3].getPosition();
+		//init.x = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 4.6 - 1.4;
+		//pointLights[3].changePosition(init);
+		//init = spotLights[0].getDirection();
+		//spotLights[0].changeDirection(glm::rotateY(init, static_cast<float>(0.3 * WorldState::deltaTime)));
 		//
 
 		processInput(window, camera, WorldState::deltaTime, ui.cursorOnUI());
@@ -775,8 +793,6 @@ int main()
 		nodePrepare.try_put(oneapi::tbb::flow::continue_msg{});
 		flowGraph.wait_for_all();
 		renderingData.cpuTasks[0].endTime = glfwGetTime() - startTime;
-
-		queries.updateResults();
 
 		renderingData.cpuTasks[1].startTime = glfwGetTime() - startTime;
 		submitAndWait(*vulkanObjectHandler, 

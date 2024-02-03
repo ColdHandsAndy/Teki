@@ -459,6 +459,7 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 				{
 					const float* normDataTyped{ reinterpret_cast<const float*>(normData) };
 					glm::vec3 tNorm{ nodeTransform * glm::vec4{*(normDataTyped + 0), *(normDataTyped + 1), *(normDataTyped + 2), 0.0f} };
+					tNorm = glm::normalize(tNorm);
 					vertexDataPtr->normal = glm::packSnorm4x8(glm::vec4{tNorm.x, tNorm.y, -tNorm.z, 0.0f});
 					normData += normAtrrib.data->stride;
 				}
@@ -471,6 +472,7 @@ inline void formVertexChunk<StaticVertex>(cgltf_data* model,
 				{
 					const float* tangDataTyped{ reinterpret_cast<const float*>(tangData) };
 					glm::vec3 tTang{ nodeTransform * glm::vec4{ *(tangDataTyped + 0), *(tangDataTyped + 1), *(tangDataTyped + 2), 0.0f } };
+					tTang = glm::normalize(tTang);
 					vertexDataPtr->tangent = glm::packSnorm4x8(glm::vec4{tTang.x, tTang.y, -tTang.z, *(tangDataTyped + 3)});
 					tangData += tangAtrrib.data->stride;
 				}

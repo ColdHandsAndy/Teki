@@ -54,6 +54,8 @@ private:
 	BufferBaseHostAccessible m_shadowMapViewMatrices;
 	BufferMapped* const m_indirectDrawCmdData{ nullptr };
 
+	VkDependencyInfo m_dependency{};
+
 	OBBs* m_rUnitsBoundingBoxes{};
 
 	ResourceSet m_resSet{};
@@ -161,23 +163,89 @@ public:
 		}
 		
 		if (!m_indicesForShadowMaps.empty())
-			std::sort(m_indicesForShadowMaps.begin(), m_indicesForShadowMaps.end(), [](auto& one, auto& two) -> bool { return one.shadowMapIndices.listIndex > two.shadowMapIndices.listIndex; });
+			std::sort(m_indicesForShadowMaps.begin(), m_indicesForShadowMaps.end(), [](auto& one, auto& two) -> bool { return one.shadowMapIndices.listIndex < two.shadowMapIndices.listIndex; });
+	}
+
+	void cmdTransferClearShadowMaps(VkCommandBuffer cb)
+	{
+		if (m_newLightsAdded)
+		{
+			//TODO: Cached shadow maps will be invalidated, need to fix
+			m_shadowMaps.cmdTransitionLayoutsFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			for (auto& shadowCubeMap : m_shadowCubeMaps)
+				shadowCubeMap.cmdTransitionLayoutFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			m_newLightsAdded = false;
+		}
+
+		cmdChangeLayouts(cb,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, true, false);
+
+		VkClearDepthStencilValue clearVal{ .depth = m_frustumData.far, .stencil = 0 };
+		static std::vector<VkImageSubresourceRange> subresourceRanges{};
+		for (int i{ 0 }; i < m_indicesForShadowMaps.size();)
+		{
+			int j{ 0 };
+			uint16_t currentList{ m_indicesForShadowMaps[i].shadowMapIndices.listIndex };
+			while ((i + j) < m_indicesForShadowMaps.size())
+			{
+				if (m_indicesForShadowMaps[i + j].shadowMapIndices.listIndex != currentList)
+					goto next;
+				subresourceRanges.push_back(VkImageSubresourceRange{ 
+					.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, 
+					.baseMipLevel = 0, 
+					.levelCount = 1, 
+					.baseArrayLayer = m_indicesForShadowMaps[i + j].shadowMapIndices.layerIndex, 
+					.layerCount = 1 });
+				++j;
+			}
+		next:
+			vkCmdClearDepthStencilImage(
+				cb,
+				m_shadowMaps.getImageHandle(currentList),
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				&clearVal,
+				subresourceRanges.size(),
+				subresourceRanges.data());
+			subresourceRanges.clear();
+			i += j;
+		}
+
+
+		static std::vector<VkImageMemoryBarrier2> barriers{};
+		barriers.clear();
+
+		for (int i{ 0 }; i < m_indicesForShadowMaps.size(); ++i)
+		{
+			VkImageSubresourceRange range{ m_shadowMaps.getImageListSubresourceRange(m_indicesForShadowMaps[i].shadowMapIndices.listIndex) };
+			range.baseArrayLayer = m_indicesForShadowMaps[i].shadowMapIndices.layerIndex;
+			range.layerCount = 1;
+			barriers.push_back(SyncOperations::constructImageBarrier(
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+				m_shadowMaps.getImageHandle(m_indicesForShadowMaps[i].shadowMapIndices.listIndex), range));
+		}
+		
+		for (int i{ 0 }; i < m_indicesForShadowCubeMaps.size(); ++i)
+		{
+			barriers.push_back(SyncOperations::constructImageBarrier(
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				VK_ACCESS_NONE, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+				m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getImageHandle(), m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getSubresourceRange()));
+		}
+		
+		m_dependency = SyncOperations::createDependencyInfo(barriers);
+	}
+
+	const VkDependencyInfo& getDependency()
+	{
+		return m_dependency;
 	}
 
 	void cmdRenderShadowMaps(VkCommandBuffer cb, const Buffer& vertexData, const Buffer& indexData)
 	{
-		if (m_newLightsAdded)
-		{
-			m_shadowMaps.cmdTransitionLayoutsFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			for (auto& shadowCubeMap : m_shadowCubeMaps)
-				shadowCubeMap.cmdTransitionLayoutFromUndefined(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			m_newLightsAdded = false;
-		}
-		 
-		cmdChangeLayouts(cb, 
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 
-			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
-
 		VkBuffer vertexBindings[1]{ vertexData.getBufferHandle() };
 		VkDeviceSize vertexBindingOffsets[1]{ vertexData.getOffset() };
 		vkCmdBindVertexBuffers(cb, 0, 1, vertexBindings, vertexBindingOffsets);
@@ -728,28 +796,34 @@ private:
 		return index;
 	}
 
-	void cmdChangeLayouts(VkCommandBuffer cb, VkImageLayout srcLayout, VkImageLayout dstLayout, VkPipelineStageFlags srcStages, VkPipelineStageFlags dstStages)
+	void cmdChangeLayouts(VkCommandBuffer cb, VkImageLayout srcLayout, VkImageLayout dstLayout, VkPipelineStageFlags srcStages, VkPipelineStageFlags dstStages, bool onedirMaps = true, bool omnidirMaps = true)
 	{
 		static std::vector<VkImageMemoryBarrier2> barriers{};
 
-		for (int i{ 0 }; i < m_indicesForShadowMaps.size(); ++i)
+		if (onedirMaps)
 		{
-			VkImageSubresourceRange range{ m_shadowMaps.getImageListSubresourceRange(m_indicesForShadowMaps[i].shadowMapIndices.listIndex) };
-			range.baseArrayLayer = m_indicesForShadowMaps[i].shadowMapIndices.layerIndex;
-			range.layerCount = 1;
-			barriers.push_back(SyncOperations::constructImageBarrier(
-				srcStages, dstStages,
-				0, 0,
-				srcLayout, dstLayout,
-				m_shadowMaps.getImageHandle(m_indicesForShadowMaps[i].shadowMapIndices.listIndex), range));
+			for (int i{ 0 }; i < m_indicesForShadowMaps.size(); ++i)
+			{
+				VkImageSubresourceRange range{ m_shadowMaps.getImageListSubresourceRange(m_indicesForShadowMaps[i].shadowMapIndices.listIndex) };
+				range.baseArrayLayer = m_indicesForShadowMaps[i].shadowMapIndices.layerIndex;
+				range.layerCount = 1;
+				barriers.push_back(SyncOperations::constructImageBarrier(
+					srcStages, dstStages,
+					0, 0,
+					srcLayout, dstLayout,
+					m_shadowMaps.getImageHandle(m_indicesForShadowMaps[i].shadowMapIndices.listIndex), range));
+			}
 		}
-		for (int i{ 0 }; i < m_indicesForShadowCubeMaps.size(); ++i)
+		if (omnidirMaps)
 		{
-			barriers.push_back(SyncOperations::constructImageBarrier(
-				srcStages, dstStages, 
-				0, 0,
-				srcLayout, dstLayout, 
-				m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getImageHandle(), m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getSubresourceRange()));
+			for (int i{ 0 }; i < m_indicesForShadowCubeMaps.size(); ++i)
+			{
+				barriers.push_back(SyncOperations::constructImageBarrier(
+					srcStages, dstStages,
+					0, 0,
+					srcLayout, dstLayout,
+					m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getImageHandle(), m_shadowCubeMaps[m_indicesForShadowCubeMaps[i].shadowMapIndices.listIndex].getSubresourceRange()));
+			}
 		}
 
 		SyncOperations::cmdExecuteBarrier(cb, barriers);
@@ -772,8 +846,7 @@ private:
 			attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 			attachment.imageView = m_shadowMaps.getImageViewHandle(list);
 			attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-			attachment.clearValue = { .depthStencil = {.depth = m_frustumData.far, .stencil = 0} }; //It clears the entire list, if want to cache shadow maps, need to clear appropriate layers manually
-			attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 			attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			VkRenderingInfo renderInfo{};
 			renderInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;

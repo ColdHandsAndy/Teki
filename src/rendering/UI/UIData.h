@@ -32,6 +32,7 @@ struct UiData
     bool drawLightProxies{ true };
     bool drawSpaceGrid{ false };
     bool skyboxEnabled{ true };
+    bool profilingEnabled{ true };
     int voxelDebug{ NONE_VOXEL_DEBUG };
     int probeDebug{ NONE_PROBE_DEBUG };
     bool showOBBs{ false };

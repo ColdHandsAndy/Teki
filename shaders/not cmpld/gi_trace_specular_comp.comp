@@ -148,7 +148,7 @@ void traceFreeROMA(out vec3 radiance, out float hitDist, ProbeGridData gridData,
 	vec3 hoVec = origRelPos - hitRelPos;
 	hitDist = length(hoVec);
 	radiance += getProbeLighting(gridData, hitRelPos, normal, hoVec / hitDist, roughness, roughness * roughness, F0, albedo, 1.0);
-	radiance += emission * (1.0 - metalness);
+	radiance += emission * F0;
 }
 
 int getIndexROMA(int invocationIndex, bool positiveDirInvocation)

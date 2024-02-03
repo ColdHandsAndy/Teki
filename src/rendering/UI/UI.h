@@ -243,14 +243,12 @@ public:
             ImGui::TreePop();
         }
     }
-    void profiler(UiData& data, bool profile)
+    void profiler(UiData& data)
     {
-        if (profile)
-        {
-            m_profilersWindow.gpuGraph.LoadFrameData(data.gpuTasks.data(), data.gpuTasks.size());
-            m_profilersWindow.cpuGraph.LoadFrameData(data.cpuTasks.data(), data.cpuTasks.size());
-            m_profilersWindow.Render();
-        }
+        m_profilersWindow.gpuGraph.LoadFrameData(data.gpuTasks.data(), data.gpuTasks.size());
+        m_profilersWindow.cpuGraph.LoadFrameData(data.cpuTasks.data(), data.cpuTasks.size());
+        m_profilersWindow.Render();
+        data.profilingEnabled = !m_profilersWindow.stopProfiling;
     }
     void misc(UiData& data)
     {

@@ -7,6 +7,7 @@
 #include <LegitProfiler/ImGuiProfilerRenderer.h>
 
 #include "src/rendering/vulkan_object_handling/vulkan_object_handler.h"
+#include "src/rendering/data_management/buffer_class.h"
 
 template<uint32_t QueryNum>
 class TimestampQueries
@@ -23,16 +24,17 @@ public:
 private:
 	VkDevice m_device{};
 
-	Query m_queries[QueryNum]{};
+	BufferMapped m_queries{};
 
 	VkQueryPool m_pool{};
 
 	double m_timeScaleMS{};
 
 public:
-	TimestampQueries(VulkanObjectHandler& vulkanObjectHandler) : 
+	TimestampQueries(VulkanObjectHandler& vulkanObjectHandler, BufferBaseHostAccessible& baseBuffer) : 
 		m_device{ vulkanObjectHandler.getLogicalDevice() },
-		m_timeScaleMS{ vulkanObjectHandler.getPhysDevLimits().timestampPeriod / 1000000000.0 }
+		m_timeScaleMS{ vulkanObjectHandler.getPhysDevLimits().timestampPeriod / 1000000000.0 },
+		m_queries{ baseBuffer, sizeof(Query) * QueryNum }
 	{
 		VkQueryPoolCreateInfo queryPoolCI{};
 		queryPoolCI.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
@@ -59,20 +61,30 @@ public:
 		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_pool, queryIndex * 2 + 1);
 	}
 
+	void cmdUpdateResults(VkCommandBuffer cb, uint32_t firstQuery, uint32_t queryCount)
+	{
+		vkCmdCopyQueryPoolResults(cb, 
+			m_pool, 
+			firstQuery * 2, queryCount * 2,
+			m_queries.getBufferHandle(), m_queries.getOffset() + sizeof(Query) * firstQuery, 
+			sizeof(uint64_t) * 2, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+	}
+
 	void updateResults()
 	{
-		vkGetQueryPoolResults(m_device, m_pool, 0, QueryNum * 2, QueryNum * sizeof(Query), &m_queries, sizeof(uint64_t) * 2, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+		vkGetQueryPoolResults(m_device, m_pool, 0, QueryNum * 2, QueryNum * sizeof(Query), &m_queries.getData(), sizeof(uint64_t) * 2, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
 	}
 
 	void uploadQueryDataToProfilerTasks(legit::ProfilerTask* tasks, uint32_t count, uint32_t queryOffset = 0)
 	{
+		Query* queries{ reinterpret_cast<Query*>(m_queries.getData()) };
 		double timeS = 0.0;
 		for (int i{ static_cast<int>(queryOffset) }; i < QueryNum || i < count; ++i)
 		{
-			if (m_queries[i].availabilityStart != 0 && m_queries[i].availabilityEnd != 0)
+			if (queries[i].availabilityStart != 0 && queries[i].availabilityEnd != 0)
 			{
 				(tasks + i)->startTime = timeS;
-				timeS += (m_queries[i].endTime - m_queries[i].startTime) * m_timeScaleMS;
+				timeS += (queries[i].endTime - queries[i].startTime) * m_timeScaleMS;
 				(tasks + i)->endTime = timeS;
 			}
 			else
