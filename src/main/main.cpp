@@ -130,7 +130,7 @@ void fillFrustumData(CoordinateTransformation& coordinateTransformation, Camera&
 void fillModelMatrices(const BufferMapped& modelTransformDataSSBO, const std::vector<glm::mat4>& modelMatrices);
 void fillDrawData(const BufferMapped& perDrawDataIndicesSSBO, std::vector<StaticMesh>& staticMeshes, int drawCount);
 
-void processInput(const Window& window, Camera& camera, float deltaTime, bool disableCursor);
+void processInput(const Window& window, UiData& renderingData, Camera& camera, float deltaTime, bool disableCursor);
 
 void voxelize(GI& gi, CommandBufferSet& cmdBufferSet, VkQueue queue, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride);
 
@@ -689,15 +689,17 @@ int main()
 				}
 			vkCmdEndRendering(cbPostprocessing);
 
-
-			ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
-			ui.begin("Settings");
-			ui.stats(renderingData, drawCount);
-			ui.lightSettings(renderingData, pointLights, spotLights);
-			ui.misc(renderingData);
-			ui.end();
-			ui.profiler(renderingData);
-			ui.endUIPass(cbPostprocessing);
+			if (!renderingData.hideUI)
+			{
+				ui.startUIPass(cbPostprocessing, std::get<1>(swapchainImageData));
+				ui.begin("Settings");
+				ui.stats(renderingData, drawCount);
+				ui.lightSettings(renderingData, pointLights, spotLights);
+				ui.misc(renderingData);
+				ui.end();
+				ui.profiler(renderingData);
+				ui.endUIPass(cbPostprocessing);
+			}
 
 			SyncOperations::cmdExecuteBarrier(cbPostprocessing, 
 				{{SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_NONE,
@@ -755,37 +757,7 @@ int main()
 		WorldState::refreshFrameTime();
 		glfwPollEvents();
 
-		//
-		//static glm::vec3 posStart{ 1.0, -4.0, 0.0 };
-		//static float camPath{ 1.0 };
-		//float newZPos{ posStart.z + static_cast<float>(1.2 * WorldState::deltaTime) * camPath };
-		//if (newZPos > 13.0)
-		//{
-		//	camPath = -camPath;
-		//	newZPos = 13.0;
-		//}
-		//else if (newZPos < -13.0)
-		//{
-		//	camPath = -camPath;
-		//	newZPos = -13.0;
-		//}
-		//posStart.z = newZPos;
-		//camera.setPosition(posStart);
-		//static glm::vec3 dirForward{ 0.0, 0.0, 1.0 };
-		//dirForward = glm::rotateY(dirForward, static_cast<float>(0.19 * WorldState::deltaTime));
-		//camera.setForwardDirection(dirForward);
-
-		//auto init{ pointLights[4].getPosition() };
-		//init.y = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 6.9 - 5.9;
-		//pointLights[4].changePosition(init);
-		//init = pointLights[3].getPosition();
-		//init.x = (std::cos(glfwGetTime()) * 0.5 + 0.5) * 4.6 - 1.4;
-		//pointLights[3].changePosition(init);
-		//init = spotLights[0].getDirection();
-		//spotLights[0].changeDirection(glm::rotateY(init, static_cast<float>(0.3 * WorldState::deltaTime)));
-		//
-
-		processInput(window, camera, WorldState::deltaTime, ui.cursorOnUI());
+		processInput(window, renderingData, camera, WorldState::deltaTime, ui.cursorOnUI());
 
 		double startTime = glfwGetTime();
 
@@ -1324,7 +1296,7 @@ void fillDrawData(const BufferMapped& perDrawDataIndices, std::vector<StaticMesh
 	}
 }
 
-void processInput(const Window& window, Camera& camera, float deltaTime, bool disableCursor)
+void processInput(const Window& window, UiData& renderingData, Camera& camera, float deltaTime, bool disableCursor)
 {
 	bool cameraMoved = false;
 
@@ -1357,6 +1329,18 @@ void processInput(const Window& window, Camera& camera, float deltaTime, bool di
 	{
 		camera.move(Camera::DOWN, deltaTime);
 		cameraMoved = true;
+	}
+
+	static auto prevStateKeyH{ GLFW_RELEASE };
+	auto keyState = glfwGetKey(window, GLFW_KEY_H);
+	if (keyState == GLFW_RELEASE && prevStateKeyH == GLFW_PRESS)
+	{
+		renderingData.hideUI = !renderingData.hideUI;
+	}
+	prevStateKeyH = keyState;
+	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+	{
+		glfwSetWindowShouldClose(window, GLFW_TRUE);
 	}
 
 	double xpos{};

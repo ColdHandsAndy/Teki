@@ -81,7 +81,7 @@ void main()
 		for (int x = 0; x < DDGI_PROBE_VISIBILITY_SIDE_SIZE; ++x)
 		{
 			vec3 sampleDir = rayDirections.rayDirs[y * DDGI_PROBE_VISIBILITY_SIDE_SIZE + x];
-			
+
 			float dist = imageLoad(DistanceProbes, probeFirstCoord + ivec2(x, y)).x;
 			vec2 visibility = vec2(dist, dist * dist);
 			
