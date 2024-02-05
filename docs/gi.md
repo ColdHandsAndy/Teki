@@ -1,7 +1,7 @@
 # Global Illumination  
 Global illumination system in Teki separates direct and indirect lighting.  
 
-Direct lighting technique is described [here](docs/clustering.md).  
+Direct lighting technique is described [here](clustering.md).  
 Indirect lighting is based on ROMA[^1] and DDGI[^2][^3] and inspired by SDFGI[^4].  
 
 | [![](https://img.youtube.com/vi/uE60-Oa3BBM/0.jpg)](https://youtu.be/uE60-Oa3BBM) |  
@@ -10,14 +10,14 @@ Indirect lighting is based on ROMA[^1] and DDGI[^2][^3] and inspired by SDFGI[^4
 
 
 Firstly, we construct voxelized version of the scene.  
-| ![](docs/images/scene_vox_rep.png) |
+| ![](images/scene_vox_rep.png) |
 |:--:| 
 | *Figure 2. Top left - albedo, top right - metalness, bottom left - roughness, bottom right - emission.* |
 
 When voxelizing the scene we also create Base Occupancy Map (BOM)[^1].  
 BOM is used to create Ray-aligned Occupancy Map (ROMA)[^1].  
 
-| ![](docs/images/bom_roma_examples.png) |
+| ![](images/bom_roma_examples.png) |
 |:--:|   
 | *Figure 3. BOM - on the top. Four ray-aligned occupancy maps - on the bottom. Direction of a ray-aligned occupancy map is visualized as a gradient.* |  
 
@@ -29,7 +29,7 @@ Light injected into emission voxelmap through shadow maps.
 After the scene representation is ready we can start tracing process.  
 Probes are traced with snapped[^1] rays, whereas glossy reflection rays are not snapped.  
 After radiance and hit distance are gathered, DDGI[^2] probes integrate irradiance and visibility.  
-| ![](docs/images/probes.png) |
+| ![](images/probes.png) |
 |:--:|   
 | *Figure 5. From top to bottom - radiance, irradiance, visibility.* | 
 
