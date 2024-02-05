@@ -4,7 +4,7 @@
 
 Teki is my Vulkan-based toy-renderer. It is my primary environment for experimenting with real-time rendering techniques and general programming as well. 
 ### Renderer feature list
-* [Global Illumination - Diffuse and Specular](docs/gi.md)
+* [Global Illumination - Software Ray-Traced Diffuse and Specular](docs/gi.md)
 * [Light clustering](docs/clustering.md)  
 * [Deferred rendering (texturing) - UV-buffer](docs/deferred.md)    
 * [PBR](docs/pbr.md)
@@ -15,7 +15,8 @@ Teki is my Vulkan-based toy-renderer. It is my primary environment for experimen
 * Bindless materials   
 * HDR pipeline      
 * Reverse-Z  
-* Frustum culling  
+* Frustum culling
+* Tonemapping  
 ### Core feature list
 * Buffer suballocation
 * Descriptor buffers
@@ -25,3 +26,8 @@ Teki is my Vulkan-based toy-renderer. It is my primary environment for experimen
 * HDR cubemap support
 
 Everything is developed and tested on my GTX 1050 Ti.
+
+#### Examples  
+![](docs/images/attic1.ong)
+![](docs/images/attic2.ong)
+![](docs/images/bathroom.ong)
