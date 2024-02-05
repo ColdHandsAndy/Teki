@@ -33,4 +33,5 @@ Everything is developed and tested on my GTX 1050 Ti.
 ![](docs/images/sponza_example.png)
 ![](docs/images/bathroom.png)
 ![](docs/images/town.png)
-###### Credit: [Attic](https://sketchfab.com/3d-models/the-attic-environment-9b97eaaa74fc409a9344509af68f0590), [Sponza](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html), [Bathroom](https://sketchfab.com/3d-models/the-bathroom-free-d5e5035dda434b8d9beaa7271f1c85fc), [Town](https://sketchfab.com/3d-models/stylized-little-japanese-town-street-200fc33b8a2b4da98e71590feeb255a8).
+![](docs/images/helmet_town.png)
+###### Credit: [Attic](https://sketchfab.com/3d-models/the-attic-environment-9b97eaaa74fc409a9344509af68f0590), [Sponza](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html), [Bathroom](https://sketchfab.com/3d-models/the-bathroom-free-d5e5035dda434b8d9beaa7271f1c85fc), [Town](https://sketchfab.com/3d-models/stylized-little-japanese-town-street-200fc33b8a2b4da98e71590feeb255a8), [Helmet](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DamagedHelmet).
