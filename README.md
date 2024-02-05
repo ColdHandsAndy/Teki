@@ -28,6 +28,6 @@ Teki is my Vulkan-based toy-renderer. It is my primary environment for experimen
 Everything is developed and tested on my GTX 1050 Ti.
 
 #### Examples  
-![](docs/images/attic1.ong)
-![](docs/images/attic2.ong)
-![](docs/images/bathroom.ong)
+![](docs/images/attic1.png)
+![](docs/images/attic2.png)
+![](docs/images/bathroom.png)
