@@ -46,9 +46,9 @@
 #define DDGI_PROBE_VISIBILITY_SIDE_SIZE 8
 #define DDGI_PROBE_LIGHT_SIDE_SIZE_WITH_BORDERS (DDGI_PROBE_LIGHT_SIDE_SIZE + 2)
 #define DDGI_PROBE_VISIBILITY_SIDE_SIZE_WITH_BORDERS (DDGI_PROBE_VISIBILITY_SIDE_SIZE + 2)
-#define DDGI_PROBE_X_COUNT 24
-#define DDGI_PROBE_Y_COUNT 24
-#define DDGI_PROBE_Z_COUNT 24
+#define DDGI_PROBE_X_COUNT 32
+#define DDGI_PROBE_Y_COUNT 32
+#define DDGI_PROBE_Z_COUNT 32
 #define DDGI_PROBE_X_DISTANCE float(OCCUPANCY_METER_SIZE / DDGI_PROBE_X_COUNT)
 #define DDGI_PROBE_Y_DISTANCE float(OCCUPANCY_METER_SIZE / DDGI_PROBE_Y_COUNT)
 #define DDGI_PROBE_Z_DISTANCE float(OCCUPANCY_METER_SIZE / DDGI_PROBE_Z_COUNT)
@@ -118,6 +118,8 @@ private:
 
 	uint32_t m_currentNewProbes{ 0 };
 	uint32_t m_currentBuffers{ 0 };
+
+	SyncOperations::EventHolder<1> m_events;
 
 	Clusterer* const m_clusterer{ nullptr };
 
@@ -310,14 +312,23 @@ public:
 		changeCurrentBuffers();
 
 		{
-			VkImageMemoryBarrier2 barriers[32]{};
+			constexpr int romCount{ ROM_NUMBER };
+			constexpr int sromCount{ STABLE_ROM_NUMBER };
+			VkImageMemoryBarrier2 barriers[romCount + sromCount]{};
 
-			for (int i{ 0 }; i < m_rayAlignedOccupancyMapArray.size(); ++i)
+			for (int i{ 0 }; i < romCount; ++i)
 			{
 				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 					VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 					m_rayAlignedOccupancyMapArray[i].getImageHandle(), m_rayAlignedOccupancyMapArray[i].getSubresourceRange());
+			}
+			for (int i{ romCount }, j{ 0 }; i < romCount + sromCount; ++i, ++j)
+			{
+				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+					m_rayAlignedOccupancyMapArrayStable[j].getImageHandle(), m_rayAlignedOccupancyMapArrayStable[j].getSubresourceRange());
 			}
 
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
@@ -328,39 +339,47 @@ public:
 		if (profile) queries.cmdWriteEnd(cb, queryIndexGICreateROMA);
 
 		{
-			VkImageMemoryBarrier2 barriers[38]{};
-
-			for (int i{ 0 }; i < m_rayAlignedOccupancyMapArray.size(); ++i)
+			constexpr int romCount{ ROM_NUMBER };
+			constexpr int sromCount{ STABLE_ROM_NUMBER };
+			VkImageMemoryBarrier2 barriers[romCount + sromCount + 6]{};
+			for (int i{ 0 }; i < romCount; ++i)
 			{
 				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 					VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 					VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 					m_rayAlignedOccupancyMapArray[i].getImageHandle(), m_rayAlignedOccupancyMapArray[i].getSubresourceRange());
 			}
+			for (int i{ romCount }, j{ 0 }; i < romCount + sromCount; ++i, ++j)
+			{
+				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+					VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+					m_rayAlignedOccupancyMapArrayStable[j].getImageHandle(), m_rayAlignedOccupancyMapArrayStable[j].getSubresourceRange());
+			}
 
-			barriers[32] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + sromCount + 0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_ddgiRadianceProbes.getImageHandle(), m_ddgiRadianceProbes.getSubresourceRange());
 
-			barriers[33] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + sromCount + 1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_ddgiDistanceProbes.getImageHandle(), m_ddgiDistanceProbes.getSubresourceRange());
 
-			barriers[34] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + sromCount + 2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_depthSpec.getImageHandle(), m_depthSpec.getSubresourceRange());
-			barriers[35] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + sromCount + 3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_refdirSpec.getImageHandle(), m_refdirSpec.getSubresourceRange());
-			barriers[36] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + sromCount + 4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_specularReflectionGlossy.getImageHandle(), m_specularReflectionGlossy.getSubresourceRange());
-			barriers[37] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + sromCount + 5] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_distToHit.getImageHandle(), m_distToHit.getSubresourceRange());
@@ -372,14 +391,10 @@ public:
 		cmdDispatchTraceProbes(cb, skyboxEnabled);
 		if (profile) queries.cmdWriteEnd(cb, queryIndexGITraceProbes);
 
-		if (profile) queries.cmdWriteStart(cb, queryIndexGITraceSpecular);
-		cmdDispatchTraceSpecular(cb, inverseViewProjectionMatrix, camPos, skyboxEnabled);
-		if (profile) queries.cmdWriteEnd(cb, queryIndexGITraceSpecular);
-
 		changeHistoryAndNewProbes();
-		uint32_t newProbes{ m_currentNewProbes };
+
 		{
-			VkImageMemoryBarrier2 barriers[9]{};
+			VkImageMemoryBarrier2 barriers[4]{};
 
 			barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
@@ -395,46 +410,60 @@ public:
 			barriers[2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-				m_ddgiIrradianceProbes[newProbes].getImageHandle(), m_ddgiIrradianceProbes[newProbes].getSubresourceRange());
+				m_ddgiIrradianceProbes[m_currentNewProbes].getImageHandle(), m_ddgiIrradianceProbes[m_currentNewProbes].getSubresourceRange());
 
 			barriers[3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-				m_ddgiVisibilityProbes[newProbes].getImageHandle(), m_ddgiVisibilityProbes[newProbes].getSubresourceRange());
+				m_ddgiVisibilityProbes[m_currentNewProbes].getImageHandle(), m_ddgiVisibilityProbes[m_currentNewProbes].getSubresourceRange());
 
-			
-			barriers[4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
+			VkDependencyInfo probeDependency{ SyncOperations::createDependencyInfo(barriers) };
+
+			m_events.cmdSet(cb, 0, probeDependency);
+
+			if (profile) queries.cmdWriteStart(cb, queryIndexGITraceSpecular);
+			cmdDispatchTraceSpecular(cb, inverseViewProjectionMatrix, camPos, skyboxEnabled);
+			if (profile) queries.cmdWriteEnd(cb, queryIndexGITraceSpecular);
+
+
+			uint32_t indices[]{ 0 };
+			m_events.cmdWait(cb, 1, indices, &probeDependency);
+		}
+
+		if (profile) queries.cmdWriteStart(cb, queryIndexGIComputeIrradianceAndVisibility);
+		cmdDispatchComputeIrradianceAndVisibility(cb);
+		if (profile) queries.cmdWriteEnd(cb, queryIndexGIComputeIrradianceAndVisibility);
+
+		{
+			VkImageMemoryBarrier2 barriers[5]{};
+
+			barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_NONE,
 				VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
 				m_depthSpec.getImageHandle(), m_depthSpec.getSubresourceRange());
-			
-			barriers[5] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
+
+			barriers[1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_NONE,
 				VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
 				m_refdirSpec.getImageHandle(), m_refdirSpec.getSubresourceRange());
-			
-			barriers[6] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
+
+			barriers[2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_specularReflectionGlossy.getImageHandle(), m_specularReflectionGlossy.getSubresourceRange());
-			
-			barriers[7] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
+
+			barriers[3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_distToHit.getImageHandle(), m_distToHit.getSubresourceRange());
 
-
-			barriers[8] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_specularReflectionRough.getImageHandle(), m_specularReflectionRough.getSubresourceRange());
 
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
-
-		if (profile) queries.cmdWriteStart(cb, queryIndexGIComputeIrradianceAndVisibility);
-		cmdDispatchComputeIrradianceAndVisibility(cb);
-		if (profile) queries.cmdWriteEnd(cb, queryIndexGIComputeIrradianceAndVisibility);
 
 		cmdDispatchBlurSpecular(cb);
 
@@ -444,12 +473,12 @@ public:
 			barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-				m_ddgiIrradianceProbes[newProbes].getImageHandle(), m_ddgiIrradianceProbes[newProbes].getSubresourceRange());
+				m_ddgiIrradianceProbes[m_currentNewProbes].getImageHandle(), m_ddgiIrradianceProbes[m_currentNewProbes].getSubresourceRange());
 
 			barriers[1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-				m_ddgiVisibilityProbes[newProbes].getImageHandle(), m_ddgiVisibilityProbes[newProbes].getSubresourceRange());
+				m_ddgiVisibilityProbes[m_currentNewProbes].getImageHandle(), m_ddgiVisibilityProbes[m_currentNewProbes].getSubresourceRange());
 
 			barriers[2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,

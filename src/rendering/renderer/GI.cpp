@@ -61,6 +61,7 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 	m_stableROMAtransformMatrices{ {baseHostBuffer, sizeof(glm::mat4x3) * 8}, {baseHostBuffer, sizeof(glm::mat4x3) * 8} },
 	m_mappedDirections{ {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE}, {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE} },
 	m_giMetadata{ baseHostBuffer, sizeof(GIMetaData) },
+	m_events{ device },
 	m_clusterer{ &clusterer }
 {
 }
