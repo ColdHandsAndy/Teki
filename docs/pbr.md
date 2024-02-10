@@ -5,10 +5,8 @@ PBR in Teki is mostly based on the [2014 Frostbite paper](https://seblagarde.fil
   * Smith height-correlated visibility function
   * GGX normal distribution function  
 
-![](images/pbr_spheres.png)  
-![](images/pbr_knight.png)  
-###### Credit: [Andy Woodhead](https://sketchfab.com/Andywoodhead)
-![](images/villa.png)  
-###### Credit: [Andy Woodhead](https://sketchfab.com/Andywoodhead)  
+![](images/spheres_pbr.png)  
+![](images/helmet_pbr.png)  
+###### Credit: [GLTF Sample Assets]([https://sketchfab.com/Andywoodhead](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DamagedHelmet))
 
 ###### Cubemaps are made from HDRIs from [Poly Haven](https://polyhaven.com/hdris)
