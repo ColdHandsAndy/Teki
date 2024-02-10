@@ -1,10 +1,10 @@
 #version 460
 
-#define FAR_DEPTH 10000.0
-
 #extension GL_GOOGLE_include_directive						: enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8     : enable
 
 #include "pbr.h"
+#include "misc.h"
 #include "gi_data.h"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -51,17 +51,18 @@ void main()
 	
 	//Sample depth from approroiate texture
 	vec3 layerCoord = vec3(coord, float(pushConstants.layerIndex) + 0.1);
-	float linDepth;
+	float depth;
 	if (pushConstants.type == TYPE_POINT)
-		linDepth = texture(sampler2DArray(shadowCubeMapArray[pushConstants.listIndex], samplerNearest), layerCoord).x;
+		depth = texture(sampler2DArray(shadowCubeMapArray[pushConstants.listIndex], samplerNearest), layerCoord).x;
 	else
-		linDepth = texture(sampler2DArray(shadowMapArray[pushConstants.listIndex], samplerNearest), layerCoord).x;
+		depth = texture(sampler2DArray(shadowMapArray[pushConstants.listIndex], samplerNearest), layerCoord).x;
 
 	//Check if depth equals far value
-	if (linDepth == FAR_DEPTH)
+	if (depth == 0.0)
 		return;
 	
 	//Calculate CastPosView from depth
+	float linDepth = getLinearDepth(depth, SHADOW_NEAR_DEPTH, SHADOW_FAR_DEPTH);
 	vec3 castPosView = vec3((coord * 2.0 - vec2(1.0)) * linDepth * pushConstants.fovScale, linDepth);
 	castPosView.y = -castPosView.y;
 	

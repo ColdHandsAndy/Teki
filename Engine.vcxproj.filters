@@ -291,5 +291,14 @@
     <Text Include="shaders\not cmpld\include\gi_data.h">
       <Filter>Header Files</Filter>
     </Text>
+    <Text Include="shaders\not cmpld\include\math.h">
+      <Filter>Header Files</Filter>
+    </Text>
+    <Text Include="shaders\not cmpld\include\bindless.h">
+      <Filter>Header Files</Filter>
+    </Text>
+    <Text Include="shaders\not cmpld\include\octohedral.h">
+      <Filter>Header Files</Filter>
+    </Text>
   </ItemGroup>
 </Project>

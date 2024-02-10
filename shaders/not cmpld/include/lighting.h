@@ -2,6 +2,7 @@
 #define LIGHTING_HEADER
 
 #include "rand.h"
+#include "misc.h"
 
 #extension GL_EXT_samplerless_texture_functions : enable
 #extension GL_KHR_shader_subgroup_arithmetic : enable
@@ -57,7 +58,7 @@ float PCF(float bias, float receiverDepth, vec3 uv, samplerShadow samplerSM, tex
 {
 	float invRes = 1.0 / textureSize(shadowMap, 0).x;
 
-	float biasedReceiverDepth = receiverDepth - bias;
+	float biasedReceiverDepth = (-SHADOW_NEAR_DEPTH / (SHADOW_FAR_DEPTH - SHADOW_NEAR_DEPTH)) + (SHADOW_NEAR_DEPTH * SHADOW_FAR_DEPTH) / ((receiverDepth - bias) * (SHADOW_FAR_DEPTH - SHADOW_NEAR_DEPTH));
 
 	const float radius = 0.7;
 

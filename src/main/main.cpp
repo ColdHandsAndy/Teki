@@ -229,7 +229,7 @@ int main()
 			.mipLodBias = 0.0f,
 			.anisotropyEnable = VK_FALSE,
 			.compareEnable = VK_TRUE,
-			.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+			.compareOp = VK_COMPARE_OP_GREATER_OR_EQUAL,
 			.minLod = 0.0f,
 			.maxLod = 128.0f,
 			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
@@ -298,6 +298,24 @@ int main()
 	std::array<LightTypes::SpotLight, 1> spotLights{
 		LightTypes::SpotLight(glm::vec3{0.0f, 8.0f, 0.0f}, glm::vec3{1.0f}, 2000.0f, 0.0f, glm::vec3{0.0, -1.0, 0.0}, glm::radians(40.0), glm::radians(48.0), 2048, 0.0, true),
 	};
+	/*std::random_device rd{};
+	std::mt19937 mtd(rd());
+	std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+	std::vector<LightTypes::PointLight> pointLights{};
+	{
+		std::vector<glm::vec3> pos(1024);
+		std::vector<glm::vec3> col(1024);
+		for (int i{ 0 }; i < 1024; ++i)
+		{
+			pos[i] = glm::vec3{ dist(mtd), dist(mtd), dist(mtd) } * 32.0f - 16.0f;
+			col[i] = glm::vec3{ dist(mtd), dist(mtd), dist(mtd) };
+		}
+		for (int i{ 0 }; i < 1024; ++i)
+		{
+			pointLights.emplace_back(pos[i], col[i], 250.0f, 1.4f);
+		}
+	}
+	std::vector<LightTypes::SpotLight> spotLights{};*/
 
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
 	createBRDFLUTResourceSet(device, linearSampler, BRDFLUTRS, brdfLUT);
@@ -756,6 +774,11 @@ int main()
 	{
 		WorldState::refreshFrameTime();
 		glfwPollEvents();
+
+		/*for (int i{ 0 }; i < 1024; ++i)
+		{
+			pointLights[i].changePosition(glm::rotateY(pointLights[i].getPosition(), float(WorldState::deltaTime)));
+		}*/
 
 		processInput(window, renderingData, camera, WorldState::deltaTime, ui.cursorOnUI());
 

@@ -1,13 +1,7 @@
 #ifndef PBR_HEADER
 #define PBR_HEADER
 
-//Math
-#define PI 3.141592653589
-#define TWO_PI (2.0 * PI)
-#define ONE_OVER_PI (1.0 / PI)
-#define ONE_OVER_TWO_PI (1.0 / TWO_PI)
-#define SQRT_2 1.41421356237309
-#define ONE_OVER_SQRT_2 0.7071067811865475244
+#include "math.h"
 
 vec3 F_Schlick(vec3 F0, float F90, float NdotX)
 {

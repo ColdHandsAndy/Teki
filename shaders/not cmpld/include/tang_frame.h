@@ -1,9 +1,8 @@
 #ifndef TANG_FRAME_HEADER
 #define TANG_FRAME_HEADER
 
-#define SQRT_2 1.41421356237309
-#define ONE_OVER_SQRT_2 0.7071067811865475244
- 
+#include "math.h"
+
 vec4 quaternionFromRotMat(mat3 m)
 {
 	vec4 q;

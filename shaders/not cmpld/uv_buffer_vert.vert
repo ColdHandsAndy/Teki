@@ -4,6 +4,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int8     :  enable
 
 #include "misc.h"
+#include "bindless.h"
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in uint packedNormals4x8;

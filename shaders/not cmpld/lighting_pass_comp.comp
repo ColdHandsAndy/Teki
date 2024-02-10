@@ -14,18 +14,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "lighting.h"
 #include "pbr.h"
 #include "gi_data.h"
+#include "bindless.h"
  
-//Math
-#define PI 3.141592653589
-#define TWO_PI (2.0 * PI)
-#define ONE_OVER_PI (1.0 / PI)
-#define ONE_OVER_TWO_PI (1.0 / TWO_PI)
-#define SQRT_2 1.41421356237309
-#define ONE_OVER_SQRT_2 0.7071067811865475244
-
-//PBR
-#define RAD_MIP_COUNT 7
-
 //Clustering
 #define MAX_LIGHTS 1024
 #define MAX_WORDS 32
@@ -181,6 +171,7 @@ vec3 calculateIndirectLighting(vec3 worldPos, vec3 N, vec3 V, vec3 R, float Ndot
 	if (subgroupGlossy)
 	{
 		specLD = mix(gl, rg, alpha * 20.0);
+		//specLD = textureLod(SamplerCubeMapRad, R, sqrt(roughness) * textureQueryLevels(SamplerCubeMapRad)).rgb;
 	}
 	else
 	{

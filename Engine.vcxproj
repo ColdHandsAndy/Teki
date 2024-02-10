@@ -226,6 +226,9 @@
     <Text Include="shaders\not cmpld\include\tang_frame.h" />
     <Text Include="shaders\not cmpld\include\tonemap.h" />
     <Text Include="shaders\not cmpld\include\gi_data.h" />
+    <Text Include="shaders\not cmpld\include\math.h" />
+    <Text Include="shaders\not cmpld\include\bindless.h" />
+    <Text Include="shaders\not cmpld\include\octohedral.h" />
     <ClInclude Include="src\rendering\data_abstraction\BB.h" />
     <ClInclude Include="src\rendering\data_abstraction\runit.h" />
     <ClInclude Include="src\rendering\data_abstraction\mesh.h" />
@@ -439,8 +442,8 @@
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\gi_inject_light_comp.comp">
       <FileType>Document</FileType>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/pbr.h;%(AdditionalInputs)</AdditionalInputs>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/pbr.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/misc.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/pbr.h;$(SHADER_INPUT_DIR)/include/misc.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\gi_emission_merge_comp.comp">
       <FileType>Document</FileType>

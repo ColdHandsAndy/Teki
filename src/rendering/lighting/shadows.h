@@ -87,7 +87,7 @@ public:
 		assembler.setMultisamplingState(PipelineAssembler::MULTISAMPLING_STATE_DISABLED);
 		assembler.setRasterizationState(PipelineAssembler::RASTERIZATION_STATE_SHADOW_MAP);
 		assembler.setColorBlendState(PipelineAssembler::COLOR_BLEND_STATE_DISABLED);
-		assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT, VK_COMPARE_OP_LESS_OR_EQUAL);
+		assembler.setDepthStencilState(PipelineAssembler::DEPTH_STENCIL_STATE_DEFAULT);
 		assembler.setPipelineRenderingState(PipelineAssembler::PIPELINE_RENDERING_STATE_DEPTH_ATTACHMENT_ONLY);
 
 		VkDescriptorSetLayoutBinding shadowMapViewMatricesBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT };
@@ -109,8 +109,8 @@ public:
 
 		std::array<std::reference_wrapper<const ResourceSet>, 1> resourceSets{ m_resSet };
 
-		m_shadowMapPass.initializeGraphics(assembler, { {ShaderStage{ VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shadow_pass_vert.spv"}, 
-			ShaderStage{ VK_SHADER_STAGE_FRAGMENT_BIT, "shaders/cmpld/shadow_pass_frag.spv"}} }, resourceSets,
+		m_shadowMapPass.initializeGraphics(assembler, { {ShaderStage{ VK_SHADER_STAGE_VERTEX_BIT, "shaders/cmpld/shadow_pass_vert.spv"}} }, 
+			resourceSets,
 			{ {StaticVertex::getBindingDescription()} }, { {StaticVertex::getAttributeDescriptions()[0]} }, 
 			{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(uint32_t) * 7}}});
 	}
@@ -125,8 +125,8 @@ public:
 		m_frustumData.far = far;
 		float h{ static_cast<float>(1.0 / std::tan((glm::radians(90.0) * 0.5))) };
 		m_frustumData.cubeProj00 = h;
-		m_frustumData.proj22 = far / (far - near);
-		m_frustumData.proj32 = (-near * far) / (far - near);
+		m_frustumData.proj22 = -near / (far - near);
+		m_frustumData.proj32 = (near * far) / (far - near);
 	}
 
 	void prepareDataForShadowMapRendering()
@@ -181,7 +181,7 @@ public:
 			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, true, false);
 
-		VkClearDepthStencilValue clearVal{ .depth = m_frustumData.far, .stencil = 0 };
+		VkClearDepthStencilValue clearVal{ .depth = 0.0, .stencil = 0 };
 		static std::vector<VkImageSubresourceRange> subresourceRanges{};
 		for (int i{ 0 }; i < m_indicesForShadowMaps.size();)
 		{
@@ -858,7 +858,7 @@ private:
 		 
 			int j{ 0 };
 			VkViewport viewports[1]{ {.x = 0, .y = 0,
-				.width = static_cast<float>(renderInfo.renderArea.extent.width), .height = static_cast<float>(renderInfo.renderArea.extent.height), .minDepth = 0.0, .maxDepth = m_frustumData.far } };
+				.width = static_cast<float>(renderInfo.renderArea.extent.width), .height = static_cast<float>(renderInfo.renderArea.extent.height), .minDepth = 0.0, .maxDepth = 1.0 } };
 			vkCmdSetViewport(cb, 0, 1, viewports);
 			vkCmdBeginRendering(cb, &renderInfo);
 			
@@ -901,7 +901,7 @@ private:
 			attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 			attachment.imageView = m_shadowCubeMaps[list].getImageView();
 			attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-			attachment.clearValue = { .depthStencil = {.depth = m_frustumData.far, .stencil = 0} };
+			attachment.clearValue = { .depthStencil = {.depth = 0.0, .stencil = 0} };
 			attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			VkRenderingInfo renderInfo{};
@@ -915,7 +915,7 @@ private:
 
 			int j{ 0 };
 			VkViewport viewports[1]{ {.x = 0, .y = 0,
-				.width = static_cast<float>(renderInfo.renderArea.extent.width), .height = static_cast<float>(renderInfo.renderArea.extent.height), .minDepth = 0.0, .maxDepth = m_frustumData.far } };
+				.width = static_cast<float>(renderInfo.renderArea.extent.width), .height = static_cast<float>(renderInfo.renderArea.extent.height), .minDepth = 0.0, .maxDepth = 1.0 } };
 			vkCmdSetViewport(cb, 0, 1, viewports);
 			vkCmdBeginRendering(cb, &renderInfo);
 

@@ -9,6 +9,9 @@
 #define FLT16_MIN 5.96046448e-08
 #define FLT16_EPSILON 0.00097656
 
+#define SHADOW_NEAR_DEPTH 0.1
+#define SHADOW_FAR_DEPTH 10000.0
+
 //Texture array coord from direction vector
 vec3 getTexArrayCoordinateFromDirection(vec3 v)
 {
@@ -39,22 +42,7 @@ vec3 getTexArrayCoordinateFromDirection(vec3 v)
 	
 	return vec3(coord, layer + 0.1);
 }
-//Draw data indices layout
-struct DrawData
-{
-    uint8_t modelIndex;
-    uint8_t index1;
-    uint8_t index2;
-    uint8_t index3;
-    uint8_t bcIndexList;
-    uint8_t bcIndexLayer;
-    uint8_t nmIndexList;
-    uint8_t nmIndexLayer;
-    uint8_t mrIndexList;
-    uint8_t mrIndexLayer;
-    uint8_t emIndexList;
-    uint8_t emIndexLayer;
-};
+
 //Project sphere to screen space coords
 void projectSphere(vec3 p, float r, float proj00, float proj11, out float bvWidth, out float bvHeight, out vec2 bvCenter)
 {
@@ -83,6 +71,11 @@ vec3 getWorldPositionFromDepth(mat4 worldFromNdc, vec2 uv, float depth)
 {
 	vec4 res = worldFromNdc * vec4(uv * 2.0 - 1.0, depth, 1.0);
 	return res.xyz / res.w;
+}
+
+float getLinearDepth(float depth, float near, float far)
+{
+	return (far * near) / (depth * (far - near) + near);
 }
 
 vec3 RGBtoYCoCg(vec3 c)
