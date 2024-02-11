@@ -12,20 +12,21 @@ Indirect lighting is based on ROMA[^1] and DDGI[^2][^3] and inspired by SDFGI[^4
 | :---: | 
 | *Figure 2. Picture is a link to the Youtube video showcasing essential GI structures.* |
 
-
 Firstly, we construct voxelized version of the scene.
+
 | ![](images/scene_vox_rep.png) |
 | :---: | 
 | *Figure 3. Top left - albedo, top right - metalness, bottom left - roughness, bottom right - emission.* |
 
 When voxelizing the scene we also create Base Occupancy Map (BOM)[^1].  
-BOM is used to create Ray-aligned Occupancy Map (ROMA)[^1].  
+BOM is used to create Ray-aligned Occupancy Map (ROMA)[^1].
 
 | ![](images/bom_roma_examples.png) |
 | :---: | 
 | *Figure 4. BOM - on the top. Four ray-aligned occupancy maps - on the bottom. Direction of a ray-aligned occupancy map is visualized as a gradient.* |
 
 Light injected into emission voxelmap through shadow maps.  
+
 | [![](https://img.youtube.com/vi/ije4D_CITlk/0.jpg)](https://youtu.be/ije4D_CITlk) |
 | :---: | 
 | *Figure 5. Picture is a link to the Youtube video showcasing the light injection result.* |
@@ -33,6 +34,7 @@ Light injected into emission voxelmap through shadow maps.
 After the scene representation is ready we can start tracing process.  
 Probes are traced with snapped[^1] rays, whereas glossy reflection rays are not snapped.  
 After radiance and hit distance are gathered, DDGI[^2] probes integrate irradiance and visibility.
+
 | ![](images/probes.png) |
 | :---: | 
 | *Figure 6. From top to bottom - radiance, irradiance, visibility.* |
