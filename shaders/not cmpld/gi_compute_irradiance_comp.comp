@@ -17,6 +17,9 @@ layout(set = 2, binding = 0) uniform RayDirections
 	vec3 rayDirs[DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE];
 } rayDirections;
 
+layout(set = 3, binding = 0, r8ui) uniform readonly uimage3D ProbeStateImage;
+
+
 vec3 getNormalOctohedral(ivec2 probeInnerCoord)
 {
 	vec2 octC = (vec2(probeInnerCoord) + vec2(0.5)) * (2.0 / DDGI_PROBE_LIGHT_SIDE_SIZE) - 1.0;
@@ -55,6 +58,12 @@ void main()
 	ivec2 probeFirstCoord = ivec2(gl_WorkGroupID.x, gl_WorkGroupID.y) * DDGI_PROBE_LIGHT_SIDE_SIZE;
 	ivec2 probeOuterCoord = borderOffset + ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
 	ivec2 probeInnerCoord = ivec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y);
+
+	uint probeCountZ = imageSize(ProbeStateImage).z; 
+	uint probeState = imageLoad(ProbeStateImage, ivec3(gl_WorkGroupID.x % probeCountZ, gl_WorkGroupID.y, gl_WorkGroupID.x / probeCountZ)).x;
+
+	if (bool(probeState & PROBE_STATE_IMPOTENT))
+		return;
 	
 	int invocationIndex = probeInnerCoord.y * DDGI_PROBE_LIGHT_SIDE_SIZE + probeInnerCoord.x;
 	bool positiveDirInvocation = invocationIndex < 32;

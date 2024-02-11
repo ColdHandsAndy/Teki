@@ -2,6 +2,8 @@
 
 #extension GL_GOOGLE_include_directive						: enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int8     : enable
+#extension GL_KHR_shader_subgroup_ballot					: enable
+#extension GL_KHR_shader_subgroup_arithmetic				: enable
 
 #include "gi_data.h"
 
@@ -42,9 +44,13 @@ layout(set = 5, binding = 1) uniform sampler2D VisibilityProbes;
 
 layout(set = 6, binding = 0, rgba8_snorm) uniform readonly image3D ProbeOffsetImage;
 
-layout(set = 7, binding = 0) uniform samplerCube SamplerCubeMapRad;
+layout(set = 7, binding = 0, r8ui) uniform uimage3D ProbeStateImage;
 
-layout(set = 8, binding = 0) uniform sampler2D brdfLUT;
+layout(set = 8, binding = 0) uniform samplerCube SamplerCubeMapRad;
+
+layout(set = 9, binding = 0) uniform sampler2D brdfLUT;
+
+shared uint minDistance;
 
 
 vec3 getProbeLighting(ProbeGridData gridData, vec3 relPos, vec3 N, vec3 V, float roughness, float alpha, vec3 F0, vec3 albedo, float diffAO)
@@ -92,7 +98,7 @@ void traceROMA(out vec3 radiance, out float distanceToHit, ProbeGridData gridDat
 	if (!(all(greaterThanEqual(rayOriginROM, ivec3(0))) && all(lessThan(rayOriginROM, ivec3(voxelData.resolutionROM)))))
 	{
 		radiance = vec3(0.0, 0.0, 0.0);
-		distanceToHit = 0.0;
+		distanceToHit = gridData.probeFurthestActiveDistance;
 		return;
 	}
 	
@@ -165,7 +171,6 @@ void traceROMA(out vec3 radiance, out float distanceToHit, ProbeGridData gridDat
 		radiance += emission;
 		distanceToHit = min(vDist, gridData.probeFurthestActiveDistance);
 	}
-
 }
 uint getIndexROMA(int invocationIndex, bool positiveDirInvocation)
 {
@@ -201,7 +206,24 @@ void main()
 	vec3 radiance;
 	float distanceToHit;
 	traceROMA(radiance, distanceToHit, gridData, voxelData, probeOrigin, indexROMA, positiveDirInvocation);
-	
+
+	if (gl_LocalInvocationIndex == 0)
+	{
+		minDistance = floatBitsToUint(gridData.probeFurthestActiveDistance);
+	}
+
+	barrier();
+
+	atomicMin(minDistance, floatBitsToUint(distanceToHit)); //Type punning, potentially dangerous.
+
+	barrier();
+
+	if (gl_LocalInvocationIndex == 0)
+	{
+		uint stateBitmask = ((uintBitsToFloat(minDistance) == gridData.probeFurthestActiveDistance) ? PROBE_STATE_IMPOTENT : 0);
+		imageStore(ProbeStateImage, probeID, uvec4(stateBitmask, uvec3(0.0)));
+	}
+
 	imageStore(RadianceProbes, probeOuterCoord, vec4(radiance, 0.0));
 	imageStore(DistanceProbes, probeOuterCoord, vec4(distanceToHit, vec3(0.0)));
 }

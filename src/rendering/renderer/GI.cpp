@@ -17,6 +17,10 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 		DDGI_PROBE_X_COUNT, DDGI_PROBE_Y_COUNT, DDGI_PROBE_Z_COUNT,
 		VK_IMAGE_USAGE_STORAGE_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
+	m_probeStateImage{ device, VK_FORMAT_R8_UINT,
+		DDGI_PROBE_X_COUNT, DDGI_PROBE_Y_COUNT, DDGI_PROBE_Z_COUNT,
+		VK_IMAGE_USAGE_STORAGE_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_ddgiRadianceProbes{ device, VK_FORMAT_R16G16B16A16_SFLOAT,
 		DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_X_COUNT * DDGI_PROBE_Z_COUNT, DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_Y_COUNT,
 		VK_IMAGE_USAGE_STORAGE_BIT,
@@ -170,6 +174,22 @@ void GI::initialize(VkDevice device,
 		std::array<VkDescriptorBindingFlags, 0>{},
 		std::vector<std::vector<VkDescriptorDataEXT>>{
 		std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &imageInfoProbeOffsets} }},
+		false);
+
+	VkDescriptorSetLayoutBinding bindingProbeState{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo imageInfoProbeState{ .imageView = m_probeStateImage.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
+	m_resSetWriteProbeState.initializeSet(device, 1, {},
+		std::array{ bindingProbeState },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+		std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &imageInfoProbeState} }},
+		false);
+	imageInfoProbeState.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+	m_resSetReadProbeState.initializeSet(device, 1, {},
+		std::array{ bindingProbeState },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+		std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &imageInfoProbeState} }},
 		false);
 
 	VkDescriptorSetLayoutBinding bindingEmissionMetRoughVM{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
@@ -406,19 +426,19 @@ void GI::initialize(VkDevice device,
 	m_calcProbeOffsets.initializaCompute(device, "shaders/cmpld/gi_offset_probes_comp.spv", resourceSetsOffsetProbes,
 		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataOffsetProbes)}} });
 
-	std::array<std::reference_wrapper<const ResourceSet>, 9> resourceSetsTraceProbes{
+	std::array<std::reference_wrapper<const ResourceSet>, 10> resourceSetsTraceProbes{
 		m_resSetProbesWrite, m_resSetGIMetadata, 
 		m_resSetReadROMA, 
 		m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead, 
-		m_resSetIndirectDiffuseLighting, m_resSetReadProbeOffsets, distantProbeRS, BRDFLUTRS };
+		m_resSetIndirectDiffuseLighting, m_resSetReadProbeOffsets, m_resSetWriteProbeState, distantProbeRS, BRDFLUTRS };
 	m_traceProbes.initializaCompute(device, "shaders/cmpld/gi_probe_tracing_comp.spv", resourceSetsTraceProbes,
 	{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataTraceProbes)}} });
 
 
-	std::array<std::reference_wrapper<const ResourceSet>, 3> resourceSetsComputeIrradiance{ m_resSetRadianceProbesRead, m_resSetIrradProbesWrite, m_resSetMappedDirections };
+	std::array<std::reference_wrapper<const ResourceSet>, 4> resourceSetsComputeIrradiance{ m_resSetRadianceProbesRead, m_resSetIrradProbesWrite, m_resSetMappedDirections, m_resSetReadProbeState };
 	m_computeIrradiance.initializaCompute(device, "shaders/cmpld/gi_compute_irradiance_comp.spv", resourceSetsComputeIrradiance);
 
-	std::array<std::reference_wrapper<const ResourceSet>, 3> resourceSetsComputeVisibility{ m_resSetDistanceProbesRead, m_resSetVisibProbesWrite, m_resSetMappedDirections };
+	std::array<std::reference_wrapper<const ResourceSet>, 4> resourceSetsComputeVisibility{ m_resSetDistanceProbesRead, m_resSetVisibProbesWrite, m_resSetMappedDirections, m_resSetReadProbeState };
 	m_computeVisibility.initializaCompute(device, "shaders/cmpld/gi_compute_visibility_comp.spv", resourceSetsComputeVisibility);
 
 

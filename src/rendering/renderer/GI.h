@@ -74,6 +74,7 @@ private:
 	Image m_refdirSpec;
 	Image m_distToHit;
 	Image m_probeOffsetsImage;
+	Image m_probeStateImage;
 	Image m_ddgiRadianceProbes;
 	Image m_ddgiDistanceProbes;
 	std::array<Image, 2> m_ddgiIrradianceProbes;
@@ -94,6 +95,8 @@ private:
 	ResourceSet m_resSetReadStableROMA{};
 	ResourceSet m_resSetWriteProbeOffsets{};
 	ResourceSet m_resSetReadProbeOffsets{};
+	ResourceSet m_resSetWriteProbeState{};
+	ResourceSet m_resSetReadProbeState{};
 	ResourceSet m_resSetAlbedoNormalWrite{};
 	ResourceSet m_resSetAlbedoNormalRead{};
 	ResourceSet m_resSetEmissionMetRoughWrite{};
@@ -361,7 +364,7 @@ public:
 		{
 			constexpr int romCount{ ROM_NUMBER };
 			constexpr int sromCount{ STABLE_ROM_NUMBER };
-			VkImageMemoryBarrier2 barriers[romCount + sromCount + 7]{};
+			VkImageMemoryBarrier2 barriers[romCount + sromCount + 8]{};
 			for (int i{ 0 }; i < romCount; ++i)
 			{
 				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -409,6 +412,11 @@ public:
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_probeOffsetsImage.getImageHandle(), m_probeOffsetsImage.getSubresourceRange());
 
+			barriers[romCount + sromCount + 7] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+				m_probeStateImage.getImageHandle(), m_probeStateImage.getSubresourceRange());
+
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
 
@@ -419,7 +427,7 @@ public:
 		changeHistoryAndNewProbes();
 
 		{
-			VkImageMemoryBarrier2 barriers[4]{};
+			VkImageMemoryBarrier2 barriers[5]{};
 
 			barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
@@ -441,6 +449,11 @@ public:
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_ddgiVisibilityProbes[m_currentNewProbes].getImageHandle(), m_ddgiVisibilityProbes[m_currentNewProbes].getSubresourceRange());
+
+			barriers[4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+				m_probeStateImage.getImageHandle(), m_probeStateImage.getSubresourceRange());
 
 			VkDependencyInfo probeDependency{ SyncOperations::createDependencyInfo(barriers) };
 

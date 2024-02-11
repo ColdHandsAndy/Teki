@@ -20,6 +20,8 @@
 #define DDGI_IRRADIANCE_INVERSE_SCALE (1.0 / DDGI_IRRADIANCE_SCALE)
 #define DDGI_VISIBILIYY_SHARPNESS 32
 
+#define PROBE_STATE_IMPOTENT 0x01
+
 struct ProbeGridData
 {
 	vec3 relOriginProbePos;
