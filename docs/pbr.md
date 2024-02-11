@@ -7,6 +7,6 @@ PBR in Teki is mostly based on the [2014 Frostbite paper](https://seblagarde.fil
 
 ![](images/spheres_pbr.png)  
 ![](images/helmet_pbr.png)  
-###### Credit: [GLTF Sample Assets]([https://sketchfab.com/Andywoodhead](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DamagedHelmet))
+###### Credit: [GLTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DamagedHelmet)
 
 ###### Cubemaps are made from HDRIs from [Poly Haven](https://polyhaven.com/hdris)
