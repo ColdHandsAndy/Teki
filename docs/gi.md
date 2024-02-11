@@ -1,8 +1,8 @@
-# Global Illumination  
-  
+# Global Illumination
 
 | ![](images/indirect_dif.png) |
 | :---: | 
+| *Figure 1. Indirect disabled and enabled difference.* |
 
 Global illumination system in Teki separates direct and indirect lighting.  
 
