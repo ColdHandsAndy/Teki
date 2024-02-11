@@ -1,4 +1,5 @@
-# Global Illumination
+# Global Illumination  
+  
 
 | ![](images/indirect_dif.png) |
 | :---: | 
