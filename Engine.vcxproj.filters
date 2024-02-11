@@ -265,6 +265,7 @@
     <CustomBuild Include="shaders\not cmpld\gi_emission_merge_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\gi_trace_specular_comp.comp" />
     <CustomBuild Include="shaders\not cmpld\bilateral_comp.comp" />
+    <CustomBuild Include="shaders\not cmpld\gi_offset_probes_comp.comp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="shaders\not cmpld\include\pbr.h">

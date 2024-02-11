@@ -34,7 +34,7 @@
 #define BOM_PACKED_DEPTH (OCCUPANCY_RESOLUTION / 4)
 
 #define VOXELMAP_RESOLUTION (OCCUPANCY_RESOLUTION)
-#define VOXEL_TO_METER_SCALE (BIT_TO_METER_SCALE * (OCCUPANCY_RESOLUTION / VOXELMAP_RESOLUTION))
+#define VOXEL_METER_SCALE (BIT_TO_METER_SCALE * (OCCUPANCY_RESOLUTION / VOXELMAP_RESOLUTION))
 
 #define ROM_NUMBER 32
 #define STABLE_ROM_NUMBER 4
@@ -55,7 +55,9 @@
 #define DDGI_PROBE_X_OFFSET float(DDGI_PROBE_X_DISTANCE / 2.0)
 #define DDGI_PROBE_Y_OFFSET float(DDGI_PROBE_Y_DISTANCE / 2.0)
 #define DDGI_PROBE_Z_OFFSET float(DDGI_PROBE_Z_DISTANCE / 2.0)
-#define DDGI_PROBE_MAX_VISIBILITY_RANGE (std::sqrt(DDGI_PROBE_X_DISTANCE * DDGI_PROBE_X_DISTANCE + DDGI_PROBE_Y_DISTANCE * DDGI_PROBE_Y_DISTANCE + DDGI_PROBE_Z_DISTANCE * DDGI_PROBE_Z_DISTANCE))
+#define DDGI_PROBE_MIN_PROBE_DISTANCE (std::min(std::min(DDGI_PROBE_X_DISTANCE, DDGI_PROBE_Y_DISTANCE), DDGI_PROBE_Z_DISTANCE))
+#define DDGI_PROBE_MAX_PROBE_DISTANCE (std::sqrt(DDGI_PROBE_X_DISTANCE * DDGI_PROBE_X_DISTANCE + DDGI_PROBE_Y_DISTANCE * DDGI_PROBE_Y_DISTANCE + DDGI_PROBE_Z_DISTANCE * DDGI_PROBE_Z_DISTANCE))
+#define DDGI_PROBE_MAX_VISIBILITY_RANGE DDGI_PROBE_MAX_PROBE_DISTANCE
 
 #define TUNABLE_SHADOW_BIAS 0.7
 
@@ -71,6 +73,7 @@ private:
 	Image m_depthSpec;
 	Image m_refdirSpec;
 	Image m_distToHit;
+	Image m_probeOffsetsImage;
 	Image m_ddgiRadianceProbes;
 	Image m_ddgiDistanceProbes;
 	std::array<Image, 2> m_ddgiIrradianceProbes;
@@ -89,6 +92,8 @@ private:
 	ResourceSet m_resSetWriteROMA{};
 	ResourceSet m_resSetReadROMA{};
 	ResourceSet m_resSetReadStableROMA{};
+	ResourceSet m_resSetWriteProbeOffsets{};
+	ResourceSet m_resSetReadProbeOffsets{};
 	ResourceSet m_resSetAlbedoNormalWrite{};
 	ResourceSet m_resSetAlbedoNormalRead{};
 	ResourceSet m_resSetEmissionMetRoughWrite{};
@@ -108,8 +113,9 @@ private:
 
 	Pipeline m_voxelize{};
 	Pipeline m_createROMA{};
+	Pipeline m_calcProbeOffsets{};
 	Pipeline m_traceProbes{};
-	Pipeline m_traceSpecular;
+	Pipeline m_traceSpecular{};
 	Pipeline m_computeIrradiance{};
 	Pipeline m_computeVisibility{};
 	Pipeline m_injectLight{};
@@ -162,7 +168,14 @@ private:
 
 	struct
 	{
+		glm::vec3 probeDistancesInVoxels;
+		float offsetNormalized;
+	} m_pcDataOffsetProbes{};
+
+	struct
+	{
 		uint32_t skyboxEnabled;
+		float minProbeDist;
 	} m_pcDataTraceProbes{};
 
 	struct 
@@ -314,7 +327,7 @@ public:
 		{
 			constexpr int romCount{ ROM_NUMBER };
 			constexpr int sromCount{ STABLE_ROM_NUMBER };
-			VkImageMemoryBarrier2 barriers[romCount + sromCount]{};
+			VkImageMemoryBarrier2 barriers[romCount + sromCount + 1]{};
 
 			for (int i{ 0 }; i < romCount; ++i)
 			{
@@ -331,8 +344,15 @@ public:
 					m_rayAlignedOccupancyMapArrayStable[j].getImageHandle(), m_rayAlignedOccupancyMapArrayStable[j].getSubresourceRange());
 			}
 
+			barriers[romCount + sromCount + 0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+				m_probeOffsetsImage.getImageHandle(), m_probeOffsetsImage.getSubresourceRange());
+
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
+
+		cmdDispatchCalculateOffsets(cb);
 
 		if (profile) queries.cmdWriteStart(cb, queryIndexGICreateROMA);
 		cmdDispatchCreateROMA(cb);
@@ -341,7 +361,7 @@ public:
 		{
 			constexpr int romCount{ ROM_NUMBER };
 			constexpr int sromCount{ STABLE_ROM_NUMBER };
-			VkImageMemoryBarrier2 barriers[romCount + sromCount + 6]{};
+			VkImageMemoryBarrier2 barriers[romCount + sromCount + 7]{};
 			for (int i{ 0 }; i < romCount; ++i)
 			{
 				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -383,6 +403,11 @@ public:
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_distToHit.getImageHandle(), m_distToHit.getSubresourceRange());
+
+			barriers[romCount + sromCount + 6] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+				m_probeOffsetsImage.getImageHandle(), m_probeOffsetsImage.getSubresourceRange());
 
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
@@ -535,6 +560,7 @@ private:
 	void cmdDispatchCreateROMA(VkCommandBuffer cb);
 	void cmdDispatchInjectLights(VkCommandBuffer cb);
 	void cmdDispatchMergeEmission(VkCommandBuffer cb);
+	void cmdDispatchCalculateOffsets(VkCommandBuffer cb);
 	void cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled);
 	void cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFromNDC, const glm::vec3& campos, bool skyboxEnabled);
 	void cmdDispatchComputeIrradianceAndVisibility(VkCommandBuffer cb);

@@ -1,15 +1,14 @@
 { 
 	"models" : 
 		[
-			{"path" : "A:/Soft/gltfpack-windows/om/town/scene.gltf", "model index" : 4},
-			{"path" : "A:/Soft/gltfpack-windows/om/dhelmet/scene.gltf", "model index" : 7}
+			{"path" : "A:/Soft/gltfpack-windows/om/pica/scene.gltf", "model index" : 0}
 		],
 
 	"environment" : "A:/materials/distant_probes_cubemaps/sky",
 
 	"model matrices" : 
 		[
-			[1.0,  0.0,  0.0,  0.0,   0.0,  1.0,  0.0,  0.0,   0.0,  0.0,  1.0,  0.0,   -1.0,  -2.0,  1.0,  1.0],
+			[1.0,  0.0,  0.0,  0.0,   0.0,  1.0,  0.0,  0.0,   0.0,  0.0,  1.0,  0.0,   -1.0,  -1.0,  1.0,  1.0],
 			[2.0,  0.0,  0.0,  0.0,   0.0, 2.0,  0.0,  0.0,   0.0,  0.0,  2.0,  0.0,   -8.0,  -11.0,  -12.5,  1.0],
 			[4.0,  0.0,  0.0,  0.0,   0.0, 4.0,  0.0,  0.0,   0.0,  0.0,  4.0,  0.0,   9.0,  -9.0,  0.0,  1.0],
 			[40.0,  0.0,  0.0,  0.0,   0.0,  40.0,  0.0,  0.0,  0.0,  0.0,  40.0,  0.0,   0.0,  -20.0,  0.0,  1.0],

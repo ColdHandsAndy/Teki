@@ -147,8 +147,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
-	Window window{ "Teki" };
+	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
+	//Window window{ "Teki" };
 	Camera camera{NEAR_PLANE, FAR_PLANE, glm::radians(80.0f), static_cast<float>(window.getWidth()) / static_cast<float>(window.getHeight())};
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);

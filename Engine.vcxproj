@@ -458,6 +458,11 @@
     <CustomBuild Include="shaders\not cmpld\bilateral_comp.comp">
       <FileType>Document</FileType>
     </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_offset_probes_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
     <None Include="shaders\vert_shader.vs" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

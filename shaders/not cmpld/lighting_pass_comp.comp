@@ -239,6 +239,7 @@ void evalLightTerms(out vec3 F, out vec3 Fr, out float Fd, float NdotV, float Nd
 	F			= F_Schlick(data.F0, 1.0, LdotH);
 	Fr			= D * F * Vis / PI;
 	Fd			= Fr_DisneyDiffuse(NdotV, NdotL, LdotH, data.roughness) / PI;
+	//Fd			= Fr_LambertDiffuse();
 }
 vec3 directionalLightEval(vec3 V, vec3 N, float NdotV, MaterialData data)
 {

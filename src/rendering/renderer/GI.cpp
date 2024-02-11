@@ -13,6 +13,10 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 		CompileTimeArray::uniform_array_from_args<Image, STABLE_ROM_NUMBER>
 			(device, VK_FORMAT_R32_UINT, ROM_PACKED_WIDTH, ROM_PACKED_HEIGHT, ROM_PACKED_DEPTH, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false) 
 	},
+	m_probeOffsetsImage{ device, VK_FORMAT_R8G8B8A8_SNORM,
+		DDGI_PROBE_X_COUNT, DDGI_PROBE_Y_COUNT, DDGI_PROBE_Z_COUNT,
+		VK_IMAGE_USAGE_STORAGE_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_ddgiRadianceProbes{ device, VK_FORMAT_R16G16B16A16_SFLOAT,
 		DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_X_COUNT * DDGI_PROBE_Z_COUNT, DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_Y_COUNT,
 		VK_IMAGE_USAGE_STORAGE_BIT,
@@ -150,6 +154,22 @@ void GI::initialize(VkDevice device,
 		std::vector<std::vector<VkDescriptorDataEXT>>{
 		descDataStableROMA,
 			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &viewmatsStableROMAAddressInfo0}, { .pUniformBuffer = &viewmatsStableROMAAddressInfo1 } }},
+		false);
+
+	VkDescriptorSetLayoutBinding bindingProbeOffsets{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo imageInfoProbeOffsets{ .imageView = m_probeOffsetsImage.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
+	m_resSetWriteProbeOffsets.initializeSet(device, 1, {},
+		std::array{ bindingProbeOffsets },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &imageInfoProbeOffsets} }},
+		false);
+	imageInfoProbeOffsets.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+	m_resSetReadProbeOffsets.initializeSet(device, 1, {},
+		std::array{ bindingProbeOffsets },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+		std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &imageInfoProbeOffsets} }},
 		false);
 
 	VkDescriptorSetLayoutBinding bindingEmissionMetRoughVM{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
@@ -382,12 +402,15 @@ void GI::initialize(VkDevice device,
 	m_createROMA.initializaCompute(device, "shaders/cmpld/gi_create_ROMA_comp.spv", resourceSetsCreateROMA,
 		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataROM)}} });
 
+	std::array<std::reference_wrapper<const ResourceSet>, 4> resourceSetsOffsetProbes{ m_resSetGIMetadata, m_resSetReadBOM, m_resSetAlbedoNormalRead, m_resSetWriteProbeOffsets };
+	m_calcProbeOffsets.initializaCompute(device, "shaders/cmpld/gi_offset_probes_comp.spv", resourceSetsOffsetProbes,
+		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataOffsetProbes)}} });
 
-	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSetsTraceProbes{
+	std::array<std::reference_wrapper<const ResourceSet>, 9> resourceSetsTraceProbes{
 		m_resSetProbesWrite, m_resSetGIMetadata, 
 		m_resSetReadROMA, 
 		m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead, 
-		m_resSetIndirectDiffuseLighting, distantProbeRS, BRDFLUTRS };
+		m_resSetIndirectDiffuseLighting, m_resSetReadProbeOffsets, distantProbeRS, BRDFLUTRS };
 	m_traceProbes.initializaCompute(device, "shaders/cmpld/gi_probe_tracing_comp.spv", resourceSetsTraceProbes,
 	{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataTraceProbes)}} });
 
@@ -644,7 +667,7 @@ void GI::cmdDispatchInjectLights(VkCommandBuffer cb)
 	m_injectLight.cmdBindResourceSets(cb);
 
 	m_pcDataLightInjection.voxelmapOriginWorld = SCENE_ORIGIN - glm::vec3(OCCUPANCY_METER_SIZE / 2.0);
-	m_pcDataLightInjection.voxelmapScale = 1.0 / VOXEL_TO_METER_SCALE;
+	m_pcDataLightInjection.voxelmapScale = 1.0 / VOXEL_METER_SCALE;
 	m_pcDataLightInjection.voxelmapResolution = VOXELMAP_RESOLUTION;
 
 	for (int i{ 0 }, lightID{ 1 }; i < m_injectedLightsCount; ++i, ++lightID)
@@ -658,7 +681,7 @@ void GI::cmdDispatchInjectLights(VkCommandBuffer cb)
 		m_pcDataLightInjection.listIndex = lightData.shadowListIndex;
 		m_pcDataLightInjection.lightID = lightID;
 
-		if (lightData.length < VOXEL_TO_METER_SCALE)
+		if (lightData.length < VOXEL_METER_SCALE)
 			continue;
 
 		constexpr uint32_t groupSize{ 8 };
@@ -668,7 +691,7 @@ void GI::cmdDispatchInjectLights(VkCommandBuffer cb)
 			{
 				m_pcDataLightInjection.type = type;
 				m_pcDataLightInjection.fovScale = 1.0f;
-				const uint32_t injectionSize{ std::min(DISPATCH_SIZE(uint32_t((lightData.length * 2 * m_pcDataLightInjection.fovScale) / VOXEL_TO_METER_SCALE), groupSize), static_cast<uint32_t>(VOXELMAP_RESOLUTION / groupSize)) };
+				const uint32_t injectionSize{ std::min(DISPATCH_SIZE(uint32_t((lightData.length * 2 * m_pcDataLightInjection.fovScale) / VOXEL_METER_SCALE), groupSize), static_cast<uint32_t>(VOXELMAP_RESOLUTION / groupSize)) };
 				m_pcDataLightInjection.injectionScale = 1.0f / injectionSize;
 				m_pcDataLightInjection.layerIndex = j;
 				m_pcDataLightInjection.viewmatIndex = lightData.shadowMatrixIndex + j;
@@ -680,7 +703,7 @@ void GI::cmdDispatchInjectLights(VkCommandBuffer cb)
 		{
 			m_pcDataLightInjection.type = type;
 			m_pcDataLightInjection.fovScale = std::sqrt(1.0f - lightData.cutoffCos * lightData.cutoffCos) / lightData.cutoffCos;
-			const uint32_t injectionSize{ std::min(DISPATCH_SIZE(uint32_t((lightData.length * 2 * m_pcDataLightInjection.fovScale) / VOXEL_TO_METER_SCALE), groupSize), static_cast<uint32_t>(VOXELMAP_RESOLUTION / groupSize)) };
+			const uint32_t injectionSize{ std::min(DISPATCH_SIZE(uint32_t((lightData.length * 2 * m_pcDataLightInjection.fovScale) / VOXEL_METER_SCALE), groupSize), static_cast<uint32_t>(VOXELMAP_RESOLUTION / groupSize)) };
 			m_pcDataLightInjection.injectionScale = 1.0f / injectionSize;
 			m_pcDataLightInjection.layerIndex = lightData.shadowLayerIndex;
 			m_pcDataLightInjection.viewmatIndex = lightData.shadowMatrixIndex;
@@ -703,6 +726,19 @@ void GI::cmdDispatchMergeEmission(VkCommandBuffer cb)
 	constexpr uint32_t groupSize{ 4 };
 	vkCmdDispatch(cb, DISPATCH_SIZE(VOXELMAP_RESOLUTION, groupSize), DISPATCH_SIZE(VOXELMAP_RESOLUTION, groupSize), DISPATCH_SIZE(VOXELMAP_RESOLUTION, groupSize));
 }
+void GI::cmdDispatchCalculateOffsets(VkCommandBuffer cb)
+{
+	m_calcProbeOffsets.cmdBind(cb);
+	m_calcProbeOffsets.cmdBindResourceSets(cb);
+
+	m_pcDataOffsetProbes.probeDistancesInVoxels = glm::vec3(DDGI_PROBE_X_DISTANCE / VOXEL_METER_SCALE, DDGI_PROBE_Y_DISTANCE / VOXEL_METER_SCALE, DDGI_PROBE_Z_DISTANCE / VOXEL_METER_SCALE);
+	m_pcDataOffsetProbes.offsetNormalized = VOXEL_METER_SCALE / DDGI_PROBE_MIN_PROBE_DISTANCE;
+
+	vkCmdPushConstants(cb, m_calcProbeOffsets.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_pcDataOffsetProbes), &m_pcDataOffsetProbes);
+
+	constexpr uint32_t groupSize{ 4 };
+	vkCmdDispatch(cb, DISPATCH_SIZE(DDGI_PROBE_X_COUNT, groupSize), DISPATCH_SIZE(DDGI_PROBE_Y_COUNT, groupSize), DISPATCH_SIZE(DDGI_PROBE_Z_COUNT, groupSize));
+}
 void GI::cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled)
 {
 	m_traceProbes.setResourceInUse(2, m_currentBuffers);
@@ -711,6 +747,7 @@ void GI::cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled)
 	m_traceProbes.cmdBindResourceSets(cb);
 
 	m_pcDataTraceProbes.skyboxEnabled = skyboxEnabled ? 1u : 0u;
+	m_pcDataTraceProbes.minProbeDist = DDGI_PROBE_MIN_PROBE_DISTANCE;
 	vkCmdPushConstants(cb, m_traceProbes.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t), &m_pcDataTraceProbes);
 	constexpr uint32_t groupSizeX{ DDGI_PROBE_LIGHT_SIDE_SIZE };
 	constexpr uint32_t groupSizeY{ DDGI_PROBE_LIGHT_SIDE_SIZE };
@@ -817,7 +854,7 @@ void GI::initializeDebug(VkDevice device, const ResourceSet& viewprojRS, uint32_
 			std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pSampledImage = &visibilityProbesAddressInfo0 }, VkDescriptorDataEXT{ .pSampledImage = &visibilityProbesAddressInfo1 } },
 		}},
 		true);
-	std::array<std::reference_wrapper<const ResourceSet>, 2> resourceSetsDebugProbe{ viewprojRS, m_resSetProbesDebug };
+	std::array<std::reference_wrapper<const ResourceSet>, 3> resourceSetsDebugProbe{ viewprojRS, m_resSetProbesDebug, m_resSetReadProbeOffsets };
 	m_debugProbes.initializeGraphics(assembler,
 		{ { ShaderStage{.stage = VK_SHADER_STAGE_VERTEX_BIT, .filepath = "shaders/cmpld/debug_probe_vert.spv"},
 		ShaderStage{.stage = VK_SHADER_STAGE_FRAGMENT_BIT, .filepath = "shaders/cmpld/debug_probe_frag.spv"} } },
