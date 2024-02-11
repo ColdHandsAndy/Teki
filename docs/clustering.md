@@ -2,8 +2,9 @@
 
 Teki uses light culling algorithm described in [this](https://www.activision.com/cdn/research/2017_Sig_Improved_Culling_final.pdf) Call of Duty presentation.  
 
-#### Example from the renderer  
-[![](https://img.youtube.com/vi/Z9wthpAi6As/0.jpg)](https://youtu.be/Z9wthpAi6As)
+| [![](https://img.youtube.com/vi/Z9wthpAi6As/0.jpg)](https://youtu.be/Z9wthpAi6As) |
+| :---: | 
+| Picture links to a Youtube video, showcasing the technique. |
 
 #### Brief overview of the algorithm.
 1. Lights are culled against the view frustum.
