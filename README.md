@@ -1,4 +1,3 @@
-# Teki
 ![](docs/images/banner.png)
 
 Teki is a Vulkan-based toy-renderer. It is my primary environment for experimenting with real-time rendering techniques and general programming as well.
