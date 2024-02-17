@@ -37,10 +37,11 @@
 #define VOXEL_METER_SCALE (BIT_TO_METER_SCALE * (OCCUPANCY_RESOLUTION / VOXELMAP_RESOLUTION))
 
 #define ROM_NUMBER 32
-#define STABLE_ROM_NUMBER 4
 #define ROM_PACKED_WIDTH OCCUPANCY_RESOLUTION
 #define ROM_PACKED_HEIGHT OCCUPANCY_RESOLUTION
 #define ROM_PACKED_DEPTH (OCCUPANCY_RESOLUTION / 32)
+
+#define HOM_MAX_MIP_LEVELS 16
 
 #define DDGI_PROBE_LIGHT_SIDE_SIZE 8
 #define DDGI_PROBE_VISIBILITY_SIDE_SIZE 8
@@ -64,7 +65,7 @@
 class GI
 {
 private:
-	Image m_baseOccupancyMap;
+	Image m_occupancyMaps;
 	Image m_albedoNormalVoxelmap;
 	Image m_emissionMetRoughVoxelmap;
 	Image m_dynamicEmissionVoxelmap;
@@ -80,19 +81,19 @@ private:
 	std::array<Image, 2> m_ddgiIrradianceProbes;
 	std::array<Image, 2> m_ddgiVisibilityProbes;
 	std::array<Image, ROM_NUMBER> m_rayAlignedOccupancyMapArray;
-	std::array<Image, STABLE_ROM_NUMBER> m_rayAlignedOccupancyMapArrayStable;
 	BufferMapped m_ROMAtransformMatrices[2]{};
-	BufferMapped m_stableROMAtransformMatrices[2]{};
 	BufferMapped m_mappedDirections[2]{};
+	ExteriorImageViews m_hierarchicalOMImageViews;
 
 	uint16_t m_injectedLightsCount{ 0 };
 	uint16_t m_injectedLightsIndices[MAX_LIGHTS]{};
 
 	ResourceSet m_resSetWriteBOM{};
 	ResourceSet m_resSetReadBOM{};
+	ResourceSet m_resSetReadHierarchicalOM{};
+	ResourceSet m_resSetWriteHierarchicalOM{};
 	ResourceSet m_resSetWriteROMA{};
 	ResourceSet m_resSetReadROMA{};
-	ResourceSet m_resSetReadStableROMA{};
 	ResourceSet m_resSetWriteProbeOffsets{};
 	ResourceSet m_resSetReadProbeOffsets{};
 	ResourceSet m_resSetWriteProbeState{};
@@ -116,6 +117,7 @@ private:
 
 	Pipeline m_voxelize{};
 	Pipeline m_createROMA{};
+	Pipeline m_createHierarchicalOM{};
 	Pipeline m_calcProbeOffsets{};
 	Pipeline m_traceProbes{};
 	Pipeline m_traceSpecular{};
@@ -127,6 +129,7 @@ private:
 
 	uint32_t m_currentNewProbes{ 0 };
 	uint32_t m_currentBuffers{ 0 };
+	uint32_t m_omMipsToGenerate{ 0 };
 
 	SyncOperations::EventHolder<1> m_events;
 
@@ -138,6 +141,12 @@ private:
 		uint32_t resolutionBOM{};
 		uint32_t resolutionVM{};
 	} m_pcDataBOM{};
+
+	struct
+	{
+		glm::ivec3 dstResolution;
+		uint32_t srcMipLevel;
+	} m_pcDataCreateHOM{};
 
 	struct
 	{
@@ -228,11 +237,12 @@ private:
 	{
 		uint32_t resolutionROM;
 		uint32_t resolutionVM;
+		uint32_t maxMipOM;
 		float occupationMeterSize;
 		float occupationHalfMeterSize;
 		float invOccupationHalfMeterSize;
 		float offsetNormalScaleROM;
-		//pad2
+		//pad1
 	};
 	static_assert(sizeof(VoxelizationData) == 32);
 	struct Cascade
@@ -329,8 +339,7 @@ public:
 
 		{
 			constexpr int romCount{ ROM_NUMBER };
-			constexpr int sromCount{ STABLE_ROM_NUMBER };
-			VkImageMemoryBarrier2 barriers[romCount + sromCount + 1]{};
+			VkImageMemoryBarrier2 barriers[romCount + 2]{};
 
 			for (int i{ 0 }; i < romCount; ++i)
 			{
@@ -339,23 +348,23 @@ public:
 					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 					m_rayAlignedOccupancyMapArray[i].getImageHandle(), m_rayAlignedOccupancyMapArray[i].getSubresourceRange());
 			}
-			for (int i{ romCount }, j{ 0 }; i < romCount + sromCount; ++i, ++j)
-			{
-				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-					m_rayAlignedOccupancyMapArrayStable[j].getImageHandle(), m_rayAlignedOccupancyMapArrayStable[j].getSubresourceRange());
-			}
 
-			barriers[romCount + sromCount + 0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_probeOffsetsImage.getImageHandle(), m_probeOffsetsImage.getSubresourceRange());
+
+			barriers[romCount + 1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
+				VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+				m_occupancyMaps.getImageHandle(), m_occupancyMaps.getSubresourceRange());
 
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
 
 		cmdDispatchCalculateOffsets(cb);
+
+		cmdDispatchCreateHierarchicalOM(cb);
 
 		if (profile) queries.cmdWriteStart(cb, queryIndexGICreateROMA);
 		cmdDispatchCreateROMA(cb);
@@ -363,8 +372,7 @@ public:
 
 		{
 			constexpr int romCount{ ROM_NUMBER };
-			constexpr int sromCount{ STABLE_ROM_NUMBER };
-			VkImageMemoryBarrier2 barriers[romCount + sromCount + 8]{};
+			VkImageMemoryBarrier2 barriers[romCount + 9]{};
 			for (int i{ 0 }; i < romCount; ++i)
 			{
 				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -372,50 +380,48 @@ public:
 					VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 					m_rayAlignedOccupancyMapArray[i].getImageHandle(), m_rayAlignedOccupancyMapArray[i].getSubresourceRange());
 			}
-			for (int i{ romCount }, j{ 0 }; i < romCount + sromCount; ++i, ++j)
-			{
-				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-					VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-					VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-					m_rayAlignedOccupancyMapArrayStable[j].getImageHandle(), m_rayAlignedOccupancyMapArrayStable[j].getSubresourceRange());
-			}
 
-			barriers[romCount + sromCount + 0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_ddgiRadianceProbes.getImageHandle(), m_ddgiRadianceProbes.getSubresourceRange());
 
-			barriers[romCount + sromCount + 1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_ddgiDistanceProbes.getImageHandle(), m_ddgiDistanceProbes.getSubresourceRange());
 
-			barriers[romCount + sromCount + 2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_depthSpec.getImageHandle(), m_depthSpec.getSubresourceRange());
-			barriers[romCount + sromCount + 3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_refdirSpec.getImageHandle(), m_refdirSpec.getSubresourceRange());
-			barriers[romCount + sromCount + 4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_specularReflectionGlossy.getImageHandle(), m_specularReflectionGlossy.getSubresourceRange());
-			barriers[romCount + sromCount + 5] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 5] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_distToHit.getImageHandle(), m_distToHit.getSubresourceRange());
 
-			barriers[romCount + sromCount + 6] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 6] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_probeOffsetsImage.getImageHandle(), m_probeOffsetsImage.getSubresourceRange());
 
-			barriers[romCount + sromCount + 7] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 7] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_probeStateImage.getImageHandle(), m_probeStateImage.getSubresourceRange());
+
+			barriers[romCount + 8] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+				m_occupancyMaps.getImageHandle(), m_occupancyMaps.getSubresourceRange());
 
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
@@ -570,6 +576,7 @@ private:
 	void cmdTransferClearVoxelized(VkCommandBuffer cb);
 	void cmdTransferClearDynamicEmissionVoxelmap(VkCommandBuffer cb);
 	void cmdPassVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride);
+	void cmdDispatchCreateHierarchicalOM(VkCommandBuffer cb);
 	void cmdDispatchCreateROMA(VkCommandBuffer cb);
 	void cmdDispatchInjectLights(VkCommandBuffer cb);
 	void cmdDispatchMergeEmission(VkCommandBuffer cb);

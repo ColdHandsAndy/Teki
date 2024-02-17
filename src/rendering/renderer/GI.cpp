@@ -1,17 +1,15 @@
 #include "src/rendering/renderer/GI.h"
 
 GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseHostAccessible& baseHostBuffer, BufferBaseHostInaccessible& baseDeviceBuffer, Clusterer& clusterer) :
-	m_baseOccupancyMap{ device, VK_FORMAT_R32_UINT, BOM_PACKED_WIDTH, BOM_PACKED_HEIGHT, BOM_PACKED_DEPTH, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, Image::GRAPHICS_AND_COMPUTE_BIT },
+	m_occupancyMaps{ device, VK_FORMAT_R32_UINT, 
+	BOM_PACKED_WIDTH, BOM_PACKED_HEIGHT, BOM_PACKED_DEPTH, 
+	VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, Image::GRAPHICS_AND_COMPUTE_BIT, true },
 	m_emissionMetRoughVoxelmap{ device, VK_FORMAT_R16G16B16A16_UINT, VOXELMAP_RESOLUTION, VOXELMAP_RESOLUTION, VOXELMAP_RESOLUTION, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_dynamicEmissionVoxelmap{ device, VK_FORMAT_R16G16B16A16_UINT, VOXELMAP_RESOLUTION, VOXELMAP_RESOLUTION, VOXELMAP_RESOLUTION, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_albedoNormalVoxelmap{ device, VK_FORMAT_R8G8B8A8_UINT, VOXELMAP_RESOLUTION, VOXELMAP_RESOLUTION, VOXELMAP_RESOLUTION, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_rayAlignedOccupancyMapArray{
 		CompileTimeArray::uniform_array_from_args<Image, ROM_NUMBER>
 			(device, VK_FORMAT_R32_UINT, ROM_PACKED_WIDTH, ROM_PACKED_HEIGHT, ROM_PACKED_DEPTH, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false)
-	},
-	m_rayAlignedOccupancyMapArrayStable{
-		CompileTimeArray::uniform_array_from_args<Image, STABLE_ROM_NUMBER>
-			(device, VK_FORMAT_R32_UINT, ROM_PACKED_WIDTH, ROM_PACKED_HEIGHT, ROM_PACKED_DEPTH, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, VK_IMAGE_ASPECT_COLOR_BIT, false) 
 	},
 	m_probeOffsetsImage{ device, VK_FORMAT_R8G8B8A8_SNORM,
 		DDGI_PROBE_X_COUNT, DDGI_PROBE_Y_COUNT, DDGI_PROBE_Z_COUNT,
@@ -55,7 +53,7 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 		windowWidth, windowHeight / 2,
 		VK_IMAGE_USAGE_STORAGE_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
-	m_refdirSpec{ device, VK_FORMAT_R8G8_UNORM,
+	m_refdirSpec{ device, VK_FORMAT_R16G16_UNORM,
 		windowWidth, windowHeight / 2,
 		VK_IMAGE_USAGE_STORAGE_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
@@ -63,10 +61,10 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 		windowWidth, windowHeight / 2,
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
+	m_hierarchicalOMImageViews{ device },
 	m_sphereVertexData{ baseDeviceBuffer },
 	m_pcDataBOM{ OCCUPANCY_METER_SIZE / 2.0, OCCUPANCY_RESOLUTION, VOXELMAP_RESOLUTION },
 	m_ROMAtransformMatrices{ {baseHostBuffer, sizeof(glm::mat4x3) * ROM_NUMBER}, {baseHostBuffer, sizeof(glm::mat4x3) * ROM_NUMBER} },
-	m_stableROMAtransformMatrices{ {baseHostBuffer, sizeof(glm::mat4x3) * 8}, {baseHostBuffer, sizeof(glm::mat4x3) * 8} },
 	m_mappedDirections{ {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE}, {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE} },
 	m_giMetadata{ baseHostBuffer, sizeof(GIMetaData) },
 	m_events{ device },
@@ -81,7 +79,7 @@ void GI::initialize(VkDevice device,
 	const ResourceSet& drawDataRS, const ResourceSet& transformMatricesRS, const ResourceSet& materialsTexturesRS, const ResourceSet& distantProbeRS, const ResourceSet& BRDFLUTRS, const ResourceSet& shadowMapsRS, VkSampler generalSampler)
 {
 	VkDescriptorSetLayoutBinding bindingBOM{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo imageInfoBOM{ .imageView = m_baseOccupancyMap.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
+	VkDescriptorImageInfo imageInfoBOM{ .imageView = m_occupancyMaps.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
 	m_resSetWriteBOM.initializeSet(device, 1, {},
 		std::array{ bindingBOM },
 		std::array<VkDescriptorBindingFlags, 0>{},
@@ -96,6 +94,36 @@ void GI::initialize(VkDevice device,
 		std::vector<VkDescriptorDataEXT>{ {.pStorageImage = &imageInfoBOM} }},
 		false);
 
+	const uint32_t maxMipLevelHOM{ static_cast<uint32_t>(std::floor(std::log2(std::min(std::min(BOM_PACKED_WIDTH, BOM_PACKED_HEIGHT), BOM_PACKED_DEPTH))) + 0.1) };
+	const uint32_t mipCountHOM{ maxMipLevelHOM + 1 };
+	m_omMipsToGenerate = maxMipLevelHOM;
+	m_hierarchicalOMImageViews.initialize(m_occupancyMaps, 0, mipCountHOM);
+	VkDescriptorSetLayoutBinding bindingHierarchicalOM{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = HOM_MAX_MIP_LEVELS, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
+	std::vector<VkDescriptorImageInfo> imageInfosHierarchicalOM(mipCountHOM);
+	std::vector<VkDescriptorDataEXT> descDataHierarchicalOM(mipCountHOM);
+	for (int i{ 0 }; i < mipCountHOM; ++i)
+	{
+		imageInfosHierarchicalOM[i].imageView = m_hierarchicalOMImageViews.getImageView(i);
+		imageInfosHierarchicalOM[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		descDataHierarchicalOM[i].pStorageImage = &imageInfosHierarchicalOM[i];
+	}
+	m_resSetWriteHierarchicalOM.initializeSet(device, 1, {},
+		std::array{ bindingHierarchicalOM },
+		std::array<VkDescriptorBindingFlags, 1>{ {VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT} },
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+			descDataHierarchicalOM },
+		false);
+	for (int i{ 0 }; i < mipCountHOM; ++i)
+	{
+		imageInfosHierarchicalOM[i].imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+	}
+	m_resSetReadHierarchicalOM.initializeSet(device, 1, {},
+		std::array{ bindingHierarchicalOM },
+		std::array<VkDescriptorBindingFlags, 1>{ {VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT} },
+		std::vector<std::vector<VkDescriptorDataEXT>>{
+		descDataHierarchicalOM },
+		false);
+
 	VkDescriptorSetLayoutBinding bindingROMA{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = ROM_NUMBER, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT };
 	std::array<VkDescriptorImageInfo, ROM_NUMBER> imageInfosROMA{};
 	std::vector<VkDescriptorDataEXT> descDataROMA(ROM_NUMBER);
@@ -105,20 +133,11 @@ void GI::initialize(VkDevice device,
 		imageInfosROMA[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 		descDataROMA[i].pStorageImage = &imageInfosROMA[i];
 	}
-	VkDescriptorSetLayoutBinding bindingStableROMA{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 8, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT };
-	std::array<VkDescriptorImageInfo, STABLE_ROM_NUMBER> imageInfosStableROMA{};
-	std::vector<VkDescriptorDataEXT> descDataStableROMA(STABLE_ROM_NUMBER);
-	for (int i{ 0 }; i < imageInfosStableROMA.size(); ++i)
-	{
-		imageInfosStableROMA[i].imageView = m_rayAlignedOccupancyMapArrayStable[i].getImageView();
-		imageInfosStableROMA[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-		descDataStableROMA[i].pStorageImage = &imageInfosStableROMA[i];
-	}
 	m_resSetWriteROMA.initializeSet(device, 1, {},
-		std::array{ bindingROMA, bindingStableROMA },
+		std::array{ bindingROMA },
 		std::array<VkDescriptorBindingFlags, 0>{},
 		std::vector<std::vector<VkDescriptorDataEXT>>{
-		descDataROMA, descDataStableROMA},
+		descDataROMA },
 		false);
 	for (int i{ 0 }; i < imageInfosROMA.size(); ++i)
 	{
@@ -138,26 +157,6 @@ void GI::initialize(VkDevice device,
 		std::vector<std::vector<VkDescriptorDataEXT>>{
 		descDataROMA,
 			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &viewmatsROMAAddressInfo0}, { .pUniformBuffer = &viewmatsROMAAddressInfo1 } }},
-		false);
-	for (int i{ 0 }; i < imageInfosStableROMA.size(); ++i)
-	{
-		imageInfosStableROMA[i].imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
-	}
-	VkDescriptorSetLayoutBinding bindingViewmatsStableROMA{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT };
-	VkDescriptorAddressInfoEXT viewmatsStableROMAAddressInfo0{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_stableROMAtransformMatrices[0].getDeviceAddress(), .range = m_stableROMAtransformMatrices[0].getSize() };
-	VkDescriptorAddressInfoEXT viewmatsStableROMAAddressInfo1{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = m_stableROMAtransformMatrices[1].getDeviceAddress(), .range = m_stableROMAtransformMatrices[1].getSize() };
-	descDataStableROMA.resize(STABLE_ROM_NUMBER * 2);
-	for (int i{ 0 }; i < imageInfosStableROMA.size(); ++i)
-	{
-		descDataStableROMA[STABLE_ROM_NUMBER + i].pStorageImage = &imageInfosStableROMA[i];
-	}
-	bindingStableROMA.binding = 0;
-	m_resSetReadStableROMA.initializeSet(device, 2, {},
-		std::array{ bindingStableROMA, bindingViewmatsStableROMA },
-		std::array<VkDescriptorBindingFlags, 0>{},
-		std::vector<std::vector<VkDescriptorDataEXT>>{
-		descDataStableROMA,
-			std::vector<VkDescriptorDataEXT>{ {.pUniformBuffer = &viewmatsStableROMAAddressInfo0}, { .pUniformBuffer = &viewmatsStableROMAAddressInfo1 } }},
 		false);
 
 	VkDescriptorSetLayoutBinding bindingProbeOffsets{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
@@ -417,6 +416,9 @@ void GI::initialize(VkDevice device,
 		{ StaticVertex::getAttributeDescriptions() },
 		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(m_pcDataBOM)}} });
 
+	std::array<std::reference_wrapper<const ResourceSet>, 1> resourceSetsCreateHOM{ m_resSetWriteHierarchicalOM };
+	m_createHierarchicalOM.initializaCompute(device, "shaders/cmpld/gi_create_hierarchical_OM_comp.spv", resourceSetsCreateHOM,
+		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataCreateHOM)}} });
 
 	std::array<std::reference_wrapper<const ResourceSet>, 2> resourceSetsCreateROMA{ m_resSetReadBOM, m_resSetWriteROMA };
 	m_createROMA.initializaCompute(device, "shaders/cmpld/gi_create_ROMA_comp.spv", resourceSetsCreateROMA,
@@ -451,7 +453,7 @@ void GI::initialize(VkDevice device,
 
 	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSetsTraceSpecular{ 
 		m_resSetSpecularWrite, m_resSetGIMetadata,
-		m_resSetReadStableROMA,
+		m_resSetReadHierarchicalOM,
 		m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead,
 		m_resSetIndirectDiffuseLighting, distantProbeRS, BRDFLUTRS };
 	m_traceSpecular.initializaCompute(device, "shaders/cmpld/gi_trace_specular_comp.spv", resourceSetsTraceSpecular,
@@ -482,10 +484,11 @@ void GI::initialize(VkDevice device,
 	auto& voxelData{ metaData->cascades[0].voxelData };
 	voxelData.resolutionROM = OCCUPANCY_RESOLUTION;
 	voxelData.resolutionVM = VOXELMAP_RESOLUTION;
+	voxelData.maxMipOM = maxMipLevelHOM;
 	voxelData.occupationMeterSize = OCCUPANCY_METER_SIZE;
 	voxelData.occupationHalfMeterSize = OCCUPANCY_METER_SIZE / 2.0;
 	voxelData.invOccupationHalfMeterSize = static_cast<float>(1.0 / voxelData.occupationHalfMeterSize);
-	voxelData.offsetNormalScaleROM = 1.7 * BIT_TO_METER_SCALE;
+	voxelData.offsetNormalScaleROM = BIT_TO_METER_SCALE;
 	auto& specData{ metaData->specData };
 	specData.specImageRes = glm::ivec2(m_specularReflectionGlossy.getWidth(), m_specularReflectionGlossy.getHeight());
 	specData.invSpecImageRes = glm::vec2(1.0 / m_specularReflectionGlossy.getWidth(), 1.0 / m_specularReflectionGlossy.getHeight());
@@ -495,10 +498,14 @@ void GI::cmdVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmdData
 {
 	cmdTransferClearVoxelized(cb);
 
+	VkImageSubresourceRange subresourceRangeBOM{};
+	subresourceRangeBOM = m_occupancyMaps.getSubresourceRange();
+	subresourceRangeBOM.baseMipLevel = 0;
+	subresourceRangeBOM.levelCount = 1;
 	VkImageMemoryBarrier2 barriers[3]{ SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
-		m_baseOccupancyMap.getImageHandle(), m_baseOccupancyMap.getSubresourceRange()),
+		m_occupancyMaps.getImageHandle(), subresourceRangeBOM),
 	SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 		VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
@@ -514,7 +521,7 @@ void GI::cmdVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmdData
 	barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 		VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
 		VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-		m_baseOccupancyMap.getImageHandle(), m_baseOccupancyMap.getSubresourceRange());
+		m_occupancyMaps.getImageHandle(), subresourceRangeBOM);
 	barriers[1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 		VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
 		VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
@@ -529,10 +536,14 @@ void GI::cmdVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmdData
 
 void GI::cmdTransferClearVoxelized(VkCommandBuffer cb)
 {
+	VkImageSubresourceRange subresourceRange{};
+	subresourceRange = m_occupancyMaps.getSubresourceRange();
+	subresourceRange.baseMipLevel = 0;
+	subresourceRange.levelCount = 1;
 	VkImageMemoryBarrier2 barriers[3]{ SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_TRANSFER_BIT,
 		VK_ACCESS_NONE, VK_ACCESS_TRANSFER_WRITE_BIT,
 		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		m_baseOccupancyMap.getImageHandle(), m_baseOccupancyMap.getSubresourceRange()),
+		m_occupancyMaps.getImageHandle(), subresourceRange),
 	SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_TRANSFER_BIT,
 		VK_ACCESS_NONE, VK_ACCESS_TRANSFER_WRITE_BIT,
 		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -545,9 +556,7 @@ void GI::cmdTransferClearVoxelized(VkCommandBuffer cb)
 	SyncOperations::cmdExecuteBarrier(cb, barriers);
 
 	VkClearColorValue clearVal{ .uint32 = {0, 0, 0, 0} };
-	VkImageSubresourceRange subresourceRange{};
-	subresourceRange = m_baseOccupancyMap.getSubresourceRange();
-	vkCmdClearColorImage(cb, m_baseOccupancyMap.getImageHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearVal, 1, &subresourceRange);
+	vkCmdClearColorImage(cb, m_occupancyMaps.getImageHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearVal, 1, &subresourceRange);
 	subresourceRange = m_albedoNormalVoxelmap.getSubresourceRange();
 	vkCmdClearColorImage(cb, m_albedoNormalVoxelmap.getImageHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearVal, 1, &subresourceRange);
 	subresourceRange = m_emissionMetRoughVoxelmap.getSubresourceRange();
@@ -581,6 +590,25 @@ void GI::cmdPassVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmd
 
 	vkCmdEndRendering(cb);
 }
+void GI::cmdDispatchCreateHierarchicalOM(VkCommandBuffer cb)
+{
+	constexpr uint32_t groupSizeX{ 4 };
+	constexpr uint32_t groupSizeY{ 4 };
+	constexpr uint32_t groupSizeZ{ 4 };
+
+	m_createHierarchicalOM.cmdBind(cb);
+	m_createHierarchicalOM.cmdBindResourceSets(cb);
+
+	m_pcDataCreateHOM.dstResolution = glm::ivec3(BOM_PACKED_WIDTH, BOM_PACKED_HEIGHT, BOM_PACKED_DEPTH);
+
+	for (int i{ 0 }; i < m_omMipsToGenerate; ++i)
+	{
+		m_pcDataCreateHOM.srcMipLevel = i;
+		m_pcDataCreateHOM.dstResolution /= 2;
+		vkCmdPushConstants(cb, m_createHierarchicalOM.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_pcDataCreateHOM), &m_pcDataCreateHOM);
+		vkCmdDispatch(cb, DISPATCH_SIZE(m_pcDataCreateHOM.dstResolution.x, groupSizeX), DISPATCH_SIZE(m_pcDataCreateHOM.dstResolution.y, groupSizeY), DISPATCH_SIZE(m_pcDataCreateHOM.dstResolution.z, groupSizeZ));
+	}
+}
 void GI::cmdDispatchCreateROMA(VkCommandBuffer cb)
 {
 	constexpr uint32_t haltonSeqSize = 128;
@@ -613,41 +641,6 @@ void GI::cmdDispatchCreateROMA(VkCommandBuffer cb)
 				glm::cross(glm::vec3{ 0.0, 0.0, glm::sign(-m_pcDataROM.directionZ.y) }, m_pcDataROM.directionZ));
 		m_pcDataROM.directionY = glm::cross(m_pcDataROM.directionZ, m_pcDataROM.directionX);
 		glm::mat3x4* trMat{ reinterpret_cast<glm::mat3x4*>(m_ROMAtransformMatrices[m_currentBuffers].getData()) + i };
-		(*trMat)[0] = glm::vec4{ m_pcDataROM.directionX, 0.0 };
-		(*trMat)[1] = glm::vec4{ m_pcDataROM.directionY, 0.0 };
-		(*trMat)[2] = glm::vec4{ m_pcDataROM.directionZ, 0.0 };
-		m_pcDataROM.indexROM = i;
-		m_pcDataROM.resolution = OCCUPANCY_RESOLUTION;
-		glm::vec3 originShift{ m_pcDataROM.directionX + m_pcDataROM.directionY + m_pcDataROM.directionZ };
-		m_pcDataROM.originROMInLocalBOM = (glm::vec3(1.0f) - originShift) * (static_cast<float>(OCCUPANCY_RESOLUTION / 2));
-		m_pcDataROM.originROMInLocalBOM += originShift * 0.5f;
-		vkCmdPushConstants(cb, m_createROMA.getPipelineLayoutHandle(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(m_pcDataROM), &m_pcDataROM);
-		constexpr uint32_t groupSizeX{ 8 };
-		constexpr uint32_t groupSizeY{ 8 };
-		constexpr uint32_t groupSizeZ{ 1 };
-		vkCmdDispatch(cb, DISPATCH_SIZE(ROM_PACKED_WIDTH, groupSizeX), DISPATCH_SIZE(ROM_PACKED_HEIGHT, groupSizeY), DISPATCH_SIZE(ROM_PACKED_DEPTH, groupSizeZ));
-	}
-
-	constexpr int strataCountHorStable{ 2 };
-	constexpr int strataCountVertStable{ 4 };
-	constexpr float stratumHorSizeStable{ 1.0f / 2 };
-	constexpr float stratumVertSizeStable{ 1.0f / 4 };
-	for (int i{ 0 }; i < STABLE_ROM_NUMBER; ++i)
-	{
-		float u{};
-		float v{};
-		u = ((i % strataCountHorStable) + 0.5) * stratumHorSizeStable;
-		v = ((i / strataCountVertStable) + 0.5) * stratumVertSizeStable;
-		m_pcDataROM.stable = 1u;
-		m_pcDataROM.directionZ = generateHemisphereDirectionOctohedral(u, v);
-		m_pcDataROM.directionX =
-			glm::normalize(std::abs(m_pcDataROM.directionZ.y) < 0.9999
-				?
-				glm::cross(glm::vec3{ 0.0, 1.0, 0.0 }, m_pcDataROM.directionZ)
-				:
-				glm::cross(glm::vec3{ 0.0, 0.0, glm::sign(-m_pcDataROM.directionZ.y) }, m_pcDataROM.directionZ));
-		m_pcDataROM.directionY = glm::cross(m_pcDataROM.directionZ, m_pcDataROM.directionX);
-		glm::mat3x4* trMat{ reinterpret_cast<glm::mat3x4*>(m_stableROMAtransformMatrices[m_currentBuffers].getData()) + i };
 		(*trMat)[0] = glm::vec4{ m_pcDataROM.directionX, 0.0 };
 		(*trMat)[1] = glm::vec4{ m_pcDataROM.directionY, 0.0 };
 		(*trMat)[2] = glm::vec4{ m_pcDataROM.directionZ, 0.0 };
@@ -776,7 +769,6 @@ void GI::cmdDispatchTraceProbes(VkCommandBuffer cb, bool skyboxEnabled)
 }
 void GI::cmdDispatchTraceSpecular(VkCommandBuffer cb, const glm::mat4& worldFromNDC, const glm::vec3& campos, bool skyboxEnabled)
 {
-	m_traceSpecular.setResourceInUse(2, m_currentBuffers);
 	m_traceSpecular.setResourceInUse(5, m_currentNewProbes);
 	m_traceSpecular.cmdBind(cb);
 	m_traceSpecular.cmdBindResourceSets(cb);

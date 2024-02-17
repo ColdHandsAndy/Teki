@@ -6,14 +6,6 @@
 #include "misc.h"
 #include "gi_data.h"
 
-//Math
-#define PI 3.141592653589
-#define TWO_PI (2.0 * PI)
-#define ONE_OVER_PI (1.0 / PI)
-#define ONE_OVER_TWO_PI (1.0 / TWO_PI)
-#define SQRT_2 1.41421356237309
-#define ONE_OVER_SQRT_2 0.7071067811865475244
-
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(push_constant) uniform PushConsts 
@@ -28,17 +20,13 @@ layout(push_constant) uniform PushConsts
 layout(set = 0, binding = 0, r11f_g11f_b10f) uniform writeonly image2D SpecularImage;
 layout(set = 0, binding = 1, r16f) uniform writeonly image2D DistanceImage;
 layout(set = 0, binding = 2, r32f) uniform readonly image2D Depth;
-layout(set = 0, binding = 3, rg8) uniform readonly image2D Refdir;
+layout(set = 0, binding = 3, rg16) uniform readonly image2D Refdir;
 layout(set = 1, binding = 0) uniform MD
 {
 	GIMetaData data;
 } giMetaData;
 
-layout(set = 2, binding = 0, r32ui) uniform readonly uimage3D StableROMA[8];
-layout(set = 2, binding = 1) uniform ViewMatricesStableROMA
-{
-	mat3x4 viewmats[8];
-} viewmatsStableROMA;
+layout(set = 2, binding = 0, r32ui) uniform readonly uimage3D HierarchicalOM[GI_HOM_MAX_MIP_LEVELS];
 
 layout(set = 3, binding = 0, rgba16ui) uniform readonly uimage3D EmissionMetRoughVoxelMap;
 layout(set = 4, binding = 0, rgba8ui) uniform readonly uimage3D AlbedoNormalVoxelMap;
@@ -85,50 +73,94 @@ vec3 getProbeLighting(ProbeGridData gridData, vec3 relPos, vec3 N, vec3 V, float
     return (FmsEms + kD) * diffLD;
 }
 
-void traceFreeROMA(out vec3 radiance, out float hitDist, ProbeGridData gridData, VoxelizationData voxelData, vec3 rayOriginOccupationLocal, vec3 traceDir, int indexROMA)
+void traceHierarchicalOM(out vec3 radiance, out float hitDist, ProbeGridData gridData, VoxelizationData voxelData, vec3 rayOriginOccupationLocal, vec3 traceDir)
 {
-	mat3 viewmat = 
-		mat3(vec3(viewmatsStableROMA.viewmats[indexROMA][0].x, viewmatsStableROMA.viewmats[indexROMA][1].x, viewmatsStableROMA.viewmats[indexROMA][2].x), 
-			 vec3(viewmatsStableROMA.viewmats[indexROMA][0].y, viewmatsStableROMA.viewmats[indexROMA][1].y, viewmatsStableROMA.viewmats[indexROMA][2].y), 
-			 vec3(viewmatsStableROMA.viewmats[indexROMA][0].z, viewmatsStableROMA.viewmats[indexROMA][1].z, viewmatsStableROMA.viewmats[indexROMA][2].z));
-	vec3 rayOriginROM = vec3((viewmat * rayOriginOccupationLocal + vec3(1.0)) * 0.5 * voxelData.resolutionROM);
-	vec3 traceStep = viewmat * traceDir;
-
-	if (!(all(greaterThanEqual(ivec3(rayOriginROM), ivec3(0))) && all(lessThan(ivec3(rayOriginROM), ivec3(voxelData.resolutionROM)))))
+	float fullResolution = float(voxelData.resolutionROM);
+	vec3 rayCoord = (rayOriginOccupationLocal * 0.5 + 0.5) * fullResolution;
+	ivec3 rayCoordI = ivec3(rayCoord);
+	uint maxMip = voxelData.maxMipOM;
+	uint mipLevel = maxMip;
+	
+	if (!(all(greaterThanEqual(rayCoordI, ivec3(0))) && all(lessThan(rayCoordI, ivec3(voxelData.resolutionROM)))))
 	{
 		radiance = bool(pushConstants.skyboxEnabled) ? textureLod(SamplerCubeMapRad, traceDir, 0.0).rgb : vec3(0.0);
 		hitDist = FLT16_MAX;
 		return;
 	}
+	
+	vec3 signs = sign(traceDir);
+	vec3 invDir;
+	invDir.x = 1.0 / traceDir.x;
+	invDir.y = 1.0 / traceDir.y;
+	invDir.z = 1.0 / traceDir.z;
 
-	bool rayNoCollision = false;
-	ivec3 rayCoord = ivec3(rayOriginROM);
-	for (int i = 0; i < voxelData.resolutionROM; ++i)
+	bvec3 dirPositive = bvec3(signs.x > 0.0, signs.y > 0.0, signs.z > 0.0);
+	
+	const uint packingX = 4;
+	const uint packingY = 2;
+	const uint packingZ = 4;
+	bool rayNoCollision = true;
+	for (int i = 0; i < 64; ++i)
 	{
-		int stripIndex = int(rayCoord.z / 32.0);
-		uint rayStrip = imageLoad(StableROMA[indexROMA], ivec3(rayCoord.xy, stripIndex)).x;
-		if (bool(rayStrip & (1 << (rayCoord.z % 32))))
-			break;
-		rayOriginROM += traceStep;
-		rayCoord = ivec3(rayOriginROM);
-		if (!(all(greaterThanEqual(rayCoord, ivec3(0))) && all(lessThan(rayCoord, ivec3(voxelData.resolutionROM)))))
+		ivec3 mipCoord = (rayCoordI >> mipLevel);
+		
+		if (bool(imageLoad(HierarchicalOM[mipLevel], ivec3(mipCoord.x / packingX, mipCoord.y / packingY, mipCoord.z / packingZ)).x 
+				  &
+				(1 << ((mipCoord.x % packingX) * 4) << ((mipCoord.y % packingY) * 16) << ((mipCoord.z % packingZ)))))
 		{
-			rayNoCollision = true;
+			if (!bool(mipLevel))
+			{
+				rayNoCollision = false;
+				break;
+			}
+			else
+			{
+				--mipLevel;
+				continue;
+			}
+		}
+		
+		mipCoord.x += dirPositive.x ? 1 : 0;
+		mipCoord.y += dirPositive.y ? 1 : 0;
+		mipCoord.z += dirPositive.z ? 1 : 0;
+
+		vec3 mipCeilCoord = mipCoord << mipLevel;
+		
+		vec3 ts = abs((vec3(mipCeilCoord) - rayCoord) * invDir);
+		
+		int indexMin = 0;
+		float t = ts[indexMin];
+		for (int j = 1; j < 3; ++j)
+		{
+			if (ts[j] < t)
+			{
+				t = ts[j];
+				indexMin = j;
+			}
+		}
+		
+		rayCoord += traceDir * t;
+		rayCoord[indexMin] += dirPositive[indexMin] ? 0.0001 : -0.0001;
+		rayCoordI = ivec3(rayCoord);
+		
+		if (!(all(greaterThanEqual(rayCoordI, ivec3(0))) && all(lessThan(rayCoordI, ivec3(voxelData.resolutionROM)))))
+		{
 			break;
 		}
+		
+		mipLevel = min(findLSB(rayCoordI[indexMin] + (dirPositive[indexMin] ? 0 : 1)), maxMip);
 	}
+	
 	if (rayNoCollision)
 	{
 		radiance = bool(pushConstants.skyboxEnabled) ? textureLod(SamplerCubeMapRad, traceDir, 0.0).rgb : vec3(0.0);
 		hitDist = FLT16_MAX;
 		return;
 	}
+	
+	vec3 rayHitOccupationLocal = (vec3(rayCoord) / float(voxelData.resolutionROM)) * 2.0 - 1.0;
 
-	ivec3 rayIntersecROM = rayCoord;
-
-	vec3 rayHitOccupationLocal = transpose(viewmat) * ((vec3(rayIntersecROM) + vec3(0.5)) / voxelData.resolutionROM * 2.0 - 1.0);
-
-	ivec3 rayIntersecVM = ivec3(((rayHitOccupationLocal) * 0.5 + 0.5) * voxelData.resolutionVM);
+	ivec3 rayIntersecVM = ivec3((rayCoord / float(voxelData.resolutionROM)) * voxelData.resolutionVM);
 
 	vec3 albedo;
 	vec3 normal;
@@ -151,21 +183,6 @@ void traceFreeROMA(out vec3 radiance, out float hitDist, ProbeGridData gridData,
 	radiance += emission * F0;
 }
 
-int getIndexROMA(int invocationIndex, bool positiveDirInvocation)
-{
-	const int[STABLE_ROM_NUMBER] indexLookUp
-		= int[STABLE_ROM_NUMBER]
-		//(
-		//	7, 3, 0, 4,
-		//	6, 2, 1, 5
-		//);
-		(
-			3, 0,
-			2, 1
-		);
-	return positiveDirInvocation ? invocationIndex : indexLookUp[invocationIndex - STABLE_ROM_NUMBER];
-}
-
 void main()
 {
 	ProbeGridData gridData = giMetaData.data.cascades[0].gridData;
@@ -181,11 +198,6 @@ void main()
 	vec2 screenUV = screenCoords * giMetaData.data.specData.invSpecImageRes;
 
 	vec3 worldPos = getWorldPositionFromDepth(pushConstants.worldFromNDC, screenUV, depth);
-	vec2 octohedral = clamp(encodeOctohedralZeroToOne(refdir), 0.0 + FLT32_EPSILON, 1.0 - FLT32_EPSILON);
-	
-	int indexROMA = int(int(octohedral.y * 2) * 4 + int(octohedral.x * 4));
-	bool positiveDir = indexROMA < STABLE_ROM_NUMBER;
-	indexROMA = getIndexROMA(indexROMA, positiveDir);
 	
 	vec3 normal = normalize((normalize(pushConstants.campos - worldPos) + refdir));
 	worldPos += normal * voxelData.offsetNormalScaleROM;
@@ -194,7 +206,7 @@ void main()
 	
 	vec3 specular;
 	float hitDist;
-	traceFreeROMA(specular, hitDist, gridData, voxelData, rayOriginOccupationLocal, refdir, indexROMA);
+	traceHierarchicalOM(specular, hitDist, gridData, voxelData, rayOriginOccupationLocal, refdir);
 
 	imageStore(DistanceImage, screenCoords, vec4(hitDist, vec3(0.0)));
 	imageStore(SpecularImage, screenCoords, vec4(vec3(specular), 0.0));

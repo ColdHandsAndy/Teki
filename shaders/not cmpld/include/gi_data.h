@@ -5,9 +5,8 @@
 #include "octohedral.h"
 
 #define ROM_NUMBER 32
-#define STABLE_ROM_NUMBER 4
 #define GI_ROM_INDEX_MULTIPLIER 8
-#define GI_STABLE_ROM_INDEX_MULTIPLIER 4
+#define GI_HOM_MAX_MIP_LEVELS 16
 #define DDGI_PROBE_LIGHT_SIDE_SIZE 8
 #define DDGI_PROBE_VISIBILITY_SIDE_SIZE 8
 #define DDGI_PROBE_LIGHT_SIDE_SIZE_WITH_BORDERS (DDGI_PROBE_LIGHT_SIDE_SIZE + 2)
@@ -53,11 +52,12 @@ struct VoxelizationData
 {
 	uint resolutionROM;
 	uint resolutionVM;
+	uint maxMipOM;
 	float occupationMeterSize;
 	float occupationHalfMeterSize;
 	float invOccupationHalfMeterSize;
 	float offsetNormalScaleROM;
-	//pad2
+	//pad1
 };
 
 struct Cascade

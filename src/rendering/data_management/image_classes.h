@@ -88,6 +88,7 @@ public:
 	uint32_t getWidth() const;
 	uint32_t getHeight() const;
 	uint32_t getDepth() const;
+	VkImageAspectFlags getAspects() const;
 	VkImageSubresourceRange getSubresourceRange() const;
 
 	void initialize(VkDevice device, 
@@ -125,6 +126,7 @@ public:
 	uint32_t getWidth() const;
 	uint32_t getHeight() const;
 	uint32_t getLayerCount() const;
+	VkImageAspectFlags getAspects() const;
 	VkImageSubresourceRange getSubresourceRange() const;
 	
 	void cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentListLayout);
@@ -212,6 +214,52 @@ public:
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* width, uint32_t* height, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 	void cmdCopyDataFromBuffer(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t regionCount, VkDeviceSize* bufferOffset, uint32_t* dstImageLayerIndex, uint32_t* mipLevel = nullptr);
 	void cmdCopyDataFromBufferAllMips(VkCommandBuffer cb, uint32_t listIndex, VkBuffer srcBuffer, uint32_t dstImageLayerIndex, uint32_t regionCount, VkDeviceSize* bufferOffset);
+
+};
+
+
+class ExteriorImageViews
+{
+private:
+	VkDevice m_device{};
+	std::vector<VkImageView> m_views{};
+
+public:
+	ExteriorImageViews(VkDevice device) : m_device{ device }
+	{
+
+	}
+	~ExteriorImageViews()
+	{
+		for (int i{ 0 }; i < m_views.size(); ++i)
+		{
+			if (m_views[i] != 0)
+				vkDestroyImageView(m_device, m_views[i], nullptr);
+		}
+	}
+
+	void initialize(const Image& srcImage, uint32_t firstMip, uint32_t mipCount)
+	{
+		m_views.resize(mipCount);
+
+		for (uint32_t i{ 0 }, j{ firstMip }; i < mipCount; ++i, ++j)
+		{
+			VkImageViewCreateInfo imageViewCI{};
+			imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			imageViewCI.image = srcImage.getImageHandle();
+			imageViewCI.format = srcImage.getFormat();
+			imageViewCI.viewType = srcImage.getDepth() == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_3D;
+			imageViewCI.components = { .r = VK_COMPONENT_SWIZZLE_R, .g = VK_COMPONENT_SWIZZLE_G, .b = VK_COMPONENT_SWIZZLE_B, .a = VK_COMPONENT_SWIZZLE_A };
+			imageViewCI.subresourceRange = { .aspectMask = srcImage.getAspects(), .baseMipLevel = j, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
+			EASSERT(vkCreateImageView(m_device, &imageViewCI, nullptr, &m_views[i]) == VK_SUCCESS, "Vulkan", "Image view creation failed.");
+		}
+	}
+
+	VkImageView getImageView(uint32_t index)
+	{
+		EASSERT(index < m_views.size(), "App", "Element access error.");
+		return m_views[index];
+	}
 
 };
 

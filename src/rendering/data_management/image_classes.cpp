@@ -151,6 +151,10 @@ VkImageSubresourceRange Image::getSubresourceRange() const
 {
 	return VkImageSubresourceRange{ .aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = VK_REMAINING_ARRAY_LAYERS };
 }
+VkImageAspectFlags Image::getAspects() const
+{
+	return m_aspects;
+}
 
 void Image::cmdCreateMipmaps(VkCommandBuffer cb, VkImageLayout currentImageLayout)
 {
@@ -377,6 +381,12 @@ VkImageSubresourceRange ImageList::getSubresourceRange() const
 {
 	return VkImageSubresourceRange{.aspectMask = m_aspects, .baseMipLevel = 0, .levelCount = m_mipLevelCount, .baseArrayLayer = 0, .layerCount = m_arrayLayerCount};
 }
+
+VkImageAspectFlags ImageList::getAspects() const
+{
+	return m_aspects;
+}
+
 
 bool ImageList::getLayer(uint16_t& slotIndex)
 {

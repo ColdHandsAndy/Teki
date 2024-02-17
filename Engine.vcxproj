@@ -450,11 +450,6 @@
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h</AdditionalInputs>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h</AdditionalInputs>
     </CustomBuild>
-    <CustomBuild Include="shaders\not cmpld\gi_trace_specular_comp.comp">
-      <FileType>Document</FileType>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/misc.h</AdditionalInputs>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;$(SHADER_INPUT_DIR)/include/misc.h</AdditionalInputs>
-    </CustomBuild>
     <CustomBuild Include="shaders\not cmpld\bilateral_comp.comp">
       <FileType>Document</FileType>
     </CustomBuild>
@@ -462,6 +457,16 @@
       <FileType>Document</FileType>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_create_hierarchical_OM_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="shaders\not cmpld\gi_trace_specular_comp.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SHADER_INPUT_DIR)/include/misc.h;$(SHADER_INPUT_DIR)/include/gi_data.h;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <None Include="shaders\vert_shader.vs" />
   </ItemGroup>

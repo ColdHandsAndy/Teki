@@ -1,0 +1,89 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive						: enable
+
+#include "gi_data.h"
+
+layout (local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(push_constant) uniform PushConsts 
+{
+	ivec3 dstResolution;
+	uint srcMipLevel;
+} pushConstants;
+
+layout(set = 0, binding = 0, r32ui) uniform uimage3D HierarchicalOM[GI_HOM_MAX_MIP_LEVELS];
+
+uint reduce(uint index, ivec3 baseCoord)
+{
+	uint brick = 0x00000033;
+	
+	uint x0z0 = (brick << 16) | brick;
+	uint x0z1 = x0z0 << 2;
+	uint x1z0 = x0z0 << 8;
+	uint x1z1 = x0z0 << 10;
+
+	uint res = 0;
+	
+	uint x0y0z0 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(0, 0, 0)).x;
+	res |= (bool(x0y0z0 & x0z0) ? 1 : 0) << 0;
+	res |= (bool(x0y0z0 & x0z1) ? 1 : 0) << 1;
+	res |= (bool(x0y0z0 & x1z0) ? 1 : 0) << 4;
+	res |= (bool(x0y0z0 & x1z1) ? 1 : 0) << 5;
+	
+	uint x0y0z1 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(0, 0, 1)).x;
+	res |= (bool(x0y0z1 & x0z0) ? 1 : 0) << (0 + 2);
+	res |= (bool(x0y0z1 & x0z1) ? 1 : 0) << (1 + 2);
+	res |= (bool(x0y0z1 & x1z0) ? 1 : 0) << (4 + 2);
+	res |= (bool(x0y0z1 & x1z1) ? 1 : 0) << (5 + 2);
+	
+	uint x1y0z0 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(1, 0, 0)).x;
+	res |= (bool(x1y0z0 & x0z0) ? 1 : 0) << (0 + 8);
+	res |= (bool(x1y0z0 & x0z1) ? 1 : 0) << (1 + 8);
+	res |= (bool(x1y0z0 & x1z0) ? 1 : 0) << (4 + 8);
+	res |= (bool(x1y0z0 & x1z1) ? 1 : 0) << (5 + 8);
+	
+	uint x1y0z1 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(1, 0, 1)).x;
+	res |= (bool(x1y0z1 & x0z0) ? 1 : 0) << (0 + 10);
+	res |= (bool(x1y0z1 & x0z1) ? 1 : 0) << (1 + 10);
+	res |= (bool(x1y0z1 & x1z0) ? 1 : 0) << (4 + 10);
+	res |= (bool(x1y0z1 & x1z1) ? 1 : 0) << (5 + 10);
+	
+	uint x0y1z0 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(0, 1, 0)).x;
+	res |= (bool(x0y1z0 & x0z0) ? 1 : 0) << (0 + 16);
+	res |= (bool(x0y1z0 & x0z1) ? 1 : 0) << (1 + 16);
+	res |= (bool(x0y1z0 & x1z0) ? 1 : 0) << (4 + 16);
+	res |= (bool(x0y1z0 & x1z1) ? 1 : 0) << (5 + 16);
+	
+	uint x0y1z1 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(0, 1, 1)).x;
+	res |= (bool(x0y1z1 & x0z0) ? 1 : 0) << (0 + 2 + 16);
+	res |= (bool(x0y1z1 & x0z1) ? 1 : 0) << (1 + 2 + 16);
+	res |= (bool(x0y1z1 & x1z0) ? 1 : 0) << (4 + 2 + 16);
+	res |= (bool(x0y1z1 & x1z1) ? 1 : 0) << (5 + 2 + 16);
+	
+	uint x1y1z0 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(1, 1, 0)).x;
+	res |= (bool(x1y1z0 & x0z0) ? 1 : 0) << (0 + 8 + 16);
+	res |= (bool(x1y1z0 & x0z1) ? 1 : 0) << (1 + 8 + 16);
+	res |= (bool(x1y1z0 & x1z0) ? 1 : 0) << (4 + 8 + 16);
+	res |= (bool(x1y1z0 & x1z1) ? 1 : 0) << (5 + 8 + 16);
+	
+	uint x1y1z1 = imageLoad(HierarchicalOM[index], baseCoord + ivec3(1, 1, 1)).x;
+	res |= (bool(x1y1z1 & x0z0) ? 1 : 0) << (0 + 10 + 16);
+	res |= (bool(x1y1z1 & x0z1) ? 1 : 0) << (1 + 10 + 16);
+	res |= (bool(x1y1z1 & x1z0) ? 1 : 0) << (4 + 10 + 16);
+	res |= (bool(x1y1z1 & x1z1) ? 1 : 0) << (5 + 10 + 16);
+	
+	return res;
+}
+
+void main()
+{
+	ivec3 coord = ivec3(gl_GlobalInvocationID);
+	
+	if (any(greaterThanEqual(coord, pushConstants.dstResolution)))
+	{
+		return;
+	}
+	
+	imageStore(HierarchicalOM[pushConstants.srcMipLevel + 1], coord, uvec4(reduce(pushConstants.srcMipLevel, coord * 2), uvec3(0.0)));
+}

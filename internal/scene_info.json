@@ -1,10 +1,10 @@
 { 
 	"models" : 
 		[
-			{"path" : "A:/Soft/gltfpack-windows/om/town/scene.gltf", "model index" : 4}
+			{"path" : "A:/Soft/gltfpack-windows/om/townMirror/scene.gltf", "model index" : 4}
 		],
 
-	"environment" : "A:/materials/distant_probes_cubemaps/sunset",
+	"environment" : "A:/materials/distant_probes_cubemaps/sky",
 
 	"model matrices" : 
 		[
