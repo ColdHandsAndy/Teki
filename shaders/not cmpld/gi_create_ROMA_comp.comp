@@ -23,17 +23,20 @@ void fillROMA(ivec3 storeCoord, vec3 coordBOM, vec3 zDir)
 	const uint packingZ = 4;
 
 	uint occupancy = 0;
+
+	ivec3 coordBOMI = ivec3(coordBOM);
 	
 	for (int i = 0; i < 32; ++i)
 	{
-		if (all(lessThanEqual(coordBOM, vec3(pushConstants.resolution))) && all(greaterThanEqual(coordBOM, vec3(0.0))))
+		if (all(lessThan(coordBOMI, ivec3(pushConstants.resolution))) && all(greaterThanEqual(coordBOMI, ivec3(0))))
 		{
-			if (bool(imageLoad(BOM, ivec3(coordBOM.x / packingX, coordBOM.y / packingY, coordBOM.z / packingZ)).x & (1 << ((int(coordBOM.x) % packingX) * 4) << ((int(coordBOM.y) % packingY) * 16) << ((int(coordBOM.z) % packingZ)))))
+			if (bool(imageLoad(BOM, ivec3(coordBOMI.x / packingX, coordBOMI.y / packingY, coordBOMI.z / packingZ)).x & (1 << ((coordBOMI.x % packingX) * 4) << ((coordBOMI.y % packingY) * 16) << ((coordBOMI.z % packingZ)))))
 			{
 				occupancy |= 1 << i;
 			}
 		}
 		coordBOM += zDir;
+		coordBOMI = ivec3(coordBOM);
 	}
 	
 	imageStore(ROMA[pushConstants.indexROM], storeCoord, uvec4(occupancy));

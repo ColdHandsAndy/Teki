@@ -102,11 +102,7 @@ void createShadowMapResourceSet(VkDevice device,
 	const ImageListContainer& shadowMapLists,
 	const std::vector<ImageList>& shadowCubeMapLists,
 	const BufferBaseHostAccessible& shadowMapViewMatrices,
-	VkSampler nearestSampler,
-	Image& shadowSamplingRotationTexture,
-	BufferBaseHostAccessible& stagingBase,
-	CommandBufferSet& cmdBufferSet,
-	VkQueue queue);
+	VkSampler nearestSampler);
 void createBRDFLUTResourceSet(VkDevice device,
 	VkSampler generalSampler,
 	ResourceSet& brdfLUTRS,
@@ -147,8 +143,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
-	Window window{ "Teki" };
+	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
+	//Window window{ "Teki" };
 	Camera camera{NEAR_PLANE, FAR_PLANE, glm::radians(80.0f), static_cast<float>(window.getWidth()) / static_cast<float>(window.getHeight())};
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
@@ -193,11 +189,9 @@ int main()
 	BufferMapped directionalLight{ baseHostBuffer, LightTypes::DirectionalLight::getDataByteSize() };
 	VkSampler linearSampler{ createLinearSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
 	VkSampler nearestSampler{ createNearestSampler(device, vulkanObjectHandler->getPhysDevLimits().maxSamplerAnisotropy) };
-	Image shadowSamplingRotationTexture{ device, VK_FORMAT_R8G8B8A8_SNORM, 2 * 32, 2 * 32, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT };
 	Image brdfLUT{ TextureLoaders::loadTexture(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, "internal/brdfLUT/brdfLUT.ktx2", VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT) };
 	ImageCubeMap cubemapSkybox{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "skybox.ktx2") };
 	ImageCubeMap cubemapSkyboxRadiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "radiance.ktx2") };
-	//ImageCubeMap cubemapSkyboxIrradiance{ TextureLoaders::loadCubemap(*vulkanObjectHandler, cmdBufferSet, baseHostBuffer, envPath / "irradiance.ktx2") };
 	ImageListContainer materialsTextures{ device, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true,
 		VkSamplerCreateInfo{ 
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, 
@@ -280,46 +274,16 @@ int main()
 
 	LightTypes::DirectionalLight dirLight{ {1.0f, 1.0f, 1.0f}, 0.0f, {0.0f, -1.0f, 0.0f} };
 	dirLight.plantData(directionalLight.getData());
-	/*std::array<LightTypes::PointLight, 5> pointLights{ 
-		LightTypes::PointLight(glm::vec3{-2.72f, -4.0f, -2.96f}, glm::vec3{0.8f, 0.4f, 0.2f}, 150.0f, 6.49f, 512, 0.0, true),
-		LightTypes::PointLight(glm::vec3{-2.0f, -2.55f, -8.76f}, glm::vec3{0.18f, 0.04f, 0.25f}, 200.0f, 7.82f, 512, 0.0, true),
-		LightTypes::PointLight(glm::vec3{7.08f, -4.7f, -0.88f}, glm::vec3{0.96f, 0.9f, 0.99f}, 235.0f, 6.87f, 512, 0.0, true),
-		LightTypes::PointLight(glm::vec3{-1.08f, -1.8f, 9.72f}, glm::vec3{0.25f, 0.97f, 0.8f}, 45.0f, 9.54f, 512, 0.0, true),
-		LightTypes::PointLight(glm::vec3{-6.4f, -5.96f, 5.9f}, glm::vec3{0.95f, 0.5f, 0.1f}, 65.0f, 9.92f, 512, 0.0, true),
-	};
-	std::array<LightTypes::SpotLight, 3> spotLights{ 
-		LightTypes::SpotLight(glm::vec3{-6.68, 1.96, 4.72}, glm::vec3{1.0f}, 1000.0f, 26.5f, glm::vec3{-1.0, -2.5, -2.0}, glm::radians(40.0), glm::radians(48.0), 1024, 0.0, true),
-		LightTypes::SpotLight(glm::vec3{7.04, -6.0, 2.96}, glm::vec3{1.0f}, 1000.0f, 12.4f, glm::vec3{0.0, 1.8, 1.0}, glm::radians(38.0), glm::radians(43.0), 1024, 0.0, true),
-		LightTypes::SpotLight(glm::vec3{-1.4, -2.72, 14.08}, glm::vec3{1.0f}, 1000.0f, 13.74f, glm::vec3{1.0, -0.7, -0.3}, glm::radians(30.0), glm::radians(35.0), 1024, 0.0, true),
-	};*/
 	std::array<LightTypes::PointLight, 1> pointLights{
 		LightTypes::PointLight(glm::vec3{0.0f, 3.0f, 0.0}, glm::vec3{0.8f, 0.4f, 0.2f}, 1500.0f, 0.0f, 1024, 0.0, true),
 	};
 	std::array<LightTypes::SpotLight, 1> spotLights{
 		LightTypes::SpotLight(glm::vec3{0.0f, 8.0f, 0.0f}, glm::vec3{1.0f}, 2000.0f, 0.0f, glm::vec3{0.0, -1.0, 0.0}, glm::radians(40.0), glm::radians(48.0), 2048, 0.0, true),
 	};
-	/*std::random_device rd{};
-	std::mt19937 mtd(rd());
-	std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-	std::vector<LightTypes::PointLight> pointLights{};
-	{
-		std::vector<glm::vec3> pos(1024);
-		std::vector<glm::vec3> col(1024);
-		for (int i{ 0 }; i < 1024; ++i)
-		{
-			pos[i] = glm::vec3{ dist(mtd), dist(mtd), dist(mtd) } * 32.0f - 16.0f;
-			col[i] = glm::vec3{ dist(mtd), dist(mtd), dist(mtd) };
-		}
-		for (int i{ 0 }; i < 1024; ++i)
-		{
-			pointLights.emplace_back(pos[i], col[i], 250.0f, 1.4f);
-		}
-	}
-	std::vector<LightTypes::SpotLight> spotLights{};*/
 
 	createDrawDataResourceSet(device, drawDataRS, drawData, culling.getDrawDataIndexBuffer());
 	createBRDFLUTResourceSet(device, linearSampler, BRDFLUTRS, brdfLUT);
-	createShadowMapResourceSet(device, shadowMapsRS, shadowMaps, shadowCubeMaps, caster.getShadowViewMatrices(), nearestSampler, shadowSamplingRotationTexture, baseHostBuffer, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
+	createShadowMapResourceSet(device, shadowMapsRS, shadowMaps, shadowCubeMaps, caster.getShadowViewMatrices(), nearestSampler);
 	createDirecLightingResourceSet(device, directLightingRS, directionalLight, clusterer.getSortedLights(), clusterer.getSortedTypeData(), clusterer.getTileData(), clusterer.getZBin());
 	gi.initialize(device, drawDataRS, transformMatricesRS, materialsTexturesRS, distantProbeRS, BRDFLUTRS, shadowMapsRS, linearSampler);
 	gi.initializeDebug(device, coordinateTransformation.getResourceSet(), window.getWidth(), window.getHeight(), baseHostBuffer, linearSampler, cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE));
@@ -775,11 +739,6 @@ int main()
 		WorldState::refreshFrameTime();
 		glfwPollEvents();
 
-		/*for (int i{ 0 }; i < 1024; ++i)
-		{
-			pointLights[i].changePosition(glm::rotateY(pointLights[i].getPosition(), float(WorldState::deltaTime)));
-		}*/
-
 		processInput(window, renderingData, camera, WorldState::deltaTime, ui.cursorOnUI());
 
 		double startTime = glfwGetTime();
@@ -963,11 +922,7 @@ void createShadowMapResourceSet(VkDevice device,
 	const ImageListContainer& shadowMapLists,
 	const std::vector<ImageList>& shadowCubeMapLists, 
 	const BufferBaseHostAccessible& shadowMapViewMatrices,
-	VkSampler nearestSampler,
-	Image& shadowSamplingRotationTexture,
-	BufferBaseHostAccessible& stagingBase, 
-	CommandBufferSet& cmdBufferSet, 
-	VkQueue queue)
+	VkSampler nearestSampler)
 {
 	VkDescriptorSetLayoutBinding shadowMapsBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 64, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	std::vector<VkDescriptorImageInfo> shadowMapsImageData(shadowMapLists.getImageListCount());
@@ -992,71 +947,17 @@ void createShadowMapResourceSet(VkDevice device,
 	VkDescriptorSetLayoutBinding viewMatricesBinding{ .binding = 4, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorAddressInfoEXT viewMatricesAddressInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_ADDRESS_INFO_EXT, .address = shadowMapViewMatrices.getDeviceAddress(), .range = shadowMapViewMatrices.getSize() };
 
-	VkDescriptorSetLayoutBinding offsetTextureBinding{ .binding = 5, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo offsetTextureImageInfo{ .sampler = nearestSampler, .imageView = shadowSamplingRotationTexture.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL};
-
 	shadowMapsRS.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-		std::array{ shadowMapsBinding, shadowCubeMapsBinding, linearSamplerBinding, nearestSamplerBinding, viewMatricesBinding, offsetTextureBinding },
-		std::array<VkDescriptorBindingFlags, 6>{ VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, 0 , 0, 0, 0 },
+		std::array{ shadowMapsBinding, shadowCubeMapsBinding, linearSamplerBinding, nearestSamplerBinding, viewMatricesBinding },
+		std::array<VkDescriptorBindingFlags, 5>{ VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, VkDescriptorBindingFlags{ VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }, 0 , 0, 0 },
 		std::vector<std::vector<VkDescriptorDataEXT>>{ 
 			shadowMapsDescData, 
 			shadowCubeMapsDescData, 
 			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampler = &linearSamplerData }},
 			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampler = &nearestSamplerData }},
 			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pStorageBuffer = &viewMatricesAddressInfo }},
-			std::vector<VkDescriptorDataEXT>{VkDescriptorDataEXT{ .pSampledImage = &offsetTextureImageInfo }},
 		},
 		true);
-
-
-	std::random_device rd{};
-	std::mt19937 mt(rd());
-	std::uniform_real_distribution<float> dist(0.0, 1.0);
-	constexpr int strataCountHor{ 4 };
-	constexpr int strataCountVert{ 2 };
-	constexpr float stratumHorSize{ 1.0f / 4.0f };
-	constexpr float stratumVertSize{ 1.0f / 2.0f };
-
-	BufferMapped staging{ stagingBase, sizeof(uint32_t) * 2 * 2 * 32 * 32 };
-	uint32_t* data{ reinterpret_cast<uint32_t*>(staging.getData()) };
-
-	int n{ 0 };
-	for (int j{ 0 }; j < strataCountVert * 32; ++j)
-	{
-		for (int i{ 0 }; i < strataCountHor * 32;)
-		{
-			float u = dist(mt);
-			float x1 = std::cos(2 * glm::pi<float>() * u);
-			float y1 = std::sin(2 * glm::pi<float>() * u);
-			++i;
-			float v = dist(mt);
-			float x2 = std::cos(2 * glm::pi<float>() * v);
-			float y2 = std::sin(2 * glm::pi<float>() * v);
-			++i;
-			*(data + n) = glm::packSnorm4x8(glm::vec4(x1, y1, x2, y2));
-			++n;
-		}
-	}
-
-	VkCommandBuffer cb{ cmdBufferSet.beginTransientRecording() };
-		SyncOperations::cmdExecuteBarrier(cb, 
-			{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_TRANSFER_BIT, 
-			VK_ACCESS_NONE, VK_ACCESS_TRANSFER_WRITE_BIT, 
-			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
-			shadowSamplingRotationTexture.getImageHandle(), shadowSamplingRotationTexture.getSubresourceRange())}});
-		shadowSamplingRotationTexture.cmdCopyDataFromBuffer(cb, staging.getBufferHandle(), staging.getOffset(), 0, 0, shadowSamplingRotationTexture.getWidth(), shadowSamplingRotationTexture.getHeight());
-		SyncOperations::cmdExecuteBarrier(cb,
-			{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_NONE,
-			VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_NONE,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-			shadowSamplingRotationTexture.getImageHandle(), shadowSamplingRotationTexture.getSubresourceRange())} });
-	cmdBufferSet.endRecording(cb);
-
-	VkSubmitInfo submitInfo{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
-	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-	vkQueueWaitIdle(queue);
-
-	cmdBufferSet.resetAllTransient();
 }
 
 void createBRDFLUTResourceSet(VkDevice device,

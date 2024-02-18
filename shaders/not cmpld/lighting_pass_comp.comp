@@ -68,7 +68,6 @@ layout(set = 3, binding = 4) buffer ShadowViewMatrices
 {
 	mat4 matrices[];
 } shadowViewMatrices;
-layout(set = 3, binding = 5) uniform sampler2D RotationImage;
 
 layout(set = 4, binding = 0) uniform sampler2D IrradianceProbes;
 layout(set = 4, binding = 1) uniform sampler2D VisibilityProbes;
@@ -207,8 +206,7 @@ float calcShadowingOnedir(int list, uint layer, vec3 shadingPointPos, uint viewm
 	
 	float bias = max(0.15 * (1.0 - NdotL), 0.02);
 	
-	//return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowMapArray[list]);
-	return PCF(bias, depth, uv, samplerS, shadowMapArray[list], RotationImage, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
+	return PCF(bias, depth, uv, samplerS, shadowMapArray[list], ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
 }
 float calcShadowingOmnidir(int list, vec3 shadingPointPos, vec3 lightPos, float lightSize, vec3 N, float NdotL)
 {
@@ -219,8 +217,7 @@ float calcShadowingOmnidir(int list, vec3 shadingPointPos, vec3 lightPos, float 
 	
 	float bias = max(0.15 * (1.0 - NdotL), 0.02);
 
-	//return PCSS(depth, uv, lightSize, bias, pushConstants.nearPlane, samplerS, shadowCubeMapArray[list]);
-	return PCF(bias, depth, uv, samplerS, shadowCubeMapArray[list], RotationImage, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
+	return PCF(bias, depth, uv, samplerS, shadowCubeMapArray[list], ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
 }
 struct MaterialData
 {

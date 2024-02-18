@@ -100,7 +100,7 @@ void traceHierarchicalOM(out vec3 radiance, out float hitDist, ProbeGridData gri
 	const uint packingY = 2;
 	const uint packingZ = 4;
 	bool rayNoCollision = true;
-	for (int i = 0; i < 64; ++i)
+	for (int i = 0; i < 128; ++i)
 	{
 		ivec3 mipCoord = (rayCoordI >> mipLevel);
 		
