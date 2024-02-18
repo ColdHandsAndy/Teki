@@ -33,7 +33,8 @@ Light injected into emission voxelmap through shadow maps.
 | *Figure 5. Picture is a link to the Youtube video showcasing the light injection result.* |
 
 After the scene representation is ready we can start tracing process.  
-Probes are traced with snapped[^1] rays, whereas glossy reflection rays are not snapped.  
+Probes are traced with snapped[^1] rays.  
+Specular reflections are traced with hierarchical occupancy map (mipmaps of BOM).  
 After radiance and hit distance are gathered, DDGI[^2] probes integrate irradiance and visibility.
 
 | ![](images/probes.png) |
