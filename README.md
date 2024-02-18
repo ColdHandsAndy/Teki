@@ -8,7 +8,7 @@ Teki is a Vulkan-based toy-renderer. It is my primary environment for experiment
 * [Light clustering](docs/clustering.md)
 * [Deferred rendering (texturing) - UV-buffer](docs/deferred.md)
 * [PBR](docs/pbr.md)
-* [Shadow mapping for Spot and Point lights - PCSS, PCF](docs/shadows.md)
+* [Shadow mapping for Spot and Point lights - PCF](docs/shadows.md)
 * [Hi-Z occlusion culling](docs/occlusion_culling.md)
 * TAA
 * HBAO
