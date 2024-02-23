@@ -87,10 +87,6 @@ DeferredLighting::DeferredLighting(VkDevice device, uint32_t width, uint32_t hei
 			VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 			m_outputFramebuffer.getImageHandle(), m_outputFramebuffer.getSubresourceRange()),
-		SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-			VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-			hbao.getAO().getImageHandle(), hbao.getAO().getSubresourceRange()),
 		SyncOperations::constructImageBarrier(
 			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
@@ -109,7 +105,7 @@ DeferredLighting::DeferredLighting(VkDevice device, uint32_t width, uint32_t hei
 		SyncOperations::constructImageBarrier(
 			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 			VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-			VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+			VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
 			m_depthBuffer.getImageHandle(), m_depthBuffer.getDepthBufferSubresourceRange()) };
 
 	m_dependencyInfo = SyncOperations::createDependencyInfo(m_imageBarriers);

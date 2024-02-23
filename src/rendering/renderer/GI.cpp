@@ -42,23 +42,11 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 			VK_IMAGE_ASPECT_COLOR_BIT, false)
 		},
 	m_specularReflectionGlossy{ device, VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-		windowWidth, windowHeight / 2,
+		windowWidth / 2, windowHeight / 2,
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_specularReflectionRough{ device, VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-		windowWidth, windowHeight / 2,
-		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT, false },
-	m_depthSpec{ device, VK_FORMAT_R32_SFLOAT,
-		windowWidth, windowHeight / 2,
-		VK_IMAGE_USAGE_STORAGE_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT, false },
-	m_refdirSpec{ device, VK_FORMAT_R16G16_UNORM,
-		windowWidth, windowHeight / 2,
-		VK_IMAGE_USAGE_STORAGE_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT, false },
-	m_distToHit{ device, VK_FORMAT_R16_SFLOAT,
-		windowWidth, windowHeight / 2,
+		windowWidth / 2, windowHeight / 2,
 		VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, false },
 	m_hierarchicalOMImageViews{ device },
@@ -67,7 +55,6 @@ GI::GI(VkDevice device, uint32_t windowWidth, uint32_t windowHeight, BufferBaseH
 	m_ROMAtransformMatrices{ {baseHostBuffer, sizeof(glm::mat4x3) * ROM_NUMBER}, {baseHostBuffer, sizeof(glm::mat4x3) * ROM_NUMBER} },
 	m_mappedDirections{ {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE}, {baseHostBuffer, sizeof(glm::vec4) * DDGI_PROBE_LIGHT_SIDE_SIZE * DDGI_PROBE_LIGHT_SIDE_SIZE} },
 	m_giMetadata{ baseHostBuffer, sizeof(GIMetaData) },
-	m_events{ device },
 	m_clusterer{ &clusterer }
 {
 }
@@ -76,7 +63,13 @@ GI::~GI()
 }
 
 void GI::initialize(VkDevice device,
-	const ResourceSet& drawDataRS, const ResourceSet& transformMatricesRS, const ResourceSet& materialsTexturesRS, const ResourceSet& distantProbeRS, const ResourceSet& BRDFLUTRS, const ResourceSet& shadowMapsRS, VkSampler generalSampler)
+	const ResourceSet& drawDataRS, 
+	const ResourceSet& transformMatricesRS, 
+	const ResourceSet& materialsTexturesRS, 
+	const ResourceSet& distantProbeRS, 
+	const ResourceSet& BRDFLUTRS,
+	const ResourceSet& shadowMapsRS,
+	VkSampler generalSampler)
 {
 	VkDescriptorSetLayoutBinding bindingBOM{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo imageInfoBOM{ .imageView = m_occupancyMaps.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
@@ -314,69 +307,33 @@ void GI::initialize(VkDevice device,
 				std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pUniformBuffer = &mappedDirectionsAddressInfo0 }, VkDescriptorDataEXT{ .pUniformBuffer = &mappedDirectionsAddressInfo1 } }}},
 		false);
 
-	VkDescriptorSetLayoutBinding bindingReflectionImage{ .binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo reflectionImageInfo{ .imageView = m_specularReflectionGlossy.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
-	VkDescriptorSetLayoutBinding bindingHitDistImage{ .binding = 1,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo hitDistImageInfo{ .imageView = m_distToHit.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
-	VkDescriptorSetLayoutBinding depthImage{ .binding = 2,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo depthImageInfo{ .imageView = m_depthSpec.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL };
-	VkDescriptorSetLayoutBinding refdirImage{ .binding = 3,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorImageInfo refdirImageInfo{ .imageView = m_refdirSpec.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL };
-	m_resSetSpecularWrite.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-		std::array{ bindingReflectionImage, bindingHitDistImage, depthImage, refdirImage },
-		std::array<VkDescriptorBindingFlags, 0>{},
-		std::vector<std::vector<VkDescriptorDataEXT>>{{
-				std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &reflectionImageInfo } },
-					std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &hitDistImageInfo } },
-					std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &depthImageInfo } },
-					std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &refdirImageInfo } },
-			}},
-		false);
 	{
-		bindingReflectionImage.descriptorCount = 2;
-		bindingReflectionImage.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		VkDescriptorSetLayoutBinding bindingReflectionImage{ .binding = 0,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = 2,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 		VkDescriptorImageInfo reflecGlossyImageInfo{ .sampler = generalSampler, .imageView = m_specularReflectionGlossy.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL };
 		VkDescriptorImageInfo reflecRoughImageInfo{ .sampler = generalSampler, .imageView = m_specularReflectionRough.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL };
-		bindingHitDistImage.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		hitDistImageInfo.sampler = generalSampler;
-		hitDistImageInfo.imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
-		depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-		refdirImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 		m_resSetIndirectSpecularLighting.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-			std::array{ bindingReflectionImage, bindingHitDistImage, depthImage, refdirImage },
+			std::array{ bindingReflectionImage },
 			std::array<VkDescriptorBindingFlags, 0>{},
 			std::vector<std::vector<VkDescriptorDataEXT>>{{
 					std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pSampledImage = &reflecGlossyImageInfo }, VkDescriptorDataEXT{ .pSampledImage = &reflecRoughImageInfo } },
-						std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pSampledImage = &hitDistImageInfo } },
-						std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &depthImageInfo } },
-						std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &refdirImageInfo } },
 				}},
 			false);
 	}
-	VkDescriptorSetLayoutBinding bindingSrcDownscaleImages{ .binding = 0,
+	VkDescriptorSetLayoutBinding bindingSrcImage{ .binding = 0,
 		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 		.descriptorCount = 1,
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
-	VkDescriptorSetLayoutBinding bindingDstDownscaleImages{ .binding = 1,
+	VkDescriptorSetLayoutBinding bindingDstImage{ .binding = 1,
 		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 		.descriptorCount = 1,
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
 	VkDescriptorImageInfo srcImageInfo{ .imageView = m_specularReflectionGlossy.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL };
 	VkDescriptorImageInfo dstImageInfo{ .imageView = m_specularReflectionRough.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
 	m_resSetBilateral.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
-		std::array{ bindingSrcDownscaleImages, bindingDstDownscaleImages },
+		std::array{ bindingSrcImage, bindingDstImage },
 		std::array<VkDescriptorBindingFlags, 0>{},
 		std::vector<std::vector<VkDescriptorDataEXT>>{{
 				std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &srcImageInfo } },
@@ -451,14 +408,6 @@ void GI::initialize(VkDevice device,
 	std::array<std::reference_wrapper<const ResourceSet>, 2> resourceSetsMergeEmission{ m_resSetEmissionMetRoughRead, m_resSetDynamicEmissionWrite };
 	m_mergeEmission.initializaCompute(device, "shaders/cmpld/gi_emission_merge_comp.spv", resourceSetsMergeEmission);
 
-	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSetsTraceSpecular{ 
-		m_resSetSpecularWrite, m_resSetGIMetadata,
-		m_resSetReadHierarchicalOM,
-		m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead,
-		m_resSetIndirectDiffuseLighting, distantProbeRS, BRDFLUTRS };
-	m_traceSpecular.initializaCompute(device, "shaders/cmpld/gi_trace_specular_comp.spv", resourceSetsTraceSpecular,
-	{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataTraceSpecular)}} });
-
 	std::array<std::reference_wrapper<const ResourceSet>, 1> resourceSetsBilateral{ m_resSetBilateral };
 	m_bilateral.initializaCompute(device, "shaders/cmpld/bilateral_comp.spv", resourceSetsBilateral,
 	{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataBilateral)}} });
@@ -488,10 +437,61 @@ void GI::initialize(VkDevice device,
 	voxelData.occupationMeterSize = OCCUPANCY_METER_SIZE;
 	voxelData.occupationHalfMeterSize = OCCUPANCY_METER_SIZE / 2.0;
 	voxelData.invOccupationHalfMeterSize = static_cast<float>(1.0 / voxelData.occupationHalfMeterSize);
-	voxelData.offsetNormalScaleROM = BIT_TO_METER_SCALE;
+	voxelData.offsetNormalScaleROM = BIT_TO_METER_SCALE * 1.5;
 	auto& specData{ metaData->specData };
 	specData.specImageRes = glm::ivec2(m_specularReflectionGlossy.getWidth(), m_specularReflectionGlossy.getHeight());
 	specData.invSpecImageRes = glm::vec2(1.0 / m_specularReflectionGlossy.getWidth(), 1.0 / m_specularReflectionGlossy.getHeight());
+}
+
+void GI::initializeSpecular(VkDevice device,
+	const DepthBuffer& depthBuffer,
+	const Image& tangentFrameImage,
+	const ResourceSet& distantProbeRS,
+	const ResourceSet& BRDFLUTRS,
+	VkSampler generalSampler)
+{
+	VkDescriptorSetLayoutBinding bindingReflectionImage{ .binding = 0,
+	.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo reflectionImageInfo{ .imageView = m_specularReflectionGlossy.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
+	VkDescriptorSetLayoutBinding bindingTangentFrameImage{ .binding = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo tangentFrameImageInfo{ .imageView = tangentFrameImage.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL };
+	VkDescriptorSetLayoutBinding bindingDepthImage{ .binding = 2,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
+	VkDescriptorImageInfo depthImageInfo{ .sampler = generalSampler, .imageView = depthBuffer.getImageView(), .imageLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL };
+	m_resSetSpecularWrite.initializeSet(device, 1, VkDescriptorSetLayoutCreateFlagBits{},
+		std::array{ bindingReflectionImage, bindingTangentFrameImage, bindingDepthImage },
+		std::array<VkDescriptorBindingFlags, 0>{},
+		std::vector<std::vector<VkDescriptorDataEXT>>{{
+				std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &reflectionImageInfo } },
+					std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &tangentFrameImageInfo } },
+					std::vector<VkDescriptorDataEXT>{ VkDescriptorDataEXT{ .pStorageImage = &depthImageInfo } },
+			}},
+		false);
+
+	std::array<std::reference_wrapper<const ResourceSet>, 8> resourceSetsTraceSpecular{
+	m_resSetSpecularWrite, m_resSetGIMetadata,
+	m_resSetReadHierarchicalOM,
+	m_resSetDynamicEmissionRead, m_resSetAlbedoNormalRead,
+	m_resSetIndirectDiffuseLighting, distantProbeRS, BRDFLUTRS };
+	m_traceSpecular.initializaCompute(device, "shaders/cmpld/gi_trace_specular_comp.spv", resourceSetsTraceSpecular,
+		{ {VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(m_pcDataTraceSpecular)}} });
+
+	m_specularTraceAndBlurBarriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+		VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+		m_specularReflectionGlossy.getImageHandle(), m_specularReflectionGlossy.getSubresourceRange());
+	m_specularTraceAndBlurBarriers[1] =	SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+		m_specularReflectionRough.getImageHandle(), m_specularReflectionRough.getSubresourceRange());
+	m_specularTraceAndBlurDependency = SyncOperations::createDependencyInfo(m_specularTraceAndBlurBarriers);
 }
 
 void GI::cmdVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride)

@@ -29,7 +29,7 @@ private:
 	Pipeline m_uvBufferPipeline{};
 	Pipeline m_lightingComputePipeline{};
 
-	std::array<VkImageMemoryBarrier2, 6> m_imageBarriers{};
+	std::array<VkImageMemoryBarrier2, 5> m_imageBarriers{};
 	VkDependencyInfo m_dependencyInfo{};
 
 	ResourceSet m_resSet{};
@@ -110,6 +110,10 @@ public:
 	VkImageSubresourceRange getFramebufferSubresourceRange()
 	{
 		return m_outputFramebuffer.getSubresourceRange();
+	}
+	const Image& getTangentFrameImage()
+	{
+		return m_tangentFrame;
 	}
 
 	void cmdPassDrawToUVBuffer(VkCommandBuffer cb, const Culling& culling, const Buffer& vertexData, const Buffer& indexData);

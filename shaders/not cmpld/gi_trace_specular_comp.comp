@@ -5,6 +5,7 @@
 
 #include "misc.h"
 #include "gi_data.h"
+#include "tang_frame.h"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -18,9 +19,8 @@ layout(push_constant) uniform PushConsts
 } pushConstants;
 
 layout(set = 0, binding = 0, r11f_g11f_b10f) uniform writeonly image2D SpecularImage;
-layout(set = 0, binding = 1, r16f) uniform writeonly image2D DistanceImage;
-layout(set = 0, binding = 2, r32f) uniform readonly image2D Depth;
-layout(set = 0, binding = 3, rg16) uniform readonly image2D Refdir;
+layout(set = 0, binding = 1, rgb10_a2) uniform readonly image2D TangentFramePacked;
+layout(set = 0, binding = 2) uniform sampler2D Depth;
 layout(set = 1, binding = 0) uniform MD
 {
 	GIMetaData data;
@@ -73,7 +73,7 @@ vec3 getProbeLighting(ProbeGridData gridData, vec3 relPos, vec3 N, vec3 V, float
     return (FmsEms + kD) * diffLD;
 }
 
-void traceHierarchicalOM(out vec3 radiance, out float hitDist, ProbeGridData gridData, VoxelizationData voxelData, vec3 rayOriginOccupationLocal, vec3 traceDir)
+void traceHierarchicalOM(out vec3 radiance, ProbeGridData gridData, VoxelizationData voxelData, vec3 rayOriginOccupationLocal, vec3 traceDir)
 {
 	float fullResolution = float(voxelData.resolutionROM);
 	vec3 rayCoord = (rayOriginOccupationLocal * 0.5 + 0.5) * fullResolution;
@@ -84,7 +84,6 @@ void traceHierarchicalOM(out vec3 radiance, out float hitDist, ProbeGridData gri
 	if (!(all(greaterThanEqual(rayCoordI, ivec3(0))) && all(lessThan(rayCoordI, ivec3(voxelData.resolutionROM)))))
 	{
 		radiance = bool(pushConstants.skyboxEnabled) ? textureLod(SamplerCubeMapRad, traceDir, 0.0).rgb : vec3(0.0);
-		hitDist = FLT16_MAX;
 		return;
 	}
 	
@@ -154,7 +153,6 @@ void traceHierarchicalOM(out vec3 radiance, out float hitDist, ProbeGridData gri
 	if (rayNoCollision)
 	{
 		radiance = bool(pushConstants.skyboxEnabled) ? textureLod(SamplerCubeMapRad, traceDir, 0.0).rgb : vec3(0.0);
-		hitDist = FLT16_MAX;
 		return;
 	}
 	
@@ -178,7 +176,7 @@ void traceHierarchicalOM(out vec3 radiance, out float hitDist, ProbeGridData gri
 	vec3 origRelPos = rayOriginOccupationLocal * voxelData.occupationHalfMeterSize;
 	
 	vec3 hoVec = origRelPos - hitRelPos;
-	hitDist = length(hoVec);
+	float hitDist = length(hoVec);
 	radiance += getProbeLighting(gridData, hitRelPos, normal, hoVec / hitDist, roughness, roughness * roughness, F0, albedo, 1.0);
 	radiance += emission * F0;
 }
@@ -189,25 +187,25 @@ void main()
 	VoxelizationData voxelData = giMetaData.data.cascades[0].voxelData;
 
 	ivec2 screenCoords = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+	ivec2 sampleBaseCoord = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) * 2;
+	vec2 screenUV = (screenCoords + vec2(0.5)) * giMetaData.data.specData.invSpecImageRes;
 
-	float depth = imageLoad(Depth, ivec2(screenCoords.x, screenCoords.y)).x;
+	float depth = texture(Depth, screenUV).x;
+	vec3 normal = (unpackTangentFrame(imageLoad(TangentFramePacked, sampleBaseCoord), 0)[1] +
+				  unpackTangentFrame(imageLoad(TangentFramePacked, sampleBaseCoord + ivec2(1, 0)), 0)[1] +
+				  unpackTangentFrame(imageLoad(TangentFramePacked, sampleBaseCoord + ivec2(0, 1)), 0)[1] +
+				  unpackTangentFrame(imageLoad(TangentFramePacked, sampleBaseCoord + ivec2(1, 1)), 0)[1]) * 0.25;
 	if (depth == 0.0)
 		return;
-	vec3 refdir = decodeOctohedralZeroToOne(imageLoad(Refdir, ivec2(screenCoords.x, screenCoords.y)).xy);
-
-	vec2 screenUV = screenCoords * giMetaData.data.specData.invSpecImageRes;
-
 	vec3 worldPos = getWorldPositionFromDepth(pushConstants.worldFromNDC, screenUV, depth);
-	
-	vec3 normal = normalize((normalize(pushConstants.campos - worldPos) + refdir));
+	vec3 refdir = reflect(normalize(worldPos - pushConstants.campos), normal);
+
 	worldPos += normal * voxelData.offsetNormalScaleROM;
 	
 	vec3 rayOriginOccupationLocal = (worldPos - pushConstants.giSceneCenter) * voxelData.invOccupationHalfMeterSize;
 	
 	vec3 specular;
-	float hitDist;
-	traceHierarchicalOM(specular, hitDist, gridData, voxelData, rayOriginOccupationLocal, refdir);
+	traceHierarchicalOM(specular, gridData, voxelData, rayOriginOccupationLocal, refdir);
 
-	imageStore(DistanceImage, screenCoords, vec4(hitDist, vec3(0.0)));
 	imageStore(SpecularImage, screenCoords, vec4(vec3(specular), 0.0));
 }

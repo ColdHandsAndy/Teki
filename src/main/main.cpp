@@ -143,8 +143,8 @@ int main()
 {
 	EASSERT(glfwInit(), "GLFW", "GLFW was not initialized.")
 
-	Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
-	//Window window{ "Teki" };
+	//Window window{ WINDOW_WIDTH_DEFAULT, WINDOW_HEIGHT_DEFAULT, "Teki", false };
+	Window window{ "Teki" };
 	Camera camera{NEAR_PLANE, FAR_PLANE, glm::radians(80.0f), static_cast<float>(window.getWidth()) / static_cast<float>(window.getHeight())};
 	glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 	glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
@@ -296,6 +296,7 @@ int main()
 		distantProbeRS,
 		drawDataRS, BRDFLUTRS, directLightingRS, linearSampler };
 	deferredLighting.updateTileWidth(clusterer.getWidthInTiles());
+	gi.initializeSpecular(device, depthBuffer, deferredLighting.getTangentFrameImage(), distantProbeRS, BRDFLUTRS, linearSampler);
 	TAA taa{ device, depthBuffer, deferredLighting.getFramebuffer(), coordinateTransformation.getResourceSet(), cmdBufferSet, vulkanObjectHandler->getQueue(VulkanObjectHandler::GRAPHICS_QUEUE_TYPE) };
 	rUnitOBBs.initVisualizationResources(device, window.getWidth(), window.getHeight(), coordinateTransformation.getResourceSet());
 
@@ -354,7 +355,7 @@ int main()
 	TimestampQueries<queryNum> queries{ *vulkanObjectHandler, baseHostCachedBuffer };
 	renderingData.gpuTasks.resize(queryNum);
 	constexpr uint32_t gqQueryOffset = 0;
-	constexpr uint32_t gqQueryCount = 8;
+	constexpr uint32_t gqQueryCount = 9;
 	constexpr uint32_t queryIndexHiZ = 0;
 	constexpr uint32_t queryIndexShadowMaps = 1;
 	constexpr uint32_t queryIndexTileTest = 2;
@@ -363,12 +364,12 @@ int main()
 	constexpr uint32_t queryIndexHBAO = 5;
 	constexpr uint32_t queryIndexTAA = 6;
 	constexpr uint32_t queryIndexGIInjectLights = 7;
-	constexpr uint32_t cqQueryOffset = 8;
-	constexpr uint32_t cqQueryCount = 4;
-	constexpr uint32_t queryIndexGICreateROMA = 8;
-	constexpr uint32_t queryIndexGITraceProbes = 9;
-	constexpr uint32_t queryIndexGIComputeIrradianceAndVisibility = 10;
-	constexpr uint32_t queryIndexGITraceSpecular = 11;
+	constexpr uint32_t queryIndexGIComputeSpecular = 8;
+	constexpr uint32_t cqQueryOffset = 9;
+	constexpr uint32_t cqQueryCount = 3;
+	constexpr uint32_t queryIndexGICreateROMA = 9;
+	constexpr uint32_t queryIndexGITraceProbes = 10;
+	constexpr uint32_t queryIndexGIComputeIrradianceAndVisibility = 11;
 	renderingData.gpuTasks[queryIndexHiZ].name = "HiZ";
 	renderingData.gpuTasks[queryIndexHiZ].color = legit::Colors::asbestos;
 	renderingData.gpuTasks[queryIndexShadowMaps].name = "Shadow maps";
@@ -391,8 +392,8 @@ int main()
 	renderingData.gpuTasks[queryIndexGIComputeIrradianceAndVisibility].color = legit::Colors::belizeHole;
 	renderingData.gpuTasks[queryIndexGIInjectLights].name = "(GI) Inject lights";
 	renderingData.gpuTasks[queryIndexGIInjectLights].color = legit::Colors::nephritis;
-	renderingData.gpuTasks[queryIndexGITraceSpecular].name = "(GI) Trace specular";
-	renderingData.gpuTasks[queryIndexGITraceSpecular].color = legit::Colors::carrot;
+	renderingData.gpuTasks[queryIndexGIComputeSpecular].name = "(GI) Compute specular";
+	renderingData.gpuTasks[queryIndexGIComputeSpecular].color = legit::Colors::carrot;
 	renderingData.cpuTasks.resize(2);
 	renderingData.cpuTasks[0].name = "Frame preparation and recording";
 	renderingData.cpuTasks[0].color = legit::Colors::emerald;
@@ -514,11 +515,13 @@ int main()
 					if (profile) queries.cmdWriteEnd(cbDraw, queryIndexUVbufferDraw);
 				}
 
-				SyncOperations::cmdExecuteBarrier(cbDraw,
-					{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-						VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-						VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
-						depthBuffer.getImageHandle(), depthBuffer.getDepthBufferSubresourceRange())} });
+				SyncOperations::cmdExecuteBarrier(cbDraw, deferredLighting.getDependency());
+
+				if (profile) queries.cmdWriteStart(cbDraw, queryIndexGIComputeSpecular);
+				gi.cmdTraceSpecular(cbDraw, coordinateTransformation.getInverseViewProjectionMatrix(), camera.getPosition(), renderingData.skyboxEnabled);
+				SyncOperations::cmdExecuteBarrier(cbDraw, gi.getSpecularTraceAndBlurDependency());
+				gi.cmdBlurSpecular(cbDraw);
+				if (profile) queries.cmdWriteEnd(cbDraw, queryIndexGIComputeSpecular);
 
 				if (profile) queries.cmdWriteStart(cbDraw, queryIndexHBAO);
 				hbao.cmdDispatchHBAO(cbDraw);
@@ -526,8 +529,12 @@ int main()
 				hbao.cmdDispatchHBAOBlur(cbDraw);
 				if (profile) queries.cmdWriteEnd(cbDraw, queryIndexHBAO);
 
-
-				SyncOperations::cmdExecuteBarrier(cbDraw, deferredLighting.getDependency());
+				SyncOperations::cmdExecuteBarrier(cbDraw, {{gi.getBlurredSpecularBarrier()}});
+				SyncOperations::cmdExecuteBarrier(cbDraw,
+					{ {SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+						VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+						VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+						hbao.getAO().getImageHandle(), hbao.getAO().getSubresourceRange())} });
 
 				deferredLighting.updateLightBinWidth(clusterer.getCurrentBinWidth());
 
@@ -706,15 +713,11 @@ int main()
 				queries.cmdUpdateResults(cbCompute, cqQueryOffset, cqQueryCount);
 				queries.cmdReset(cbCompute, cqQueryOffset, cqQueryCount);
 			}
-			{
-				gi.cmdComputeIndirect(cbCompute, 
-					coordinateTransformation.getInverseViewProjectionMatrix(), 
-					camera.getPosition(),
-					queries, 
-					queryIndexGICreateROMA, queryIndexGITraceSpecular, queryIndexGITraceProbes, queryIndexGIComputeIrradianceAndVisibility, 
-					renderingData.skyboxEnabled,
-					profile);
-			}
+			gi.cmdComputeIndirect(cbCompute,
+				queries, 
+				queryIndexGICreateROMA, queryIndexGITraceProbes, queryIndexGIComputeIrradianceAndVisibility,
+				renderingData.skyboxEnabled,
+				profile);
 
 			cmdBufferSet.endRecording(cbCompute);
 		} };

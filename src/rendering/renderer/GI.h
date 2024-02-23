@@ -15,6 +15,7 @@
 #include "src/rendering/data_management/image_classes.h"
 #include "src/rendering/data_abstraction/vertex_layouts.h"
 #include "src/rendering/renderer/clusterer.h"
+#include "src/rendering/renderer/depth_buffer.h"
 #include "src/rendering/UI/UIData.h"
 
 #include "src/tools/compile_time_array.h"
@@ -71,9 +72,6 @@ private:
 	Image m_dynamicEmissionVoxelmap;
 	Image m_specularReflectionGlossy;
 	Image m_specularReflectionRough;
-	Image m_depthSpec;
-	Image m_refdirSpec;
-	Image m_distToHit;
 	Image m_probeOffsetsImage;
 	Image m_probeStateImage;
 	Image m_ddgiRadianceProbes;
@@ -131,7 +129,8 @@ private:
 	uint32_t m_currentBuffers{ 0 };
 	uint32_t m_omMipsToGenerate{ 0 };
 
-	SyncOperations::EventHolder<1> m_events;
+	VkImageMemoryBarrier2 m_specularTraceAndBlurBarriers[2]{};
+	VkDependencyInfo m_specularTraceAndBlurDependency{};
 
 	Clusterer* const m_clusterer{ nullptr };
 
@@ -319,17 +318,27 @@ public:
 	}
 
 	void initialize(VkDevice device,
-		const ResourceSet& drawDataRS, const ResourceSet& transformMatricesRS, const ResourceSet& materialsTexturesRS, const ResourceSet& distantProbeRS, const ResourceSet& BRDFLUTRS, const ResourceSet& shadowMapsRS, VkSampler generalSampler);
+		const ResourceSet& drawDataRS, 
+		const ResourceSet& transformMatricesRS,
+		const ResourceSet& materialsTexturesRS, 
+		const ResourceSet& distantProbeRS, 
+		const ResourceSet& BRDFLUTRS, 
+		const ResourceSet& shadowMapsRS,
+		VkSampler generalSampler);
+
+	void initializeSpecular(VkDevice device,
+		const DepthBuffer& depthBuffer,
+		const Image& tangentFrameImage,
+		const ResourceSet& distantProbeRS,
+		const ResourceSet& BRDFLUTRS,
+		VkSampler generalSampler);
 
 	void cmdVoxelize(VkCommandBuffer cb, const BufferMapped& indirectDrawCmdData, const Buffer& vertexData, const Buffer& indexData, uint32_t drawCmdCount, uint32_t drawCmdOffset, uint32_t drawCmdStride);
 	
 	template<uint32_t QueryNum>
 	void cmdComputeIndirect(VkCommandBuffer cb,
-		const glm::mat4& inverseViewProjectionMatrix, 
-		const glm::vec3 camPos,
 		TimestampQueries<QueryNum>& queries,
 		const uint32_t queryIndexGICreateROMA, 
-		const uint32_t queryIndexGITraceSpecular,
 		const uint32_t queryIndexGITraceProbes,
 		const uint32_t queryIndexGIComputeIrradianceAndVisibility, 
 		bool skyboxEnabled,
@@ -372,7 +381,7 @@ public:
 
 		{
 			constexpr int romCount{ ROM_NUMBER };
-			VkImageMemoryBarrier2 barriers[romCount + 9]{};
+			VkImageMemoryBarrier2 barriers[romCount + 5]{};
 			for (int i{ 0 }; i < romCount; ++i)
 			{
 				barriers[i] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -391,34 +400,17 @@ public:
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_ddgiDistanceProbes.getImageHandle(), m_ddgiDistanceProbes.getSubresourceRange());
 
-			barriers[romCount + 2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
-				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-				m_depthSpec.getImageHandle(), m_depthSpec.getSubresourceRange());
-			barriers[romCount + 3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
-				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-				m_refdirSpec.getImageHandle(), m_refdirSpec.getSubresourceRange());
-			barriers[romCount + 4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
-				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-				m_specularReflectionGlossy.getImageHandle(), m_specularReflectionGlossy.getSubresourceRange());
-			barriers[romCount + 5] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
-				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-				m_distToHit.getImageHandle(), m_distToHit.getSubresourceRange());
-
-			barriers[romCount + 6] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_probeOffsetsImage.getImageHandle(), m_probeOffsetsImage.getSubresourceRange());
 
-			barriers[romCount + 7] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
 				m_probeStateImage.getImageHandle(), m_probeStateImage.getSubresourceRange());
 
-			barriers[romCount + 8] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			barriers[romCount + 4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_occupancyMaps.getImageHandle(), m_occupancyMaps.getSubresourceRange());
@@ -461,17 +453,7 @@ public:
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_probeStateImage.getImageHandle(), m_probeStateImage.getSubresourceRange());
 
-			VkDependencyInfo probeDependency{ SyncOperations::createDependencyInfo(barriers) };
-
-			m_events.cmdSet(cb, 0, probeDependency);
-
-			if (profile) queries.cmdWriteStart(cb, queryIndexGITraceSpecular);
-			cmdDispatchTraceSpecular(cb, inverseViewProjectionMatrix, camPos, skyboxEnabled);
-			if (profile) queries.cmdWriteEnd(cb, queryIndexGITraceSpecular);
-
-
-			uint32_t indices[]{ 0 };
-			m_events.cmdWait(cb, 1, indices, &probeDependency);
+			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
 
 		if (profile) queries.cmdWriteStart(cb, queryIndexGIComputeIrradianceAndVisibility);
@@ -479,40 +461,7 @@ public:
 		if (profile) queries.cmdWriteEnd(cb, queryIndexGIComputeIrradianceAndVisibility);
 
 		{
-			VkImageMemoryBarrier2 barriers[5]{};
-
-			barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
-				VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_NONE,
-				VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
-				m_depthSpec.getImageHandle(), m_depthSpec.getSubresourceRange());
-
-			barriers[1] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
-				VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_NONE,
-				VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
-				m_refdirSpec.getImageHandle(), m_refdirSpec.getSubresourceRange());
-
-			barriers[2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
-				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
-				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-				m_specularReflectionGlossy.getImageHandle(), m_specularReflectionGlossy.getSubresourceRange());
-
-			barriers[3] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
-				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
-				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-				m_distToHit.getImageHandle(), m_distToHit.getSubresourceRange());
-
-			barriers[4] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-				VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
-				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
-				m_specularReflectionRough.getImageHandle(), m_specularReflectionRough.getSubresourceRange());
-
-			SyncOperations::cmdExecuteBarrier(cb, barriers);
-		}
-
-		cmdDispatchBlurSpecular(cb);
-
-		{
-			VkImageMemoryBarrier2 barriers[3]{};
+			VkImageMemoryBarrier2 barriers[2]{};
 
 			barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
@@ -523,11 +472,6 @@ public:
 				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
 				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
 				m_ddgiVisibilityProbes[m_currentNewProbes].getImageHandle(), m_ddgiVisibilityProbes[m_currentNewProbes].getSubresourceRange());
-
-			barriers[2] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_NONE,
-				VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_NONE,
-				VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
-				m_specularReflectionRough.getImageHandle(), m_specularReflectionRough.getSubresourceRange());
 
 			SyncOperations::cmdExecuteBarrier(cb, barriers);
 		}
@@ -572,6 +516,42 @@ public:
 			m_dynamicEmissionVoxelmap.getImageHandle(), m_dynamicEmissionVoxelmap.getSubresourceRange())} });
 	}
 
+	void cmdTraceSpecular(VkCommandBuffer cb,
+		const glm::mat4& inverseViewProjectionMatrix,
+		const glm::vec3 camPos,
+		bool skyboxEnabled)
+	{
+		{
+			VkImageMemoryBarrier2 barriers[1]{};
+
+			barriers[0] = SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_NONE, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+				VK_ACCESS_NONE, VK_ACCESS_SHADER_WRITE_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+				m_specularReflectionGlossy.getImageHandle(), m_specularReflectionGlossy.getSubresourceRange());
+
+			SyncOperations::cmdExecuteBarrier(cb, barriers);
+		}
+
+		cmdDispatchTraceSpecular(cb, inverseViewProjectionMatrix, camPos, skyboxEnabled);
+	}
+
+	VkDependencyInfo getSpecularTraceAndBlurDependency()
+	{
+		return m_specularTraceAndBlurDependency;
+	}
+	VkImageMemoryBarrier2 getBlurredSpecularBarrier()
+	{
+		return SyncOperations::constructImageBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+			VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+			m_specularReflectionRough.getImageHandle(), m_specularReflectionRough.getSubresourceRange());
+	}
+
+	void cmdBlurSpecular(VkCommandBuffer cb)
+	{
+		cmdDispatchBlurSpecular(cb);
+	}
+
 private:
 	void cmdTransferClearVoxelized(VkCommandBuffer cb);
 	void cmdTransferClearDynamicEmissionVoxelmap(VkCommandBuffer cb);
@@ -598,7 +578,6 @@ private:
 
 public:
 	void initializeDebug(VkDevice device, const ResourceSet& viewprojRS, uint32_t width, uint32_t height, BufferBaseHostAccessible& baseHostBuffer, VkSampler generalSampler, CommandBufferSet& cmdBufferSet, VkQueue queue);
-
 
 	void cmdDrawBOM(VkCommandBuffer cb, const glm::vec3& camPos);
 	void cmdDrawROM(VkCommandBuffer cb, const glm::vec3& camPos, uint32_t romaIndex);
