@@ -382,8 +382,8 @@ int main()
 	renderingData.gpuTasks[queryIndexLightingPass].color = legit::Colors::greenSea;
 	renderingData.gpuTasks[queryIndexHBAO].name = "HBAO";
 	renderingData.gpuTasks[queryIndexHBAO].color = legit::Colors::wetAsphalt;
-	renderingData.gpuTasks[queryIndexTAA].name = "TAA";
-	renderingData.gpuTasks[queryIndexTAA].color = legit::Colors::silver;
+	renderingData.gpuTasks[queryIndexTAA].name = "TAA + Tonemapping";
+	renderingData.gpuTasks[queryIndexTAA].color = legit::Colors::asbestos;
 	renderingData.gpuTasks[queryIndexGICreateROMA].name = "(GI) Create ROMA";
 	renderingData.gpuTasks[queryIndexGICreateROMA].color = legit::Colors::emerald;
 	renderingData.gpuTasks[queryIndexGITraceProbes].name = "(GI) Trace probes";

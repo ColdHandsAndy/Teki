@@ -519,7 +519,7 @@ void main()
 	if (bool(pushConstants.debugOptionsBitfield & DISABLE_INDIRECT))
 		result = directContrib + emission;
 	else
-		result = directContrib + indirectContrib + emission;;
+		result = directContrib + indirectContrib + emission;
 
 	imageStore(Framebuffer, screenCoord, vec4(result, 1.0));
 }
