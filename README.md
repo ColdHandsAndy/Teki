@@ -26,10 +26,11 @@ Teki is a Vulkan-based toy-renderer. It is my primary environment for experiment
 * Parallel command buffer recording
 * Block compressed textures support (ktx2)
 * HDR cubemap support
-   
-Everything is developed and tested on my GTX 1050 Ti.
 
-#### Examples  
+### Performance
+[Document](docs/performance.md)  
+
+### Examples  
 
 ![](docs/images/attic1.png)
 ![](docs/images/attic2.png)
